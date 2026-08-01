@@ -56,7 +56,7 @@ def handle_hook(store: Store, runtime_id: UUID, payload: dict[str, Any]) -> Runt
         runtime.process_state = RuntimeProcessState.READY
     elif name == "UserPromptSubmit":
         prompt = str(payload.get("prompt") or "")
-        turn = _correlate_prompt(store, runtime_id, prompt)
+        turn = _correlate_prompt(store, runtime_id, prompt, prompt_id)
         turn.claude_prompt_id = prompt_id
         turn.claude_session_id = session_id
         turn.status = NativeTurnStatus.ACTIVE
@@ -72,7 +72,7 @@ def handle_hook(store: Store, runtime_id: UUID, payload: dict[str, Any]) -> Runt
             turn.status = NativeTurnStatus.WAITING_PERMISSION
             turn.updated_at = now()
             store.save_native_turn(turn)
-        runtime.process_state = RuntimeProcessState.WAITING
+            runtime.process_state = RuntimeProcessState.WAITING
     elif name in ("Stop", "StopFailure"):
         turn = store.active_native_turn(runtime_id, prompt_id)
         if turn is not None:
@@ -93,7 +93,7 @@ def handle_hook(store: Store, runtime_id: UUID, payload: dict[str, Any]) -> Runt
                 )
             turn.updated_at = now()
             store.save_native_turn(turn)
-        runtime.process_state = RuntimeProcessState.TURN_COMPLETE
+            runtime.process_state = RuntimeProcessState.TURN_COMPLETE
     elif name == "SessionEnd":
         runtime.process_state = RuntimeProcessState.EXITED
 
@@ -129,14 +129,24 @@ def acknowledge_turn(store: Store, runtime_id: UUID, turn_id: UUID) -> NativeTur
     return turn
 
 
-def _correlate_prompt(store: Store, runtime_id: UUID, prompt: str) -> NativeTurn:
+def _correlate_prompt(
+    store: Store, runtime_id: UUID, prompt: str, prompt_id: str | None
+) -> NativeTurn:
     match = MANAGED_MARKER.search(prompt)
     if match:
         turn_id = UUID(match.group(1))
         token = match.group(2)
         turn = store.native_turn_by_token(runtime_id, token)
-        if turn is not None and turn.id == turn_id and turn.status is NativeTurnStatus.PENDING:
-            return turn
+        if turn is not None and turn.id == turn_id:
+            if turn.status is NativeTurnStatus.PENDING:
+                return turn
+            if (
+                turn.status in (NativeTurnStatus.ACTIVE, NativeTurnStatus.WAITING_PERMISSION)
+                and turn.claude_prompt_id == prompt_id
+            ):
+                # Command-hook delivery is not our transaction boundary. Treat a repeated
+                # callback for the same Claude prompt as idempotent, never as human input.
+                return turn
     return NativeTurn(
         runtime_id=runtime_id,
         origin=NativeTurnOrigin.HUMAN,

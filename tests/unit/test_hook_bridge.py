@@ -218,3 +218,48 @@ def test_hook_rejects_a_different_claude_session_for_bound_runtime(store):
                 "source": "startup",
             },
         )
+
+
+def test_duplicate_and_stale_callbacks_do_not_corrupt_turn_ownership(store):
+    instance = runtime(store)
+    managed = store.save_native_turn(
+        NativeTurn(
+            runtime_id=instance.id,
+            origin=NativeTurnOrigin.MANAGED,
+            correlation_token="c" * 43,
+        )
+    )
+    submitted = {
+        "hook_event_name": "UserPromptSubmit",
+        "session_id": "session",
+        "prompt_id": "managed-prompt",
+        "prompt": managed_prompt(managed, "A"),
+    }
+    handle_hook(store, instance.id, submitted)
+    handle_hook(store, instance.id, submitted)
+
+    assert len(store.list_native_turns(instance.id)) == 1
+
+    handle_hook(
+        store,
+        instance.id,
+        {
+            "hook_event_name": "PermissionRequest",
+            "session_id": "session",
+            "prompt_id": "stale-prompt",
+        },
+    )
+    assert store.get_runtime(instance.id).process_state is RuntimeProcessState.TURN_ACTIVE
+
+    handle_hook(
+        store,
+        instance.id,
+        {
+            "hook_event_name": "Stop",
+            "session_id": "session",
+            "prompt_id": "stale-prompt",
+            "last_assistant_message": "not this turn",
+        },
+    )
+    assert store.get_runtime(instance.id).process_state is RuntimeProcessState.TURN_ACTIVE
+    assert store.get_native_turn(managed.id).final_output == ""
