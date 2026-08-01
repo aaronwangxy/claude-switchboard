@@ -32,9 +32,10 @@ Claude-supported client metadata field would be preferable if one becomes availa
 `Stop` stores `last_assistant_message`; `StopFailure` stores its error and optional last
 message. Completion remains pending until the controller acknowledges the terminal turn.
 The existing fenced-JSON artifact parser consumes the stored `last_assistant_message`.
-Claude documents and the prototype assumes that user interruption does not emit `Stop`;
-therefore a Switchboard-issued Ctrl-C is recorded as `INTERRUPTED` from the controller action.
-This is not inferred from terminal idle state.
+Claude documents that user interruption does not emit `Stop`. A Switchboard-issued Ctrl-C is
+therefore recorded only as `INTERRUPT_REQUESTED`; it does not make the runtime reusable.
+Confirmation and recovery remain deliberately unresolved rather than inferred from terminal
+idle state.
 
 ## 2026-08-01 real CLI experiment
 

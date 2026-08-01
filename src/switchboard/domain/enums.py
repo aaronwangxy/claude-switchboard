@@ -49,6 +49,7 @@ class NativeTurnStatus(str, Enum):
     PENDING = "pending"
     ACTIVE = "active"
     WAITING_PERMISSION = "waiting_permission"
+    INTERRUPT_REQUESTED = "interrupt_requested"
     COMPLETED = "completed"
     FAILED = "failed"
     INTERRUPTED = "interrupted"

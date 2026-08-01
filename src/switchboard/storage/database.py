@@ -9,7 +9,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_meta (version INTEGER NOT NULL);
@@ -152,6 +152,9 @@ CREATE TABLE IF NOT EXISTS preferences (
 CREATE INDEX IF NOT EXISTS idx_workers_job ON workers(job_id);
 CREATE INDEX IF NOT EXISTS idx_runtime_agent ON runtime_instances(agent_id, generation);
 CREATE INDEX IF NOT EXISTS idx_native_turn_runtime ON native_turns(runtime_id, updated_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_native_turn_one_open
+ON native_turns(runtime_id)
+WHERE status IN ('pending', 'active', 'waiting_permission', 'interrupt_requested');
 CREATE INDEX IF NOT EXISTS idx_hook_event_runtime ON runtime_hook_events(runtime_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_transcript_worker ON transcript(worker_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at);

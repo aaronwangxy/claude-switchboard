@@ -263,3 +263,38 @@ def test_duplicate_and_stale_callbacks_do_not_corrupt_turn_ownership(store):
     )
     assert store.get_runtime(instance.id).process_state is RuntimeProcessState.TURN_ACTIVE
     assert store.get_native_turn(managed.id).final_output == ""
+
+
+def test_acknowledgement_cannot_overwrite_exit_or_a_newer_turn(store):
+    instance = runtime(store)
+    handle_hook(
+        store,
+        instance.id,
+        {
+            "hook_event_name": "UserPromptSubmit",
+            "session_id": "session",
+            "prompt_id": "first",
+            "prompt": "first",
+        },
+    )
+    handle_hook(
+        store,
+        instance.id,
+        {
+            "hook_event_name": "Stop",
+            "session_id": "session",
+            "prompt_id": "first",
+            "last_assistant_message": "done",
+        },
+    )
+    completed = store.list_native_turns(instance.id)[-1]
+    assert completed.origin is NativeTurnOrigin.HUMAN
+
+    handle_hook(
+        store,
+        instance.id,
+        {"hook_event_name": "SessionEnd", "session_id": "session", "reason": "other"},
+    )
+    with pytest.raises(ValueError, match="no completed turn"):
+        acknowledge_turn(store, instance.id, completed.id)
+    assert store.get_runtime(instance.id).process_state is RuntimeProcessState.EXITED

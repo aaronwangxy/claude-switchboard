@@ -258,9 +258,14 @@ class Store:
 
     def save_native_turn(self, turn: NativeTurn) -> NativeTurn:
         self.conn.execute(
-            "INSERT OR REPLACE INTO native_turns"
+            "INSERT INTO native_turns"
             " (id, runtime_id, origin, status, correlation_token, claude_prompt_id,"
-            " updated_at, data) VALUES (?,?,?,?,?,?,?,?)",
+            " updated_at, data) VALUES (?,?,?,?,?,?,?,?)"
+            " ON CONFLICT(id) DO UPDATE SET"
+            " runtime_id=excluded.runtime_id, origin=excluded.origin, status=excluded.status,"
+            " correlation_token=excluded.correlation_token,"
+            " claude_prompt_id=excluded.claude_prompt_id,"
+            " updated_at=excluded.updated_at, data=excluded.data",
             (
                 str(turn.id),
                 str(turn.runtime_id),
@@ -292,16 +297,20 @@ class Store:
     def active_native_turn(
         self, runtime_id: UUID, prompt_id: str | None = None
     ) -> NativeTurn | None:
-        statuses = (NativeTurnStatus.ACTIVE.value, NativeTurnStatus.WAITING_PERMISSION.value)
+        statuses = (
+            NativeTurnStatus.ACTIVE.value,
+            NativeTurnStatus.WAITING_PERMISSION.value,
+            NativeTurnStatus.INTERRUPT_REQUESTED.value,
+        )
         if prompt_id:
             row = self.conn.execute(
                 "SELECT data FROM native_turns WHERE runtime_id=? AND claude_prompt_id=?"
-                " AND status IN (?,?) ORDER BY updated_at DESC LIMIT 1",
+                " AND status IN (?,?,?) ORDER BY updated_at DESC LIMIT 1",
                 (str(runtime_id), prompt_id, *statuses),
             ).fetchone()
         else:
             row = self.conn.execute(
-                "SELECT data FROM native_turns WHERE runtime_id=? AND status IN (?,?)"
+                "SELECT data FROM native_turns WHERE runtime_id=? AND status IN (?,?,?)"
                 " ORDER BY updated_at DESC LIMIT 1",
                 (str(runtime_id), *statuses),
             ).fetchone()
@@ -313,9 +322,10 @@ class Store:
             NativeTurnStatus.PENDING.value,
             NativeTurnStatus.ACTIVE.value,
             NativeTurnStatus.WAITING_PERMISSION.value,
+            NativeTurnStatus.INTERRUPT_REQUESTED.value,
         )
         row = self.conn.execute(
-            "SELECT data FROM native_turns WHERE runtime_id=? AND status IN (?,?,?)"
+            "SELECT data FROM native_turns WHERE runtime_id=? AND status IN (?,?,?,?)"
             " ORDER BY updated_at DESC, rowid DESC LIMIT 1",
             (str(runtime_id), *statuses),
         ).fetchone()

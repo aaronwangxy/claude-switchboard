@@ -112,12 +112,23 @@ class NativeClaudePrototype:
             "cwd": str(cwd.resolve()),
             "env": self.config.claude.env,
             "executable": str((executable or self._executable()).resolve()),
+            "hook_database": str(self.store.path.resolve()),
+            "hook_events": HOOK_EVENTS,
+            "hook_python": self.python_executable,
+            "state_dir": str(self.state_dir.resolve()),
             "setting_sources": self.config.setting_sources,
         }
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
         return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
 
-    def adopt(self, runtime_id: UUID) -> SupervisedRuntime:
+    def adopt(self, runtime_id: UUID, *, cwd: Path) -> SupervisedRuntime:
+        runtime = self.store.get_runtime(runtime_id)
+        if runtime is None:
+            raise TmuxError("Runtime does not exist.")
+        if runtime.launch_fingerprint != self.launch_fingerprint(cwd=cwd):
+            raise TmuxError(
+                "Native Claude launch fingerprint does not match this controller configuration."
+            )
         return self.supervisor.observe(runtime_id)
 
     def send_managed(self, runtime_id: UUID, prompt: str) -> NativeTurn:
@@ -177,15 +188,15 @@ class NativeClaudePrototype:
         ):
             raise TmuxError(f"Native turn is {turn.status.value}, not interruptible.")
         self.supervisor.interrupt(runtime_id)
-        # Stop explicitly does not fire for user interruption. Provenance comes from the
-        # controller action we issued, not from terminal-idle inference.
-        turn.status = NativeTurnStatus.INTERRUPTED
-        turn.error = "Switchboard sent native Ctrl-C; Claude emits no Stop hook for interruption."
+        # Delivery of Ctrl-C is not semantic confirmation that Claude stopped. Keep the
+        # input lane closed until a supported event or explicit human recovery resolves it.
+        turn.status = NativeTurnStatus.INTERRUPT_REQUESTED
+        turn.error = "Switchboard sent native Ctrl-C; interruption is not yet confirmed."
         turn.updated_at = now()
         self.store.save_native_turn(turn)
         runtime = self.store.get_runtime(runtime_id)
         if runtime is not None:
-            runtime.process_state = RuntimeProcessState.TURN_COMPLETE
+            runtime.process_state = RuntimeProcessState.TURN_ACTIVE
             runtime.updated_at = now()
             self.store.save_runtime(runtime)
         return turn

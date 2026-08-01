@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 from uuid import uuid4
 
@@ -10,11 +11,12 @@ import pytest
 
 from switchboard.config import ClaudeConfig, Config
 from switchboard.domain.enums import (
+    NativeTurnOrigin,
     NativeTurnStatus,
     RuntimeAgentKind,
     RuntimeProcessState,
 )
-from switchboard.domain.models import RuntimeInstance
+from switchboard.domain.models import NativeTurn, RuntimeInstance
 from switchboard.runtime.hook_bridge import handle_hook
 from switchboard.runtime.native_claude import HOOK_EVENTS, NativeClaudePrototype
 from switchboard.runtime.tmux import TmuxError
@@ -24,6 +26,7 @@ class RecordingSupervisor:
     def __init__(self) -> None:
         self.launches: list[tuple] = []
         self.sent: list[tuple] = []
+        self.interrupted: list = []
         self.launch_result = object()
 
     def launch(self, runtime_id, argv, *, cwd, env=None):
@@ -32,6 +35,12 @@ class RecordingSupervisor:
 
     def send(self, runtime_id, prompt):
         self.sent.append((runtime_id, prompt))
+
+    def observe(self, runtime_id):
+        return ("observed", runtime_id)
+
+    def interrupt(self, runtime_id):
+        self.interrupted.append(runtime_id)
 
 
 def runtime(store, *, fingerprint="native-test"):
@@ -142,3 +151,48 @@ def test_failed_input_injection_closes_pending_turn(store, tmp_path: Path):
     turn = store.list_native_turns(instance.id)[0]
     assert turn.status is NativeTurnStatus.FAILED
     assert turn.error == "Input injection failed: pane disappeared"
+
+
+def test_database_enforces_one_open_native_turn_per_runtime(store):
+    instance = runtime(store)
+    store.save_native_turn(NativeTurn(runtime_id=instance.id, origin=NativeTurnOrigin.MANAGED))
+
+    with pytest.raises(sqlite3.IntegrityError):
+        store.save_native_turn(
+            NativeTurn(runtime_id=instance.id, origin=NativeTurnOrigin.MANAGED)
+        )
+
+
+def test_adoption_validates_hook_configuration_and_interrupt_only_records_request(
+    store, tmp_path: Path
+):
+    supervisor = RecordingSupervisor()
+    prototype = NativeClaudePrototype(
+        store, supervisor, Config(), tmp_path / "state"  # type: ignore[arg-type]
+    )
+    fingerprint = prototype.launch_fingerprint(cwd=tmp_path)
+    instance = runtime(store, fingerprint=fingerprint)
+
+    assert prototype.adopt(instance.id, cwd=tmp_path) == ("observed", instance.id)
+    incompatible = NativeClaudePrototype(
+        store,
+        supervisor,  # type: ignore[arg-type]
+        Config(),
+        tmp_path / "different-state",
+    )
+    with pytest.raises(TmuxError, match="fingerprint"):
+        incompatible.adopt(instance.id, cwd=tmp_path)
+
+    turn = store.save_native_turn(
+        NativeTurn(
+            runtime_id=instance.id,
+            origin=NativeTurnOrigin.MANAGED,
+            status=NativeTurnStatus.ACTIVE,
+        )
+    )
+    interrupted = prototype.interrupt(instance.id, turn.id)
+
+    assert supervisor.interrupted == [instance.id]
+    assert interrupted.status is NativeTurnStatus.INTERRUPT_REQUESTED
+    assert prototype.completed(turn.id) is None
+    assert store.get_runtime(instance.id).process_state is RuntimeProcessState.TURN_ACTIVE

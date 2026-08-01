@@ -123,6 +123,13 @@ def acknowledge_turn(store: Store, runtime_id: UUID, turn_id: UUID) -> NativeTur
     runtime = store.get_runtime(runtime_id)
     if runtime is None:
         raise ValueError("Runtime does not exist.")
+    latest = store.list_native_turns(runtime_id)
+    if runtime.process_state is not RuntimeProcessState.TURN_COMPLETE:
+        raise ValueError(
+            f"Runtime is {runtime.process_state.value}; no completed turn is awaiting acknowledgement."
+        )
+    if not latest or latest[-1].id != turn_id:
+        raise ValueError("A newer native turn supersedes this acknowledgement.")
     runtime.process_state = RuntimeProcessState.READY
     runtime.updated_at = now()
     store.save_runtime(runtime)
