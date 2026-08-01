@@ -1,0 +1,123 @@
+"""The native Claude prototype stays outside production worker routing."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from uuid import uuid4
+
+import pytest
+
+from switchboard.config import ClaudeConfig, Config
+from switchboard.domain.enums import (
+    NativeTurnStatus,
+    RuntimeAgentKind,
+    RuntimeProcessState,
+)
+from switchboard.domain.models import RuntimeInstance
+from switchboard.runtime.hook_bridge import handle_hook
+from switchboard.runtime.native_claude import HOOK_EVENTS, NativeClaudePrototype
+from switchboard.runtime.tmux import TmuxError
+
+
+class RecordingSupervisor:
+    def __init__(self) -> None:
+        self.launches: list[tuple] = []
+        self.sent: list[tuple] = []
+        self.launch_result = object()
+
+    def launch(self, runtime_id, argv, *, cwd, env=None):
+        self.launches.append((runtime_id, tuple(argv), cwd, env))
+        return self.launch_result
+
+    def send(self, runtime_id, prompt):
+        self.sent.append((runtime_id, prompt))
+
+
+def runtime(store):
+    return store.save_runtime(
+        RuntimeInstance(
+            agent_id=uuid4(),
+            agent_kind=RuntimeAgentKind.WORKER,
+            backend="native-prototype",
+            launch_fingerprint="native-test",
+            process_state=RuntimeProcessState.READY,
+        )
+    )
+
+
+def test_launch_respects_executable_settings_sources_environment_and_hook_overlay(
+    store, tmp_path: Path
+):
+    wrapper = tmp_path / "company-claude"
+    wrapper.write_text("#!/bin/sh\nexit 0\n")
+    wrapper.chmod(0o755)
+    supervisor = RecordingSupervisor()
+    prototype = NativeClaudePrototype(
+        store,
+        supervisor,  # type: ignore[arg-type]
+        Config(
+            claude=ClaudeConfig(executable=str(wrapper), env={"COMPANY_PROXY": "configured"}),
+            setting_sources=["user", "project", "local"],
+        ),
+        tmp_path / "state",
+    )
+    instance = runtime(store)
+
+    launch = prototype.launch(instance.id, cwd=tmp_path)
+
+    assert launch.executable == wrapper
+    assert launch.argv[0] == str(wrapper)
+    assert launch.argv[-2:] == ("--setting-sources", "user,project,local")
+    assert supervisor.launches[0][2:] == (tmp_path, {"COMPANY_PROXY": "configured"})
+    overlay = json.loads(launch.settings_overlay.read_text())
+    assert set(overlay["hooks"]) == set(HOOK_EVENTS)
+    command = overlay["hooks"]["Stop"][0]["hooks"][0]["command"]
+    assert "switchboard.runtime.hook_bridge" in command
+    assert str(instance.id) in command
+    assert launch.settings_overlay.stat().st_mode & 0o777 == 0o600
+
+
+def test_pending_turn_owns_the_input_lane_before_user_prompt_submit(store, tmp_path: Path):
+    supervisor = RecordingSupervisor()
+    prototype = NativeClaudePrototype(
+        store, supervisor, Config(), tmp_path / "state"  # type: ignore[arg-type]
+    )
+    instance = runtime(store)
+
+    first = prototype.send_managed(instance.id, "first")
+
+    assert first.status is NativeTurnStatus.PENDING
+    assert len(supervisor.sent) == 1
+    with pytest.raises(TmuxError, match="active turn"):
+        prototype.send_managed(instance.id, "must not be injected")
+
+    handle_hook(
+        store,
+        instance.id,
+        {
+            "hook_event_name": "UserPromptSubmit",
+            "session_id": "session",
+            "prompt_id": "prompt",
+            "prompt": supervisor.sent[0][1],
+        },
+    )
+    assert store.get_native_turn(first.id).status is NativeTurnStatus.ACTIVE
+
+
+def test_failed_input_injection_closes_pending_turn(store, tmp_path: Path):
+    class FailingSupervisor(RecordingSupervisor):
+        def send(self, runtime_id, prompt):
+            raise TmuxError("pane disappeared")
+
+    prototype = NativeClaudePrototype(
+        store, FailingSupervisor(), Config(), tmp_path / "state"  # type: ignore[arg-type]
+    )
+    instance = runtime(store)
+
+    with pytest.raises(TmuxError, match="pane disappeared"):
+        prototype.send_managed(instance.id, "hello")
+
+    turn = store.list_native_turns(instance.id)[0]
+    assert turn.status is NativeTurnStatus.FAILED
+    assert turn.error == "Input injection failed: pane disappeared"

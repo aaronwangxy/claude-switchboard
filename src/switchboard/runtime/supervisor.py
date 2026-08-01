@@ -110,6 +110,12 @@ class TmuxRuntimeSupervisor:
         runtime.updated_at = now()
         return self.store.save_runtime(runtime)
 
+    def interrupt(self, runtime_id: UUID) -> None:
+        runtime = self._runtime(runtime_id)
+        if runtime.owner is not RuntimeOwner.MANAGER:
+            raise TmuxError("Runtime is human-controlled; programmatic interrupt is refused.")
+        self.controller.interrupt(self._binding(runtime), self._required_target(runtime))
+
     def view(self, runtime_id: UUID) -> TmuxView:
         runtime = self._runtime(runtime_id)
         if runtime.owner is not RuntimeOwner.HUMAN:

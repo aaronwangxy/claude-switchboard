@@ -307,6 +307,20 @@ class Store:
             ).fetchone()
         return _load(NativeTurn, row) if row else None
 
+    def open_native_turn(self, runtime_id: UUID) -> NativeTurn | None:
+        """Return a turn that still owns the runtime's single input lane."""
+        statuses = (
+            NativeTurnStatus.PENDING.value,
+            NativeTurnStatus.ACTIVE.value,
+            NativeTurnStatus.WAITING_PERMISSION.value,
+        )
+        row = self.conn.execute(
+            "SELECT data FROM native_turns WHERE runtime_id=? AND status IN (?,?,?)"
+            " ORDER BY updated_at DESC, rowid DESC LIMIT 1",
+            (str(runtime_id), *statuses),
+        ).fetchone()
+        return _load(NativeTurn, row) if row else None
+
     def list_native_turns(self, runtime_id: UUID) -> list[NativeTurn]:
         rows = self.conn.execute(
             "SELECT data FROM native_turns WHERE runtime_id=? ORDER BY updated_at, rowid",

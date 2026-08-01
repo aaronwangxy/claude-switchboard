@@ -243,6 +243,16 @@ class TmuxController:
                 self._run(["delete-buffer", "-b", buffer_name], check=False)
             self._run(["send-keys", "-t", target.pane_id, "Enter"])
 
+    def interrupt(self, binding: RuntimeBinding, target: TmuxTarget) -> None:
+        """Send the terminal's normal Ctrl-C interrupt key to an owned live pane."""
+        with self._runtime_lock(binding):
+            observation = self._require_exact(binding, target, allow_exited=False)
+            if observation.owner is not RuntimeOwner.MANAGER:
+                raise TmuxError("Runtime is human-controlled; programmatic interrupt is refused.")
+            if observation.attached_clients:
+                raise TmuxError("A tmux client is viewing this runtime; interrupt is refused.")
+            self._run(["send-keys", "-t", target.pane_id, "C-c"])
+
     def view(self, binding: RuntimeBinding, target: TmuxTarget) -> TmuxView:
         self._require_exact(binding, target, allow_exited=False)
         base = (self.executable, "-S", str(self.socket_path))
