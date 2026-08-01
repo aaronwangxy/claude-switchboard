@@ -65,6 +65,38 @@ class ModelManager:
         #: The tool objects from the most recent `_tools()` build, keyed by name.
         self.tool_objects: dict[str, Any] = {}
 
+    # ----------------------------------------------------------------- session
+
+    def options(self) -> Any:
+        """The manager's session options.
+
+        Deliberately isolated: the manager runs in CSM's own data directory, never in a
+        repository, and loads no setting sources -- so launching CSM from inside a
+        repository does not quietly turn the router into that repository's coding agent.
+        Its context is CSM's structured state, delivered as a snapshot each turn. It also
+        has no file, shell, or subagent tools: it routes, it never works.
+        """
+        from claude_agent_sdk import ClaudeAgentOptions
+
+        sm = self.sm
+        return ClaudeAgentOptions(
+            cwd=str(sm.store.path.parent),
+            model=sm.config.models.manager,
+            cli_path=claude_cli_path(sm.config.claude.executable),
+            env=dict(sm.config.claude.env),
+            setting_sources=[],
+            system_prompt={
+                "type": "preset",
+                "preset": "claude_code",
+                "append": compose_manager_prompt(),
+            },
+            mcp_servers={"csm": self._tools()},
+            allowed_tools=[f"mcp__csm__{name}" for name in MANAGER_TOOL_NAMES],
+            disallowed_tools=["Bash", "Edit", "Write", "Read", "Glob", "Grep", "Task"],
+            permission_mode="bypassPermissions",
+            max_turns=12,
+        )
+
     # ------------------------------------------------------------------- tools
 
     def _tools(self) -> Any:
@@ -297,7 +329,6 @@ class ModelManager:
     async def handle(self, text: str) -> str:
         from claude_agent_sdk import (
             AssistantMessage,
-            ClaudeAgentOptions,
             ClaudeSDKClient,
             TextBlock,
         )
@@ -330,26 +361,7 @@ class ModelManager:
             ),
             route=proposal,
         )
-        options = ClaudeAgentOptions(
-            # The manager runs in CSM's own data directory, never in a repository, and
-            # loads no setting sources -- so launching CSM from inside a repository does
-            # not quietly turn the router into that repository's coding agent.
-            cwd=str(sm.store.path.parent),
-            model=sm.config.models.manager,
-            cli_path=claude_cli_path(sm.config.claude.executable),
-            env=dict(sm.config.claude.env),
-            setting_sources=[],
-            system_prompt={
-                "type": "preset",
-                "preset": "claude_code",
-                "append": compose_manager_prompt(),
-            },
-            mcp_servers={"csm": self._tools()},
-            allowed_tools=[f"mcp__csm__{name}" for name in MANAGER_TOOL_NAMES],
-            disallowed_tools=["Bash", "Edit", "Write", "Read", "Glob", "Grep", "Task"],
-            permission_mode="bypassPermissions",
-            max_turns=12,
-        )
+        options = self.options()
         parts: list[str] = []
         try:
             async with ClaudeSDKClient(options=options) as client:
