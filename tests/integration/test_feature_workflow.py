@@ -114,6 +114,18 @@ async def test_blocking_plan_raises_a_prioritised_attention_item(project):
     assert items[0].reason
 
 
+async def test_approving_the_plan_clears_it_from_the_attention_queue(project):
+    sm, backend, repo = project
+    await DeterministicManager(sm).handle(TICKET)
+    await settle()
+    job = sm.store.list_jobs()[0]
+    assert any(i.kind.value == "plan_approval" for i in sm.list_attention_items())
+
+    sm.record_decision(job.id, "Must legacy records remain writable?", "Read legacy only")
+    sm.approve_plan(job.id)
+    assert not any(i.kind.value == "plan_approval" for i in sm.list_attention_items())
+
+
 async def test_a_plan_cannot_be_approved_while_a_decision_blocks_it(project):
     sm, backend, repo = project
     await DeterministicManager(sm).handle(TICKET)

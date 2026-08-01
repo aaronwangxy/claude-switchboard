@@ -4,31 +4,29 @@ csm — two workers, second selected
  ⭘                                                             Claude Session Manager
 ╭─────────────────────────────────────────────────────────────╮╭─────────────────────────────────────────────────────────────────────────────────────╮
 │ Manager                                                     ││ ENG-999 · Planner · Idle                                                            │
-│ persist and the gateway honours them. This is a second…     ││█ Reason: [NEEDS DECISION] Choose the legacy-write strategy.                         │
-│ mgr  Started ENG-999 in a new job. Planning is in           ││█ Waiting for: [NEEDS DECISION] Choose the legacy-write strategy.                    │
-│ progress.                                                   ││                                                                                     │
-│                                                             ││           }                                                                         │
-│ mgr  ENG-421 · planner is pinned.                           ││         ],                                                                          │
+│ persist and the gateway honours them. This is a second…     ││             "blocking": true                                                        │
+│ mgr  Started ENG-999 in a new job. Planning is in           ││           }                                                                         │
+│ progress.                                                   ││         ],                                                                          │
 │                                                             ││         "commit_stack": [                                                           │
-│ mgr  ENG-421 · planner is unpinned.                      ▃▃ ││           {                                                                         │
+│ mgr  ENG-421 · planner is pinned.                           ││           {                                                                         │
 │                                                             ││             "order": 1,                                                             │
-│ mgr  Auto-advance is off.                                   ││             "message": "feat: add preferences table",                               │
+│ mgr  ENG-421 · planner is unpinned.                      ▃▃ ││             "message": "feat: add preferences table",                               │
 │                                                             ││             "purpose": "schema"                                                     │
-│ mgr  Auto-advance is on.                                    ││           },                                                                        │
+│ mgr  Auto-advance is off.                                   ││           },                                                                        │
 │                                                             ││           {                                                                         │
-│ mgr  ENG-421 · planner is snoozed for 30 minutes.           ││             "order": 2,                                                             │
+│ mgr  Auto-advance is on.                                    ││             "order": 2,                                                             │
 │                                                             ││             "message": "feat: persist preferences",                                 │
-│                                                             ││             "purpose": "write path"                                                 │
-│▊▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▎││           }                                                                         │
-│▊  Message the manager — paste a ticket, ask a question,    ▎││         ],                                                                          │
-│▊▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▎││         "risks": [                                                                  │
-╰─────────────────────────────────────────────────────────────╯│           "Legacy rows may lack a preferences column."                              │
-╭─────────────────────────────────────────────────────────────╮│         ],                                                                          │
-│ Workers (2) · 1 need you  ·  auto-advance on                ││         "base_commit": "",                                                          │
-│ ! ENG-999 planner  idle  [NEEDS DECISION] Choose the legacy-││         "criteria": [                                                               │
-│ · ENG-421 planner  blocked  [NEEDS DECISION] Choose the lega││           {                                                                         │
-│                                                             ││             "id": "AC1",                                                            │
-│                                                             ││             "behavior": "Saving preferences persists them across a restart.",    ▇▇ │
+│ mgr  ENG-421 · planner is snoozed for 30 minutes.           ││             "purpose": "write path"                                                 │
+│                                                             ││           }                                                                         │
+│                                                             ││         ],                                                                          │
+│▊▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▎││         "risks": [                                                                  │
+│▊  Message the manager — paste a ticket, ask a question,    ▎││           "Legacy rows may lack a preferences column."                              │
+│▊▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▎││         ],                                                                          │
+╰─────────────────────────────────────────────────────────────╯│         "base_commit": "",                                                          │
+╭─────────────────────────────────────────────────────────────╮│         "criteria": [                                                               │
+│ Workers (2)  ·  auto-advance on                             ││           {                                                                         │
+│ · ENG-421 planner  blocked  [NEEDS DECISION] Choose the lega││             "id": "AC1",                                                            │
+│ ✓ ENG-999 planner  idle  planner · planning · repo-alpha-gy8││             "behavior": "Saving preferences persists them across a restart.",       │
 │                                                             ││             "verification_method": "integration test",                              │
 │                                                             ││             "evidence_required": [                                                  │
 │                                                             ││               "pytest exit code",                                                   │
@@ -39,6 +37,8 @@ csm — two workers, second selected
 │                                                             ││       }                                                                             │
 │                                                             ││       ```                                                                           │
 │                                                             ││       [NEEDS DECISION] Choose the legacy-write strategy.                            │
+│                                                             ││                                                                                     │
+│                                                             ││ sys   [interrupted by the user]                                                     │
 │                                                             ││                                                                                     │
 │                                                             ││                                                                                     │
 │                                                             ││▊▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▎▔▔▔▔▔▔▔▔▔▔▔▔▔│

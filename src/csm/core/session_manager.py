@@ -610,6 +610,11 @@ class SessionManager:
         parsed.approved = True
         contract.body = parsed.model_dump(mode="json")
         self.store.save_artifact(contract)
+        # The plan no longer needs the user, so it leaves the attention queue.
+        for item in self.store.list_attention_items():
+            if item.job_id == job_id and item.kind is AttentionKind.PLAN_APPROVAL:
+                item.handled = True
+                self.store.save_attention_item(item)
         self.emit(ev.PLAN_APPROVED, job_id=job_id, summary="Plan approved.")
         return contract
 
