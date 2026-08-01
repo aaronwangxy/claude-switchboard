@@ -1301,15 +1301,14 @@ class SessionManager:
 
     def _apply(self, event: WorkerEvent) -> None:
         hook_id = event.data.get("hook_event_id")
-        if hook_id:
-            event_id = UUID(hook_id)
-            if self.store.worker_hook_delivered(event_id):
-                return
-        self._apply_unchecked(event)
-        if hook_id:
-            # Mark in the same synchronous call that applied all orchestration effects;
-            # the backend's post-yield mark is a harmless second acknowledgement.
-            self.store.mark_worker_hook_delivered(UUID(hook_id))
+        with self.store.transaction():
+            if hook_id:
+                event_id = UUID(hook_id)
+                if self.store.worker_hook_delivered(event_id):
+                    return
+            self._apply_unchecked(event)
+            if hook_id:
+                self.store.mark_worker_hook_delivered(UUID(hook_id))
 
     def _apply_unchecked(self, event: WorkerEvent) -> None:
         worker = self.store.get_worker(event.worker_id)
@@ -1369,7 +1368,12 @@ class SessionManager:
                     self._record(worker, "assistant", event.text)
                     self.emit(ev.WORKER_OUTPUT, worker_id=worker.id, job_id=worker.job_id)
                 self._resolve_attention(worker)
-                if not event.data.get("is_error"):
+                if event.data.get("is_error"):
+                    self._apply_invalidation(
+                        worker,
+                        self.store.get_job(worker.job_id) if worker.job_id else None,
+                    )
+                else:
                     self._finish_turn(worker, event.text)
                 self._set_runtime_state(worker.id, RuntimeProcessState.TURN_COMPLETE)
                 if event.data.get("is_error"):

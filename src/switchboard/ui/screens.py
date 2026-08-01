@@ -622,6 +622,7 @@ class SwitchboardApp(App[None]):
         if attachment.note:
             self.manager_pane.add_note(attachment.note)
         self.manager_pane.add_note(f"Attaching: {attachment.shell_hint}")
+        composer_cleared = False
         try:
             with self.suspend():
                 try:
@@ -630,12 +631,13 @@ class SwitchboardApp(App[None]):
                     )
                 except OSError as exc:  # a missing or unusable executable
                     print(f"Could not start Claude: {exc}")
+                answer = await asyncio.to_thread(
+                    input,
+                    "Confirm Claude's composer is empty before manager handback [y/N]: ",
+                )
+                composer_cleared = answer.strip().lower() in ("y", "yes")
         finally:
-            answer = await asyncio.to_thread(
-                input,
-                "Confirm Claude's composer is empty before manager handback [y/N]: ",
-            )
-            if answer.strip().lower() in ("y", "yes"):
+            if composer_cleared:
                 self.sm.detach(worker_id, composer_cleared=True)
             else:
                 self.manager_pane.add_note(

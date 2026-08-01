@@ -18,6 +18,7 @@ from switchboard.storage.store import Store
 MANAGED_MARKER = re.compile(
     r"(?:^|\n)<!-- switchboard-managed-turn:([0-9a-f-]{36}):([A-Za-z0-9_-]{32,}) -->\s*$"
 )
+WRITE_TOOLS = frozenset({"Edit", "Write", "NotebookEdit", "MultiEdit"})
 
 
 def managed_prompt(turn: NativeTurn, prompt: str) -> str:
@@ -175,6 +176,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--database", type=Path, required=True)
     parser.add_argument("--runtime-id", type=UUID, required=True)
+    parser.add_argument("--deny-write-tools", action="store_true")
     args = parser.parse_args(argv)
     try:
         payload = json.load(sys.stdin)
@@ -185,6 +187,13 @@ def main(argv: list[str] | None = None) -> int:
             handle_hook(store, args.runtime_id, payload)
         finally:
             store.close()
+        if (
+            args.deny_write_tools
+            and payload.get("hook_event_name") == "PreToolUse"
+            and payload.get("tool_name") in WRITE_TOOLS
+        ):
+            print("Switchboard read-only worker: file-editing tool denied.", file=sys.stderr)
+            return 2
     except Exception as exc:
         # Nonzero but not 2: observability must never block Claude or override policy.
         print(f"Switchboard hook bridge failed: {exc}", file=sys.stderr)

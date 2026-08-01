@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
 
+from switchboard.agents.backend import WorkerEvent
 from switchboard.agents.native_backend import NativeClaudeBackend
 from switchboard.config import ClaudeConfig, Config
 from switchboard.core.session_manager import SessionManager, SessionManagerError
@@ -22,6 +25,7 @@ from switchboard.domain.enums import (
     WorkerStatus,
 )
 from switchboard.runtime.hook_bridge import handle_hook
+from switchboard.runtime.hook_bridge import main as hook_main
 from switchboard.storage.store import Store
 
 FAKE = Path(__file__).parents[1] / "fixtures" / "fake_native_claude.py"
@@ -174,7 +178,7 @@ async def test_permission_and_busy_lane_are_normalized_without_prompt_corruption
 async def test_human_entry_taints_active_managed_turn_and_notification_blocks(
     native_services, git_repo
 ):
-    manager, _, _ = native_services
+    manager, backend, _ = native_services
     repo = manager.register_repository(git_repo("native-human-active"))
     worker = await manager.create_worker(
         role=WorkerRole.GENERAL,
@@ -225,6 +229,85 @@ async def test_native_backend_explicitly_gates_composite_runs(native_services, g
 
     with pytest.raises(SessionManagerError, match="Composite workflows are not enabled"):
         await manager.start_run("complete-ticket", job_id=job.id)
+
+
+async def test_hook_application_and_delivery_marker_are_one_transaction(
+    native_services, git_repo, monkeypatch
+):
+    manager, _, _ = native_services
+    repo = manager.register_repository(git_repo("native-hook-transaction"))
+    worker = await manager.create_worker(
+        role=WorkerRole.GENERAL,
+        title="native",
+        prompt="",
+        repository_id=repo.id,
+    )
+    hook_id = uuid4()
+    event = WorkerEvent(
+        worker_id=worker.id,
+        type="text",
+        text="must roll back with its delivery marker",
+        data={"hook_event_id": str(hook_id)},
+    )
+    transcript_before = manager.store.transcript(worker.id)
+    events_before = manager.store.recent_events(limit=100)
+
+    def fail_marker(_event_id):
+        raise RuntimeError("simulated marker failure")
+
+    monkeypatch.setattr(manager.store, "mark_worker_hook_delivered", fail_marker)
+    with pytest.raises(RuntimeError, match="marker failure"):
+        manager._apply(event)
+
+    assert manager.store.transcript(worker.id) == transcript_before
+    assert manager.store.recent_events(limit=100) == events_before
+    assert not manager.store.worker_hook_delivered(hook_id)
+
+
+async def test_read_only_runtime_hook_durably_denies_native_write_tools(
+    native_services, git_repo, monkeypatch
+):
+    manager, backend, _ = native_services
+    repo = manager.register_repository(git_repo("native-read-only"))
+    worker = await manager.create_worker(
+        role=WorkerRole.REVIEWER,
+        title="native",
+        prompt="",
+        repository_id=repo.id,
+    )
+    runtime = manager.store.current_runtime(worker.id)
+    settings = json.loads(
+        (backend.runtime.state_dir / f"native-{runtime.id}.settings.json").read_text()
+    )
+    command = settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+    assert "--deny-write-tools" in command
+
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.StringIO(
+            json.dumps(
+                {
+                    "hook_event_name": "PreToolUse",
+                    "session_id": runtime.claude_session_id,
+                    "tool_name": "Write",
+                }
+            )
+        ),
+    )
+    assert (
+        hook_main(
+            [
+                "--database",
+                str(manager.store.path),
+                "--runtime-id",
+                str(runtime.id),
+                "--deny-write-tools",
+            ]
+        )
+        == 2
+    )
+    assert manager.store.runtime_hook_events(runtime.id)[-1].event_name == "PreToolUse"
 
 
 async def test_restart_adopts_exact_native_process_and_continues_managed_turns(

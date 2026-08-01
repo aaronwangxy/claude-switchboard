@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TypeVar
 from uuid import UUID
@@ -50,9 +52,33 @@ class Store:
     def __init__(self, path: Path) -> None:
         self.path = path
         self.conn = connect(path)
+        self._transaction_depth = 0
 
     def close(self) -> None:
         self.conn.close()
+
+    def _commit(self) -> None:
+        if self._transaction_depth == 0:
+            self.conn.commit()
+
+    @contextmanager
+    def transaction(self) -> Iterator[None]:
+        """Make all Store writes in the block one SQLite commit boundary."""
+        outermost = self._transaction_depth == 0
+        if outermost:
+            self.conn.execute("BEGIN IMMEDIATE")
+        self._transaction_depth += 1
+        try:
+            yield
+        except BaseException:
+            self._transaction_depth -= 1
+            if outermost:
+                self.conn.rollback()
+            raise
+        else:
+            self._transaction_depth -= 1
+            if outermost:
+                self.conn.commit()
 
     # ----------------------------------------------------------- repositories
 
@@ -61,7 +87,7 @@ class Store:
             "INSERT OR REPLACE INTO repositories (id, name, root_path, data) VALUES (?,?,?,?)",
             (str(repo.id), repo.name, str(repo.root_path), _dump(repo)),
         )
-        self.conn.commit()
+        self._commit()
         return repo
 
     def get_repository(self, repo_id: UUID) -> Repository | None:
@@ -101,7 +127,7 @@ class Store:
                 _dump(job),
             ),
         )
-        self.conn.commit()
+        self._commit()
         return job
 
     def get_job(self, job_id: UUID) -> Job | None:
@@ -138,7 +164,7 @@ class Store:
                 _dump(worktree),
             ),
         )
-        self.conn.commit()
+        self._commit()
         return worktree
 
     def get_worktree(self, worktree_id: UUID) -> Worktree | None:
@@ -158,7 +184,7 @@ class Store:
 
     def delete_worktree(self, worktree_id: UUID) -> None:
         self.conn.execute("DELETE FROM worktrees WHERE id=?", (str(worktree_id),))
-        self.conn.commit()
+        self._commit()
 
     # ----------------------------------------------------------------- workers
 
@@ -179,7 +205,7 @@ class Store:
                 _dump(worker),
             ),
         )
-        self.conn.commit()
+        self._commit()
         return worker
 
     def get_worker(self, worker_id: UUID) -> Worker | None:
@@ -206,7 +232,7 @@ class Store:
         self.conn.execute("DELETE FROM workers WHERE id=?", (str(worker_id),))
         self.conn.execute("DELETE FROM transcript WHERE worker_id=?", (str(worker_id),))
         self.conn.execute("DELETE FROM attention_items WHERE worker_id=?", (str(worker_id),))
-        self.conn.commit()
+        self._commit()
 
     # --------------------------------------------------------------- runtimes
 
@@ -226,7 +252,7 @@ class Store:
                 _dump(runtime),
             ),
         )
-        self.conn.commit()
+        self._commit()
         return runtime
 
     def get_runtime(self, runtime_id: UUID) -> RuntimeInstance | None:
@@ -278,7 +304,7 @@ class Store:
                 _dump(turn),
             ),
         )
-        self.conn.commit()
+        self._commit()
         return turn
 
     def get_native_turn(self, turn_id: UUID) -> NativeTurn | None:
@@ -354,7 +380,7 @@ class Store:
                 _dump(event),
             ),
         )
-        self.conn.commit()
+        self._commit()
         return event
 
     def runtime_hook_events(self, runtime_id: UUID) -> list[RuntimeHookEvent]:
@@ -380,7 +406,7 @@ class Store:
             "VALUES (?,?)",
             (str(event_id), now().isoformat()),
         )
-        self.conn.commit()
+        self._commit()
 
     def worker_hook_delivered(self, event_id: UUID) -> bool:
         row = self.conn.execute(
@@ -402,7 +428,7 @@ class Store:
                 _dump(event),
             ),
         )
-        self.conn.commit()
+        self._commit()
         return event
 
     def recent_events(self, limit: int = 10, job_id: UUID | None = None) -> list[Event]:
@@ -433,7 +459,7 @@ class Store:
                 _dump(item),
             ),
         )
-        self.conn.commit()
+        self._commit()
         return item
 
     def list_attention_items(self, include_handled: bool = False) -> list[AttentionItem]:
@@ -462,7 +488,7 @@ class Store:
                 _dump(message),
             ),
         )
-        self.conn.commit()
+        self._commit()
         return message
 
     def transcript(self, worker_id: UUID, limit: int = 500) -> list[TranscriptMessage]:
@@ -479,7 +505,7 @@ class Store:
             "INSERT INTO decisions (id, job_id, created_at, data) VALUES (?,?,?,?)",
             (str(decision.id), str(decision.job_id), decision.created_at.isoformat(), _dump(decision)),
         )
-        self.conn.commit()
+        self._commit()
         return decision
 
     def list_decisions(self, job_id: UUID) -> list[Decision]:
@@ -503,7 +529,7 @@ class Store:
                 _dump(artifact),
             ),
         )
-        self.conn.commit()
+        self._commit()
         return artifact
 
     def get_artifact(self, artifact_id: UUID) -> Artifact | None:
@@ -543,7 +569,7 @@ class Store:
                 _dump(execution),
             ),
         )
-        self.conn.commit()
+        self._commit()
         return execution
 
     def list_workflow_executions(self, job_id: UUID) -> list[WorkflowExecution]:
@@ -585,7 +611,7 @@ class Store:
                 _dump(run),
             ),
         )
-        self.conn.commit()
+        self._commit()
         return run
 
     def get_run(self, run_id: UUID) -> WorkflowRun | None:
@@ -630,7 +656,7 @@ class Store:
         self.conn.execute(
             "INSERT OR REPLACE INTO preferences (key, value) VALUES (?,?)", (key, value)
         )
-        self.conn.commit()
+        self._commit()
 
     def get_preference(self, key: str, default: str | None = None) -> str | None:
         row = self.conn.execute("SELECT value FROM preferences WHERE key=?", (key,)).fetchone()

@@ -70,6 +70,7 @@ class NativeClaudeBackend:
             cwd=spec.cwd,
             model=spec.model,
             permission_mode=None if spec.writable else "plan",
+            read_only=not spec.writable,
             system_prompt_append=spec.system_prompt_append,
         )
 
@@ -90,6 +91,7 @@ class NativeClaudeBackend:
             cwd=spec.cwd,
             model=spec.model,
             permission_mode=None if spec.writable else "plan",
+            read_only=not spec.writable,
             system_prompt_append=spec.system_prompt_append,
         )
         session.task = asyncio.create_task(self._watch(spec.worker_id))
@@ -111,6 +113,7 @@ class NativeClaudeBackend:
             cwd=spec.cwd,
             model=spec.model,
             permission_mode=None if spec.writable else "plan",
+            read_only=not spec.writable,
             system_prompt_append=spec.system_prompt_append,
         )
         session = _NativeSession(spec)

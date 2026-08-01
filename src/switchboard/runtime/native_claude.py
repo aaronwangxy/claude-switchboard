@@ -74,6 +74,7 @@ class NativeClaudeRuntime:
         cwd: Path,
         model: str | None = None,
         permission_mode: str | None = None,
+        read_only: bool = False,
         system_prompt_append: str = "",
     ) -> NativeClaudeLaunch:
         executable = self._executable()
@@ -85,6 +86,7 @@ class NativeClaudeRuntime:
             executable=executable,
             model=model,
             permission_mode=permission_mode,
+            read_only=read_only,
             system_prompt_append=system_prompt_append,
         )
         if runtime.launch_fingerprint != expected_fingerprint:
@@ -97,7 +99,7 @@ class NativeClaudeRuntime:
         runtime.claude_session_id = session_id
         runtime.updated_at = now()
         self.store.save_runtime(runtime)
-        settings = self._write_settings(runtime_id)
+        settings = self._write_settings(runtime_id, read_only=read_only)
         argv = (
             str(executable),
             "--session-id",
@@ -123,6 +125,7 @@ class NativeClaudeRuntime:
         executable: Path | None = None,
         model: str | None = None,
         permission_mode: str | None = None,
+        read_only: bool = False,
         system_prompt_append: str = "",
     ) -> str:
         """Hash every stable launch input that defines a reusable native process."""
@@ -136,6 +139,7 @@ class NativeClaudeRuntime:
             "hook_python": self.python_executable,
             "model": model,
             "permission_mode": permission_mode,
+            "read_only": read_only,
             "state_dir": str(self.state_dir.resolve()),
             "system_prompt_append": system_prompt_append,
         }
@@ -149,6 +153,7 @@ class NativeClaudeRuntime:
         cwd: Path,
         model: str | None = None,
         permission_mode: str | None = None,
+        read_only: bool = False,
         system_prompt_append: str = "",
     ) -> SupervisedRuntime:
         runtime = self.store.get_runtime(runtime_id)
@@ -158,6 +163,7 @@ class NativeClaudeRuntime:
             cwd=cwd,
             model=model,
             permission_mode=permission_mode,
+            read_only=read_only,
             system_prompt_append=system_prompt_append,
         ):
             raise TmuxError(
@@ -251,11 +257,10 @@ class NativeClaudeRuntime:
             )
         self.supervisor.set_owner(runtime_id, RuntimeOwner.MANAGER)
 
-    def _write_settings(self, runtime_id: UUID) -> Path:
+    def _write_settings(self, runtime_id: UUID, *, read_only: bool = False) -> Path:
         self.state_dir.mkdir(parents=True, exist_ok=True)
         path = self.state_dir / f"native-{runtime_id}.settings.json"
-        command = shlex.join(
-            [
+        command_parts = [
                 self.python_executable,
                 "-m",
                 "switchboard.runtime.hook_bridge",
@@ -264,7 +269,9 @@ class NativeClaudeRuntime:
                 "--runtime-id",
                 str(runtime_id),
             ]
-        )
+        if read_only:
+            command_parts.append("--deny-write-tools")
+        command = shlex.join(command_parts)
         hook = {"hooks": [{"type": "command", "command": command, "timeout": 10}]}
         path.write_text(json.dumps({"hooks": {event: [hook] for event in HOOK_EVENTS}}, indent=2))
         path.chmod(0o600)
