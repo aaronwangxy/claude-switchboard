@@ -93,6 +93,17 @@ yours to decide.
 Requires `git` and the `claude` CLI on your `PATH`; [uv](https://docs.astral.sh/uv/)
 supplies the Python (3.12+).
 
+On a machine without a checkout:
+
+```bash
+uv tool install git+https://github.com/aaronwangxy/claude-switchboard
+```
+
+That is the whole install — `sb` lands on your `PATH` with the built-in workflows inside
+the package. Re-run with `--reinstall` to pick up a newer `main`.
+
+From a checkout, to work on Switchboard itself:
+
 ```bash
 uv tool install --editable .    # puts `sb` on your PATH
 ```
