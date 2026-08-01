@@ -95,13 +95,20 @@ def test_the_policy_version_is_stable_and_recorded():
 # ------------------------------------------------------------- tool policy
 
 
-def test_read_only_workers_get_no_file_mutating_tools():
+def test_read_only_workers_get_no_file_editing_tools():
+    """Read-only is enforced by tool policy, not a sandbox.
+
+    Every dedicated file-editing tool is withheld, but Bash remains so verifiers and
+    reviewers can run git and the test suite -- so this pins the exact allowed set
+    rather than claiming the worker cannot write at all.
+    """
     backend = SdkWorkerBackend()
     spec = _spec(writable=False)
     options = backend._options(spec)
     assert set(WRITE_TOOLS) <= set(options.disallowed_tools)
     assert set(options.allowed_tools) == set(READ_ONLY_TOOLS)
     assert not set(WRITE_TOOLS) & set(options.allowed_tools)
+    assert "Bash" in options.allowed_tools, "documented, deliberate exception"
 
 
 def test_no_worker_is_given_manager_tools_or_registry_access():

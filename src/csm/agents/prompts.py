@@ -90,8 +90,10 @@ completion is not evidence -- you must inspect the change and run the checks you
 not spawn helpers for trivial or tightly coupled work."""
 
 READ_ONLY_NOTE = (
-    "You are running read-only. You have no file-editing tools. Do not attempt to modify,\n"
-    "create, or delete files, and do not run commands that write to the repository."
+    "You are running read-only. Your file-editing tools have been withheld, and you are\n"
+    "working inside another worker's live worktree. Do not modify, create, or delete files,\n"
+    "and do not run shell commands that write to the repository -- your shell access is for\n"
+    "inspection and tests only."
 )
 
 VERBOSITY_NOTE = {

@@ -23,10 +23,16 @@ from csm.agents.backend import BackendHealth, EventType, WorkerEvent, WorkerHand
 
 log = logging.getLogger(__name__)
 
-#: Tools a read-only worker may use. Deliberately excludes every file-mutating tool.
+#: Tools a read-only worker may use. Excludes every dedicated file-editing tool
+#: (see WRITE_TOOLS), but deliberately keeps Bash: reviewers and verifiers need
+#: `git log`, `git diff`, and test commands. Read-only is therefore enforced by tool
+#: policy and prompt, not by a sandbox -- a worker that deliberately wrote through Bash
+#: would not be stopped. See MVP_EVIDENCE.md limitation 1.
 READ_ONLY_TOOLS = ["Read", "Grep", "Glob", "Bash", "WebFetch", "WebSearch", "TodoWrite", "Task"]
 
-#: Never available to any worker: workers must not touch the manager's registry.
+#: Denied to every worker by name. Empty because the real guarantee is structural:
+#: workers are constructed with mcp_servers={}, so no manager or registry tool exists
+#: in their session to name. Kept as the seam for denying a built-in tool by name.
 ALWAYS_DISALLOWED: list[str] = []
 
 WRITE_TOOLS = ["Edit", "Write", "NotebookEdit", "MultiEdit"]
