@@ -9,7 +9,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_meta (version INTEGER NOT NULL);
@@ -60,6 +60,27 @@ CREATE TABLE IF NOT EXISTS runtime_instances (
     updated_at TEXT NOT NULL,
     data TEXT NOT NULL,
     UNIQUE(agent_id, generation)
+);
+
+CREATE TABLE IF NOT EXISTS native_turns (
+    id TEXT PRIMARY KEY,
+    runtime_id TEXT NOT NULL,
+    origin TEXT NOT NULL,
+    status TEXT NOT NULL,
+    correlation_token TEXT,
+    claude_prompt_id TEXT,
+    updated_at TEXT NOT NULL,
+    data TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS runtime_hook_events (
+    id TEXT PRIMARY KEY,
+    runtime_id TEXT NOT NULL,
+    event_name TEXT NOT NULL,
+    prompt_id TEXT,
+    turn_id TEXT,
+    created_at TEXT NOT NULL,
+    data TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS events (
@@ -130,6 +151,8 @@ CREATE TABLE IF NOT EXISTS preferences (
 
 CREATE INDEX IF NOT EXISTS idx_workers_job ON workers(job_id);
 CREATE INDEX IF NOT EXISTS idx_runtime_agent ON runtime_instances(agent_id, generation);
+CREATE INDEX IF NOT EXISTS idx_native_turn_runtime ON native_turns(runtime_id, updated_at);
+CREATE INDEX IF NOT EXISTS idx_hook_event_runtime ON runtime_hook_events(runtime_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_transcript_worker ON transcript(worker_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at);
 CREATE INDEX IF NOT EXISTS idx_artifacts_job ON artifacts(job_id, type);

@@ -12,6 +12,8 @@ from switchboard.domain.enums import (
     ArtifactType,
     AttentionKind,
     JobStage,
+    NativeTurnOrigin,
+    NativeTurnStatus,
     RunStatus,
     RuntimeAgentKind,
     RuntimeOwner,
@@ -103,6 +105,34 @@ class RuntimeInstance(Base):
     git_tree_before_turn: str | None = None
     created_at: datetime = Field(default_factory=now)
     updated_at: datetime = Field(default_factory=now)
+
+
+class NativeTurn(Base):
+    """Experimental native-Claude turn correlated through supported hooks."""
+
+    id: UUID = Field(default_factory=uuid4)
+    runtime_id: UUID
+    origin: NativeTurnOrigin
+    status: NativeTurnStatus = NativeTurnStatus.PENDING
+    correlation_token: str | None = None
+    claude_prompt_id: str | None = None
+    claude_session_id: str | None = None
+    prompt_sha256: str = ""
+    final_output: str = ""
+    error: str = ""
+    created_at: datetime = Field(default_factory=now)
+    updated_at: datetime = Field(default_factory=now)
+
+
+class RuntimeHookEvent(Base):
+    id: UUID = Field(default_factory=uuid4)
+    runtime_id: UUID
+    event_name: str
+    session_id: str | None = None
+    prompt_id: str | None = None
+    turn_id: UUID | None = None
+    payload: dict = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=now)
 
 
 class Event(Base):

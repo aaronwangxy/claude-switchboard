@@ -40,6 +40,20 @@ class RuntimeAgentKind(str, Enum):
     MANAGER = "manager"
 
 
+class NativeTurnOrigin(str, Enum):
+    MANAGED = "managed"
+    HUMAN = "human"
+
+
+class NativeTurnStatus(str, Enum):
+    PENDING = "pending"
+    ACTIVE = "active"
+    WAITING_PERMISSION = "waiting_permission"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    INTERRUPTED = "interrupted"
+
+
 TERMINAL_WORKER_STATUSES = frozenset(
     {WorkerStatus.DONE, WorkerStatus.FAILED, WorkerStatus.STOPPED, WorkerStatus.DISCONNECTED}
 )

@@ -9,14 +9,22 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-from switchboard.domain.enums import TERMINAL_RUN_STATUSES, ArtifactType, JobStage, WorkerStatus
+from switchboard.domain.enums import (
+    TERMINAL_RUN_STATUSES,
+    ArtifactType,
+    JobStage,
+    NativeTurnStatus,
+    WorkerStatus,
+)
 from switchboard.domain.models import (
     Artifact,
     AttentionItem,
     Decision,
     Event,
     Job,
+    NativeTurn,
     Repository,
+    RuntimeHookEvent,
     RuntimeInstance,
     TranscriptMessage,
     Worker,
@@ -245,6 +253,91 @@ class Store:
                 (str(agent_id),),
             ).fetchall()
         return [_load(RuntimeInstance, row) for row in rows]
+
+    # ------------------------------------------------------------ native turns
+
+    def save_native_turn(self, turn: NativeTurn) -> NativeTurn:
+        self.conn.execute(
+            "INSERT OR REPLACE INTO native_turns"
+            " (id, runtime_id, origin, status, correlation_token, claude_prompt_id,"
+            " updated_at, data) VALUES (?,?,?,?,?,?,?,?)",
+            (
+                str(turn.id),
+                str(turn.runtime_id),
+                turn.origin.value,
+                turn.status.value,
+                turn.correlation_token,
+                turn.claude_prompt_id,
+                turn.updated_at.isoformat(),
+                _dump(turn),
+            ),
+        )
+        self.conn.commit()
+        return turn
+
+    def get_native_turn(self, turn_id: UUID) -> NativeTurn | None:
+        row = self.conn.execute(
+            "SELECT data FROM native_turns WHERE id=?", (str(turn_id),)
+        ).fetchone()
+        return _load(NativeTurn, row) if row else None
+
+    def native_turn_by_token(self, runtime_id: UUID, token: str) -> NativeTurn | None:
+        row = self.conn.execute(
+            "SELECT data FROM native_turns WHERE runtime_id=? AND correlation_token=?"
+            " ORDER BY updated_at DESC LIMIT 1",
+            (str(runtime_id), token),
+        ).fetchone()
+        return _load(NativeTurn, row) if row else None
+
+    def active_native_turn(
+        self, runtime_id: UUID, prompt_id: str | None = None
+    ) -> NativeTurn | None:
+        statuses = (NativeTurnStatus.ACTIVE.value, NativeTurnStatus.WAITING_PERMISSION.value)
+        if prompt_id:
+            row = self.conn.execute(
+                "SELECT data FROM native_turns WHERE runtime_id=? AND claude_prompt_id=?"
+                " AND status IN (?,?) ORDER BY updated_at DESC LIMIT 1",
+                (str(runtime_id), prompt_id, *statuses),
+            ).fetchone()
+        else:
+            row = self.conn.execute(
+                "SELECT data FROM native_turns WHERE runtime_id=? AND status IN (?,?)"
+                " ORDER BY updated_at DESC LIMIT 1",
+                (str(runtime_id), *statuses),
+            ).fetchone()
+        return _load(NativeTurn, row) if row else None
+
+    def list_native_turns(self, runtime_id: UUID) -> list[NativeTurn]:
+        rows = self.conn.execute(
+            "SELECT data FROM native_turns WHERE runtime_id=? ORDER BY updated_at, rowid",
+            (str(runtime_id),),
+        ).fetchall()
+        return [_load(NativeTurn, row) for row in rows]
+
+    def add_runtime_hook_event(self, event: RuntimeHookEvent) -> RuntimeHookEvent:
+        self.conn.execute(
+            "INSERT INTO runtime_hook_events"
+            " (id, runtime_id, event_name, prompt_id, turn_id, created_at, data)"
+            " VALUES (?,?,?,?,?,?,?)",
+            (
+                str(event.id),
+                str(event.runtime_id),
+                event.event_name,
+                event.prompt_id,
+                str(event.turn_id) if event.turn_id else None,
+                event.created_at.isoformat(),
+                _dump(event),
+            ),
+        )
+        self.conn.commit()
+        return event
+
+    def runtime_hook_events(self, runtime_id: UUID) -> list[RuntimeHookEvent]:
+        rows = self.conn.execute(
+            "SELECT data FROM runtime_hook_events WHERE runtime_id=? ORDER BY created_at, rowid",
+            (str(runtime_id),),
+        ).fetchall()
+        return [_load(RuntimeHookEvent, row) for row in rows]
 
     # ------------------------------------------------------------------ events
 
