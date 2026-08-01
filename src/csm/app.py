@@ -17,11 +17,20 @@ from pathlib import Path
 
 from csm.agents.backend import WorkerBackend
 from csm.agents.manager import DeterministicManager, Manager, ModelManager
-from csm.config import Config, database_path, home_dir, load_config, worktree_root
+from csm.config import (
+    Config,
+    config_path,
+    database_path,
+    home_dir,
+    load_config,
+    user_workflows_dir,
+    worktree_root,
+)
 from csm.core.session_manager import SessionManager, SessionManagerError
 from csm.gitops.worktrees import WorktreeService
 from csm.storage.store import Store
 from csm.ui.screens import CsmApp
+from csm.workflows.registry import get_workflow, workflow_names
 
 log = logging.getLogger(__name__)
 
@@ -109,6 +118,13 @@ def build_app(register: Sequence[str | Path] = (), services: Services | None = N
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    """Parse the command line.
+
+    `csm` and `csm claude` both open the interface: the bare form is what anyone types
+    by reflex, and the named one is what a shell alias or a future Homebrew formula can
+    point at without ambiguity. The remaining commands answer questions about the
+    installation without starting it, which is what makes them worth having at all.
+    """
     parser = argparse.ArgumentParser(
         prog="csm",
         description="A one-window control plane for multiple independent Claude sessions.",
@@ -126,7 +142,41 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Write application logs to this file instead of discarding them.",
     )
+    commands = parser.add_subparsers(dest="command")
+    commands.add_parser("claude", help="Open the interface (the default).")
+    commands.add_parser("workflows", help="List the workflows this installation can route to.")
+    commands.add_parser("config", help="Print the effective configuration and its paths.")
     return parser.parse_args(argv)
+
+
+def list_workflows() -> int:
+    """Print every workflow, so routing can be inspected without opening the app."""
+    services = build_services()
+    try:
+        problems = services.session_manager.reload_workflows()
+        for name in workflow_names():
+            definition = get_workflow(name)
+            kind = "composite" if definition.is_composite else definition.default_role.value
+            description = " ".join(definition.description.split())
+            print(f"{name:<26} {kind:<16} {description}")
+        for problem in problems:
+            print(f"skipped: {problem}")
+    finally:
+        services.close()
+    return 0
+
+
+def show_config() -> int:
+    """Print the effective configuration, including where everything is read from."""
+    config = load_config()
+    print(f"config file      {config_path()}")
+    print(f"data directory   {home_dir()}")
+    print(f"database         {database_path()}")
+    print(f"worktree root    {worktree_root()}")
+    print(f"user workflows   {user_workflows_dir()}")
+    print()
+    print(config.model_dump_json(indent=2))
+    return 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -135,6 +185,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         logging.basicConfig(filename=args.log_file, level=logging.INFO)
     else:
         logging.getLogger("csm").addHandler(logging.NullHandler())
+    if args.command == "workflows":
+        return list_workflows()
+    if args.command == "config":
+        return show_config()
     services = build_services()
     app = build_app(register=args.register, services=services)
     try:
