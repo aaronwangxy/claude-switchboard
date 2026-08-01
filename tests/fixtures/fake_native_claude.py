@@ -80,7 +80,16 @@ def main() -> int:
             prompt_id = str(uuid4())
             record({"event": "prompt", "pid": os.getpid(), "text": prompt})
             emit(command, session_id, "UserPromptSubmit", prompt_id=prompt_id, prompt=prompt)
-            if "PERMISSION_TEST" in prompt:
+            if "NOTIFICATION_PERMISSION" in prompt:
+                emit(
+                    command,
+                    session_id,
+                    "Notification",
+                    prompt_id=prompt_id,
+                    notification_type="permission_prompt",
+                    message="Permission needed",
+                )
+            elif "PERMISSION_TEST" in prompt:
                 emit(
                     command,
                     session_id,
@@ -92,14 +101,24 @@ def main() -> int:
             if "HOLD_TURN" in prompt:
                 time.sleep(0.5)
             response = os.environ.get("FAKE_NATIVE_RESPONSE", "Native result")
-            emit(
-                command,
-                session_id,
-                "Stop",
-                prompt_id=prompt_id,
-                last_assistant_message=response,
-                stop_hook_active=False,
-            )
+            if "STOP_FAILURE" in prompt:
+                emit(
+                    command,
+                    session_id,
+                    "StopFailure",
+                    prompt_id=prompt_id,
+                    error="fake_failure",
+                    last_assistant_message="[NEEDS INPUT] failed output must not harvest",
+                )
+            else:
+                emit(
+                    command,
+                    session_id,
+                    "Stop",
+                    prompt_id=prompt_id,
+                    last_assistant_message=response,
+                    stop_hook_active=False,
+                )
     finally:
         termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, old)
 

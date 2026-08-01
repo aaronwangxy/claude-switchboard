@@ -85,6 +85,8 @@ class RuntimeObservation:
 class WorkerBackend(Protocol):
     """Production native-Claude boundary, with a deterministic scripted implementation."""
 
+    supports_composites: bool
+
     def launch_fingerprint(self, spec: WorkerSpec) -> str: ...
 
     async def start(self, spec: WorkerSpec) -> WorkerHandle: ...

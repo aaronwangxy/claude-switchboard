@@ -382,6 +382,12 @@ class Store:
         )
         self.conn.commit()
 
+    def worker_hook_delivered(self, event_id: UUID) -> bool:
+        row = self.conn.execute(
+            "SELECT 1 FROM worker_hook_deliveries WHERE hook_event_id=?", (str(event_id),)
+        ).fetchone()
+        return row is not None
+
     # ------------------------------------------------------------------ events
 
     def add_event(self, event: Event) -> Event:

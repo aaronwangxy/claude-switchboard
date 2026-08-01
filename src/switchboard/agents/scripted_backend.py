@@ -123,6 +123,8 @@ class ScriptedWorkerBackend:
     Tests override entries to drive specific scenarios (blocked workers, failures).
     """
 
+    supports_composites = True
+
     def __init__(self, responses: dict[str, Callable[[WorkerSpec, str], str]] | None = None) -> None:
         self.responses = dict(ROLE_RESPONSES)
         if responses:

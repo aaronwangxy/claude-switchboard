@@ -631,9 +631,17 @@ class SwitchboardApp(App[None]):
                 except OSError as exc:  # a missing or unusable executable
                     print(f"Could not start Claude: {exc}")
         finally:
-            # Always hand control back, even if the suspend or the process failed --
-            # otherwise `send` stays refused for a session nobody is in.
-            self.sm.detach(worker_id)
+            answer = await asyncio.to_thread(
+                input,
+                "Confirm Claude's composer is empty before manager handback [y/N]: ",
+            )
+            if answer.strip().lower() in ("y", "yes"):
+                self.sm.detach(worker_id, composer_cleared=True)
+            else:
+                self.manager_pane.add_note(
+                    "Worker remains human-controlled. Re-enter it, clear the composer, "
+                    "and detach again to return manager control."
+                )
         self.manager_pane.add_note(self._back_from_attach(worker_id))
         self.refresh_workers()
         self.refresh_worker_pane()

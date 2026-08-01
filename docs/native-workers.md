@@ -24,8 +24,9 @@ repository/worktree assigned by `SessionManager`. Claude receives a preassigned 
 session UUID, the role/workflow system-prompt append, an optional configured model, and a
 private Switchboard hook overlay. The launch deliberately omits `--setting-sources`, so native
 Claude performs its normal user, managed/company, project, and project-local configuration
-discovery. Switchboard neither sets a bypass permission mode nor supplies the manager's
-in-process MCP server.
+discovery. Writable workers retain native permission policy; read-only roles launch in native
+`plan` permission mode so Claude withholds editing operations while preserving managed/company
+policy. Switchboard never sets a bypass mode or supplies the manager's in-process MCP server.
 
 The launch fingerprint binds the executable, cwd, model, worker prompt, environment additions,
 hook interpreter/event set/database, and state directory. tmux additionally binds runtime UUID,
@@ -40,10 +41,10 @@ Only a turn whose durable origin is `MANAGED` becomes a `WorkerEvent`. Human pro
 
 `Stop.last_assistant_message` is the final result. It flows through the same
 `SessionManager._finish_turn` and fenced-JSON contract parsers used by scripted tests. The hook
-delivery ledger is marked only after `SessionManager` applies a normalized event, allowing an
-unconsumed completion to be replayed after controller restart. Delivery is at-least-once across
-the narrow crash boundary between applying an event and recording delivery; downstream durable
-operations must therefore remain idempotent.
+delivery ledger is checked and marked by `SessionManager` using the hook event UUID, so a replay
+after controller restart does not duplicate transcripts, artifacts, or run advancement. Terminal
+lane reconciliation also repairs a crash after orchestration application but before turn
+acknowledgement.
 
 ## Recovery and entry
 
@@ -55,9 +56,11 @@ authoritative.
 
 Entering a worker claims human ownership and returns `tmux attach-session` for the existing
 target. It never invokes `claude --resume`, never replaces the process, and does not interrupt an
-active turn. The UI waits for the external tmux client off its event loop, so hook processing
-continues while the user observes or interacts. Manager handback requires the user to clear any
-unsubmitted composer text first; tmux cannot prove composer state.
+active turn. Entering while a managed turn is active durably taints that turn as human-intervened,
+so its result cannot advance a workflow. The UI waits for the external tmux client off its event
+loop, so hook processing continues while the user observes or interacts. Manager handback
+requires an explicit confirmation that the user cleared all unsubmitted composer text; tmux
+cannot prove composer state.
 
 ## Current boundary
 

@@ -575,6 +575,11 @@ class SessionManager:
 
     async def start_run(self, workflow_name: str, *, job_id: UUID, request: str = "") -> WorkflowRun:
         """Begin a composite workflow over a job and start its first applicable step."""
+        if not self.backend.supports_composites:
+            raise SessionManagerError(
+                "Composite workflows are not enabled for native workers until native "
+                "atomic workflow recovery is validated across complete runs."
+            )
         definition = get_workflow(workflow_name)
         if not definition.is_composite:
             raise SessionManagerError(f"{definition.name} is not a composite workflow.")
@@ -1085,7 +1090,7 @@ class SessionManager:
         )
         return attachment
 
-    def detach(self, worker_id: UUID, *, composer_cleared: bool = True) -> Worker:
+    def detach(self, worker_id: UUID, *, composer_cleared: bool = False) -> Worker:
         """The user has left the session. Switchboard may drive it again; the run stays paused.
 
         The run is deliberately not resumed here. The user has just been editing in that
@@ -1093,6 +1098,10 @@ class SessionManager:
         a judgement only they can make -- `resume_run` is how they say yes.
         """
         worker = self._require_worker(worker_id)
+        if not composer_cleared:
+            raise SessionManagerError(
+                "Clear Claude's composer and explicitly confirm it before manager handback."
+            )
         self.backend.release_human(worker_id, composer_cleared=composer_cleared)
         runtime = self.store.current_runtime(worker.id)
         if runtime is not None:
@@ -1291,6 +1300,18 @@ class SessionManager:
             log.exception("event pump for %s stopped", worker_id)
 
     def _apply(self, event: WorkerEvent) -> None:
+        hook_id = event.data.get("hook_event_id")
+        if hook_id:
+            event_id = UUID(hook_id)
+            if self.store.worker_hook_delivered(event_id):
+                return
+        self._apply_unchecked(event)
+        if hook_id:
+            # Mark in the same synchronous call that applied all orchestration effects;
+            # the backend's post-yield mark is a harmless second acknowledgement.
+            self.store.mark_worker_hook_delivered(UUID(hook_id))
+
+    def _apply_unchecked(self, event: WorkerEvent) -> None:
         worker = self.store.get_worker(event.worker_id)
         if worker is None:
             return
@@ -1348,7 +1369,8 @@ class SessionManager:
                     self._record(worker, "assistant", event.text)
                     self.emit(ev.WORKER_OUTPUT, worker_id=worker.id, job_id=worker.job_id)
                 self._resolve_attention(worker)
-                self._finish_turn(worker, event.text)
+                if not event.data.get("is_error"):
+                    self._finish_turn(worker, event.text)
                 self._set_runtime_state(worker.id, RuntimeProcessState.TURN_COMPLETE)
                 if event.data.get("is_error"):
                     self._set_status(worker, WorkerStatus.FAILED, waiting_for="Turn failed.")

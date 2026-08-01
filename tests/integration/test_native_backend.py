@@ -82,7 +82,7 @@ def native_services(store: Store, worktree_service, tmp_path: Path):
 async def test_atomic_workflow_consumes_only_managed_stop_and_returns_ready(
     native_services, git_repo
 ):
-    manager, backend, _ = native_services
+    manager, backend, log = native_services
     repo = manager.register_repository(git_repo("native-atomic"))
     job = manager.create_job("native plan", repo.id)
 
@@ -99,6 +99,20 @@ async def test_atomic_workflow_consumes_only_managed_stop_and_returns_ready(
     assert turns[-1].origin is NativeTurnOrigin.MANAGED
     assert turns[-1].claude_prompt_id
     assert worker.session_id == runtime.claude_session_id
+    started = json.loads((await wait_for(lambda: log.read_text() if log.exists() else "")).splitlines()[0])
+    assert started["argv"][started["argv"].index("--permission-mode") + 1] == "plan"
+    transcript_count = len(manager.store.transcript(worker.id))
+    artifact_count = len(manager.store.list_artifacts(job.id))
+    stop_hook = next(
+        event
+        for event in manager.store.runtime_hook_events(runtime.id)
+        if event.event_name == "Stop"
+    )
+    replay = backend._worker_event(worker.id, stop_hook)
+    assert replay is not None
+    manager._apply(replay)
+    assert len(manager.store.transcript(worker.id)) == transcript_count
+    assert len(manager.store.list_artifacts(job.id)) == artifact_count
 
     managed_artifact_id = artifact.id
     attachment = await manager.attach(worker.id)
@@ -157,6 +171,62 @@ async def test_permission_and_busy_lane_are_normalized_without_prompt_corruption
     assert "SECOND_PROMPT_MUST_NOT_APPEAR" not in prompts[0]
 
 
+async def test_human_entry_taints_active_managed_turn_and_notification_blocks(
+    native_services, git_repo
+):
+    manager, _, _ = native_services
+    repo = manager.register_repository(git_repo("native-human-active"))
+    worker = await manager.create_worker(
+        role=WorkerRole.GENERAL,
+        title="native",
+        prompt="HOLD_TURN",
+        repository_id=repo.id,
+    )
+    runtime = manager.store.current_runtime(worker.id)
+    await wait_for(lambda: manager.store.open_native_turn(runtime.id))
+    await manager.attach(worker.id)
+    await asyncio.sleep(0.7)
+
+    turn = manager.store.list_native_turns(runtime.id)[-1]
+    assert turn.human_intervened
+    assert manager.store.get_worker(worker.id).status is WorkerStatus.WORKING
+    assert not [message for message in manager.store.transcript(worker.id) if message.role == "assistant"]
+    manager.detach(worker.id, composer_cleared=True)
+    assert manager.store.current_runtime(worker.id).process_state is RuntimeProcessState.READY
+
+    await manager.send(worker.id, "NOTIFICATION_PERMISSION HOLD_TURN")
+    await wait_for(
+        lambda: manager.store.current_runtime(worker.id).process_state
+        is RuntimeProcessState.WAITING
+    )
+    await wait_for(lambda: manager.store.get_worker(worker.id).status is WorkerStatus.BLOCKED)
+
+
+async def test_stop_failure_never_harvests_or_becomes_blocked(native_services, git_repo):
+    manager, _, _ = native_services
+    repo = manager.register_repository(git_repo("native-failure"))
+    job = manager.create_job("failure", repo.id)
+    worker = await manager.create_worker(
+        role=WorkerRole.PLANNER,
+        title="native",
+        prompt="STOP_FAILURE",
+        job_id=job.id,
+    )
+    await wait_for(lambda: manager.store.get_worker(worker.id).status is WorkerStatus.FAILED)
+
+    assert manager.store.latest_artifact(job.id, ArtifactType.IMPLEMENTATION_CONTRACT) is None
+    assert manager.store.current_runtime(worker.id).process_state is RuntimeProcessState.READY
+
+
+async def test_native_backend_explicitly_gates_composite_runs(native_services, git_repo):
+    manager, _, _ = native_services
+    repo = manager.register_repository(git_repo("native-composite-gate"))
+    job = manager.create_job("composite", repo.id)
+
+    with pytest.raises(SessionManagerError, match="Composite workflows are not enabled"):
+        await manager.start_run("complete-ticket", job_id=job.id)
+
+
 async def test_restart_adopts_exact_native_process_and_continues_managed_turns(
     native_services, git_repo
 ):
@@ -172,6 +242,8 @@ async def test_restart_adopts_exact_native_process_and_continues_managed_turns(
     before = manager.store.current_runtime(worker.id)
     before_pid = before.substrate["pane_pid"]
     before_session = before.claude_session_id
+    before.process_state = RuntimeProcessState.TURN_COMPLETE
+    manager.store.save_runtime(before)  # simulate crash after delivery but before acknowledgement
     manager._pumps.pop(worker.id).cancel()
     backend._sessions[worker.id].task.cancel()
 

@@ -172,12 +172,14 @@ class TestAttachHandsOverControl:
         assert restarted.store.current_runtime(worker.id).git_head_before_turn is not None
 
         commit_file(worker.cwd, "second.txt", "second\n", "second human edit")
-        restarted.detach(worker.id)
+        restarted.detach(worker.id, composer_cleared=True)
         assert restarted.store.latest_artifact(worker.job_id, ArtifactType.REVIEW).stale
 
     async def test_leaving_gives_control_back(self, session_manager, worker):
         await session_manager.attach(worker.id)
-        session_manager.detach(worker.id)
+        with pytest.raises(SessionManagerError, match="composer"):
+            session_manager.detach(worker.id)
+        session_manager.detach(worker.id, composer_cleared=True)
         assert not session_manager.is_attached(worker.id)
         assert session_manager.store.current_runtime(worker.id).owner is RuntimeOwner.MANAGER
         await session_manager.send(worker.id, "keep going")  # must not raise
@@ -191,7 +193,7 @@ class TestAttachHandsOverControl:
         session_manager.store.save_worker(running)
 
         await session_manager.attach(running.id)
-        session_manager.detach(running.id)
+        session_manager.detach(running.id, composer_cleared=True)
         assert session_manager.store.get_run(run.id).status is RunStatus.BLOCKED
 
         resumed = await session_manager.resume_run(run.id)
@@ -240,7 +242,7 @@ class TestAttachHandsOverControl:
         for _ in range(5):
             await asyncio.sleep(0)
         commit_file(worker.cwd, "human.txt", "changed\n", "human edit")
-        session_manager.detach(worker.id)
+        session_manager.detach(worker.id, composer_cleared=True)
 
         artifact = session_manager.store.latest_artifact(
             worker.job_id, ArtifactType.VERIFICATION
@@ -271,7 +273,7 @@ class TestAttachHandsOverControl:
             == original_head
         )
         commit_file(worker.cwd, "human.txt", "human\n", "human edit")
-        session_manager.detach(worker.id)
+        session_manager.detach(worker.id, composer_cleared=True)
 
         assert session_manager.store.latest_artifact(
             worker.job_id, ArtifactType.REVIEW

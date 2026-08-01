@@ -118,6 +118,7 @@ class NativeTurn(Base):
     claude_prompt_id: str | None = None
     claude_session_id: str | None = None
     prompt_sha256: str = ""
+    human_intervened: bool = False
     final_output: str = ""
     error: str = ""
     created_at: datetime = Field(default_factory=now)

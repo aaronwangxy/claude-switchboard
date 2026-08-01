@@ -45,6 +45,8 @@ class _NativeSession:
 class NativeClaudeBackend:
     """Maps supported Claude hooks into the orchestration worker-event contract."""
 
+    supports_composites = False
+
     def __init__(
         self,
         store: Store,
@@ -67,6 +69,7 @@ class NativeClaudeBackend:
         return self.runtime.launch_fingerprint(
             cwd=spec.cwd,
             model=spec.model,
+            permission_mode=None if spec.writable else "plan",
             system_prompt_append=spec.system_prompt_append,
         )
 
@@ -86,6 +89,7 @@ class NativeClaudeBackend:
             runtime_id,
             cwd=spec.cwd,
             model=spec.model,
+            permission_mode=None if spec.writable else "plan",
             system_prompt_append=spec.system_prompt_append,
         )
         session.task = asyncio.create_task(self._watch(spec.worker_id))
@@ -106,11 +110,13 @@ class NativeClaudeBackend:
             runtime_id,
             cwd=spec.cwd,
             model=spec.model,
+            permission_mode=None if spec.writable else "plan",
             system_prompt_append=spec.system_prompt_append,
         )
         session = _NativeSession(spec)
         self._sessions[spec.worker_id] = session
         session.task = asyncio.create_task(self._watch(spec.worker_id))
+        self._reconcile_completed_lane(runtime_id)
         return WorkerHandle(
             worker_id=spec.worker_id,
             session_id=adopted.runtime.claude_session_id,
@@ -145,10 +151,11 @@ class NativeClaudeBackend:
         session = self._require(worker_id)
         runtime_id = self._runtime_id(session.spec)
         runtime = self.store.get_runtime(runtime_id)
-        if runtime is not None and runtime.process_state is RuntimeProcessState.WAITING:
-            turns = self.store.list_native_turns(runtime_id)
-            if turns and self.runtime.completed(turns[-1].id) is not None:
-                self.runtime.acknowledge(runtime_id, turns[-1].id)
+        if runtime is not None and runtime.process_state in (
+            RuntimeProcessState.WAITING,
+            RuntimeProcessState.TURN_COMPLETE,
+        ):
+            self._reconcile_completed_lane(runtime_id, require_delivered=False)
         try:
             self.runtime.send_managed(runtime_id, message)
         except TmuxError as exc:
@@ -164,12 +171,12 @@ class NativeClaudeBackend:
                 return
             yield event
             # The generator resumes only after SessionManager applied the event.
-            if hook_id is not None:
-                self.store.mark_worker_hook_delivered(hook_id)
-                session.inflight.discard(hook_id)
             turn_id = event.data.get("turn_id")
             if event.type == "result" and turn_id:
                 self.runtime.acknowledge(self._runtime_id(session.spec), UUID(turn_id))
+            if hook_id is not None:
+                self.store.mark_worker_hook_delivered(hook_id)
+                session.inflight.discard(hook_id)
 
     async def interrupt(self, worker_id: UUID) -> None:
         session = self._require(worker_id)
@@ -214,9 +221,8 @@ class NativeClaudeBackend:
         )
         runtime_id = self._runtime_id(session.spec)
         turns = self.store.list_native_turns(runtime_id)
-        if turns and turns[-1].origin is NativeTurnOrigin.HUMAN:
-            if self.runtime.completed(turns[-1].id) is not None:
-                self.runtime.acknowledge(runtime_id, turns[-1].id)
+        if turns and self.runtime.completed(turns[-1].id) is not None:
+            self.runtime.acknowledge(runtime_id, turns[-1].id)
 
     async def _wait_ready(self, runtime_id: UUID, timeout: float = 30.0) -> None:
         deadline = asyncio.get_running_loop().time() + timeout
@@ -267,7 +273,11 @@ class NativeClaudeBackend:
 
     def _worker_event(self, worker_id: UUID, hook: RuntimeHookEvent) -> WorkerEvent | None:
         turn = self.store.get_native_turn(hook.turn_id) if hook.turn_id else None
-        managed = turn is not None and turn.origin is NativeTurnOrigin.MANAGED
+        managed = (
+            turn is not None
+            and turn.origin is NativeTurnOrigin.MANAGED
+            and not turn.human_intervened
+        )
         payload = hook.payload
         data: dict = {"hook_event_id": str(hook.id)}
         if turn is not None:
@@ -277,7 +287,14 @@ class NativeClaudeBackend:
         if hook.event_name == "PreToolUse" and managed:
             data["input"] = payload.get("tool_input", {})
             return WorkerEvent(worker_id, "tool", str(payload.get("tool_name") or "tool"), data)
-        if hook.event_name == "PermissionRequest" and managed:
+        if (
+            hook.event_name == "PermissionRequest"
+            or (
+                hook.event_name == "Notification"
+                and payload.get("notification_type")
+                in ("permission_prompt", "elicitation_dialog")
+            )
+        ) and managed:
             return WorkerEvent(
                 worker_id,
                 "permission",
@@ -288,7 +305,13 @@ class NativeClaudeBackend:
             text = str(payload.get("last_assistant_message") or "")
             data["is_error"] = hook.event_name == "StopFailure"
             data["final_only"] = True
-            kind: EventType = "blocked" if _looks_blocked(text) else "result"
+            kind: EventType = (
+                "result"
+                if hook.event_name == "StopFailure"
+                else "blocked"
+                if _looks_blocked(text)
+                else "result"
+            )
             return WorkerEvent(worker_id, kind, text, data)
         if hook.event_name == "SessionEnd":
             return WorkerEvent(worker_id, "stopped", str(payload.get("reason") or "Session ended"), data)
@@ -304,6 +327,28 @@ class NativeClaudeBackend:
         if session is None:
             raise KeyError(f"Worker {worker_id} has no native session controller.")
         return session
+
+    def _reconcile_completed_lane(
+        self, runtime_id: UUID, *, require_delivered: bool = True
+    ) -> None:
+        turns = self.store.list_native_turns(runtime_id)
+        if not turns or self.runtime.completed(turns[-1].id) is None:
+            return
+        if require_delivered:
+            terminal = [
+                event
+                for event in self.store.runtime_hook_events(runtime_id)
+                if event.turn_id == turns[-1].id
+                and event.event_name in ("Stop", "StopFailure")
+            ]
+            if terminal and not self.store.worker_hook_delivered(terminal[-1].id):
+                return
+        runtime = self.store.get_runtime(runtime_id)
+        if runtime is not None and runtime.process_state in (
+            RuntimeProcessState.TURN_COMPLETE,
+            RuntimeProcessState.WAITING,
+        ):
+            self.runtime.acknowledge(runtime_id, turns[-1].id)
 
 
 def _looks_blocked(text: str) -> bool:

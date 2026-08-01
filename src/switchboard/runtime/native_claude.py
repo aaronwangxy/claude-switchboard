@@ -73,6 +73,7 @@ class NativeClaudeRuntime:
         *,
         cwd: Path,
         model: str | None = None,
+        permission_mode: str | None = None,
         system_prompt_append: str = "",
     ) -> NativeClaudeLaunch:
         executable = self._executable()
@@ -83,6 +84,7 @@ class NativeClaudeRuntime:
             cwd=cwd,
             executable=executable,
             model=model,
+            permission_mode=permission_mode,
             system_prompt_append=system_prompt_append,
         )
         if runtime.launch_fingerprint != expected_fingerprint:
@@ -103,6 +105,7 @@ class NativeClaudeRuntime:
             "--settings",
             str(settings),
             *(("--model", model) if model else ()),
+            *(("--permission-mode", permission_mode) if permission_mode else ()),
             *(("--append-system-prompt", system_prompt_append) if system_prompt_append else ()),
         )
         launched = self.supervisor.launch(
@@ -119,6 +122,7 @@ class NativeClaudeRuntime:
         cwd: Path,
         executable: Path | None = None,
         model: str | None = None,
+        permission_mode: str | None = None,
         system_prompt_append: str = "",
     ) -> str:
         """Hash every stable launch input that defines a reusable native process."""
@@ -131,6 +135,7 @@ class NativeClaudeRuntime:
             "hook_events": HOOK_EVENTS,
             "hook_python": self.python_executable,
             "model": model,
+            "permission_mode": permission_mode,
             "state_dir": str(self.state_dir.resolve()),
             "system_prompt_append": system_prompt_append,
         }
@@ -143,13 +148,17 @@ class NativeClaudeRuntime:
         *,
         cwd: Path,
         model: str | None = None,
+        permission_mode: str | None = None,
         system_prompt_append: str = "",
     ) -> SupervisedRuntime:
         runtime = self.store.get_runtime(runtime_id)
         if runtime is None:
             raise TmuxError("Runtime does not exist.")
         if runtime.launch_fingerprint != self.launch_fingerprint(
-            cwd=cwd, model=model, system_prompt_append=system_prompt_append
+            cwd=cwd,
+            model=model,
+            permission_mode=permission_mode,
+            system_prompt_append=system_prompt_append,
         ):
             raise TmuxError(
                 "Native Claude launch fingerprint does not match this controller configuration."
@@ -227,6 +236,11 @@ class NativeClaudeRuntime:
         return turn
 
     def claim_human(self, runtime_id: UUID) -> TmuxView:
+        turn = self.store.open_native_turn(runtime_id)
+        if turn is not None:
+            turn.human_intervened = True
+            turn.updated_at = now()
+            self.store.save_native_turn(turn)
         self.supervisor.set_owner(runtime_id, RuntimeOwner.HUMAN)
         return self.supervisor.view(runtime_id)
 
