@@ -22,6 +22,7 @@ KEY_BINDINGS: list[tuple[str, str]] = [
     ("Ctrl+S", "Snooze the selected worker for 30 minutes"),
     ("Ctrl+A", "Toggle auto-advance"),
     ("Ctrl+O", "Interrupt the selected worker"),
+    ("Ctrl+E", "Enter the selected worker's session in this terminal"),
     ("Escape", "Return focus to the worker list"),
     ("?", "Show this help"),
     ("Enter", "Submit the focused input"),

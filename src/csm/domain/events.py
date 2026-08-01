@@ -11,6 +11,8 @@ WORKER_RESUMED = "worker.resumed"
 WORKER_FAILED = "worker.failed"
 WORKER_COMPLETED = "worker.completed"
 WORKER_STOPPED = "worker.stopped"
+#: The user took direct control of a worker's session in their own terminal.
+WORKER_ATTACHED = "worker.attached"
 PLAN_CREATED = "plan.created"
 PLAN_REQUIRES_INPUT = "plan.requires_input"
 PLAN_APPROVED = "plan.approved"

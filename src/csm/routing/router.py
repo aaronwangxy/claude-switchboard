@@ -34,6 +34,7 @@ DEFAULT_PROFILE = "complete-ticket"
 
 Action = Literal[
     "message_worker",
+    "attach_worker",
     "start_workflow",
     "new_job",
     "new_question_worker",
@@ -150,12 +151,73 @@ WORKFLOW_PHRASES: list[tuple[tuple[str, ...], str]] = [
 ]
 
 
+#: Asking to work in a session personally, rather than asking a worker to do something.
+ATTACH_PHRASES = (
+    "let me in",
+    "let me into",
+    "drop me into",
+    "drop me in",
+    "put me in",
+    "jump into",
+    "jump in to",
+    "take over",
+    "attach to",
+    "attach me",
+    "enter that session",
+    "enter the session",
+    "open that session",
+    "open the session",
+    "i'll drive",
+    "let me drive",
+    "give me a terminal",
+)
+
+
+def wants_attach(text: str) -> bool:
+    lowered = (text or "").lower()
+    return any(phrase in lowered for phrase in ATTACH_PHRASES)
+
+
 def match_workflow(text: str) -> str | None:
     lowered = (text or "").lower()
     for phrases, workflow in WORKFLOW_PHRASES:
         if any(phrase in lowered for phrase in phrases):
             return workflow
     return None
+
+
+def _route_attach(text: str, state: RoutingState, ref: str | None) -> RouteProposal:
+    """Resolve which session the user wants to sit in themselves."""
+    job = next((j for j in state.jobs if ref and j.external_ref == ref), None)
+    if job is None and state.selected_worker_id is not None:
+        return RouteProposal(
+            action="attach_worker",
+            reason="Attach to the selected worker.",
+            worker_id=state.selected_worker_id,
+            message=text,
+            priority=2,
+        )
+    if job is None:
+        job = state.job(state.selected_job_id)
+    worker = state.primary_writable_worker(job.id) if job else None
+    if worker is None:
+        return RouteProposal(
+            action="clarify",
+            reason="No worker is selected and the request does not identify one.",
+            message=text,
+            question="Which worker's session do you want to work in?",
+            priority=6,
+        )
+    return RouteProposal(
+        action="attach_worker",
+        reason=f"Attach to the writable worker on {job.external_ref or job.title}."
+        if job
+        else "Attach to this worker.",
+        worker_id=worker.id,
+        job_id=worker.job_id,
+        message=text,
+        priority=1,
+    )
 
 
 def resolve_repository(text: str, state: RoutingState, job: Job | None) -> UUID | None:
@@ -193,6 +255,11 @@ def resolve_route(text: str, state: RoutingState) -> RouteProposal:
 
     ref = extract_ticket_ref(text)
     workflow = match_workflow(text)
+
+    # Asking to work in a session personally is about a session, not about a workflow, so
+    # it is resolved before any workflow phrase in the same sentence is considered.
+    if wants_attach(text):
+        return _route_attach(text, state, ref)
 
     # 1. Explicit ticket reference wins.
     referenced_job = next((j for j in state.jobs if ref and j.external_ref == ref), None)

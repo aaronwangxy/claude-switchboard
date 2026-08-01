@@ -19,6 +19,7 @@ Layout::
 from __future__ import annotations
 
 import logging
+import subprocess
 from collections import deque
 from collections.abc import Iterable, Sequence
 from typing import TYPE_CHECKING
@@ -247,6 +248,7 @@ class CsmApp(App[None]):
         Binding("ctrl+s", "snooze", "Snooze", priority=True),
         Binding("ctrl+a", "toggle_auto_advance", "Auto-advance", priority=True),
         Binding("ctrl+o", "interrupt", "Interrupt", priority=True),
+        Binding("ctrl+e", "attach", "Enter session", priority=True),
         Binding("escape", "focus_workers", "Worker list"),
         Binding("question_mark", "help", "Help"),
     ]
@@ -574,6 +576,30 @@ class CsmApp(App[None]):
             await self.sm.interrupt_worker(worker_id)
         except Exception as exc:
             self.manager_pane.add_note(f"Could not interrupt that worker: {exc}")
+        self.refresh_workers()
+        self.refresh_worker_pane()
+
+    async def action_attach(self) -> None:
+        """Suspend CSM and hand the terminal to the selected worker's own session.
+
+        The worker is an ordinary Claude session, so this runs the same `claude --resume`
+        the user could have run themselves. CSM comes back when they exit it.
+        """
+        worker_id = self.sm.selected_worker_id
+        if worker_id is None:
+            return
+        try:
+            attachment = await self.sm.attach(worker_id)
+        except Exception as exc:
+            self.manager_pane.add_note(f"Cannot attach to that worker: {exc}")
+            return
+        self.manager_pane.add_note(f"Attaching: {attachment.shell_hint}")
+        with self.suspend():
+            try:
+                subprocess.run(attachment.argv, cwd=attachment.cwd, check=False)
+            except OSError as exc:  # a missing or unusable executable
+                print(f"Could not start Claude: {exc}")
+        self.manager_pane.add_note("Back in CSM. The worker is idle until you send it something.")
         self.refresh_workers()
         self.refresh_worker_pane()
 

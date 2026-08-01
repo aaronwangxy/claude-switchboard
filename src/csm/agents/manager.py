@@ -19,6 +19,7 @@ import re
 from typing import Any, Protocol
 from uuid import UUID
 
+from csm.agents.attach import AttachError
 from csm.agents.prompts import compose_manager_prompt
 from csm.agents.runtime import claude_cli_path
 from csm.agents.snapshots import Exchange, SnapshotInput, build_snapshot
@@ -259,6 +260,20 @@ class ModelManager:
                 return err(str(exc))
             return ok({"interrupted": True})
 
+        @tool(
+            "attach_worker",
+            "Hand the user's terminal to a worker's own Claude session, so they can work "
+            "in it directly. Use this when the user asks to enter, open, jump into, or "
+            "take over a session themselves.",
+            {"worker_id": str},
+        )
+        async def attach_worker(args: dict) -> dict:
+            try:
+                attachment = await sm.attach(_require_uuid(args["worker_id"]))
+            except (SessionManagerError, AttachError, KeyError, ValueError) as exc:
+                return err(str(exc))
+            return ok({"command": attachment.shell_hint, "cwd": str(attachment.cwd)})
+
         @tool("stop_worker", "Stop a worker session.", {"worker_id": str})
         async def stop_worker(args: dict) -> dict:
             try:
@@ -313,6 +328,7 @@ class ModelManager:
             start_workflow,
             open_worker,
             interrupt_worker,
+            attach_worker,
             stop_worker,
             request_cleanup,
             list_attention_items,
@@ -400,6 +416,7 @@ MANAGER_TOOL_NAMES = [
     "start_workflow",
     "open_worker",
     "interrupt_worker",
+    "attach_worker",
     "stop_worker",
     "request_cleanup",
     "list_attention_items",

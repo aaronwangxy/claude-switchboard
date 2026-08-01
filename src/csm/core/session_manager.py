@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from uuid import UUID
 
+from csm.agents.attach import AttachError, Attachment, build_attachment
 from csm.agents.backend import WorkerBackend, WorkerEvent, WorkerSpec
 from csm.agents.prompts import PROMPT_POLICY_VERSION, compose_worker_prompt
 from csm.config import Config
@@ -837,6 +838,37 @@ class SessionManager:
         self._set_status(worker, WorkerStatus.STOPPED, waiting_for=None)
         self.emit(ev.WORKER_STOPPED, worker_id=worker.id, job_id=worker.job_id, summary=worker.title)
 
+    # ------------------------------------------------------------------ attach
+
+    async def attach(self, worker_id: UUID) -> Attachment:
+        """Hand this worker's session back to the user as an ordinary Claude session.
+
+        A worker mid-turn is interrupted first. Two clients driving one session would
+        interleave turns, and the user taking direct control is exactly the moment CSM
+        should stop steering; interruption leaves the worker alive and resumable either
+        way. Any composite run the worker belongs to pauses for the same reason: what
+        happens next is now the user's to decide, not the run's.
+        """
+        worker = self._require_worker(worker_id)
+        attachment = build_attachment(
+            cwd=worker.cwd,
+            session_id=worker.session_id,
+            executable=self.config.claude.executable,
+        )
+        if worker.status is WorkerStatus.WORKING:
+            await self.interrupt_worker(worker_id)
+        self._pause_run_of(worker, RunStatus.BLOCKED, "The user attached to this worker.")
+        self._record(worker, "system", "[the user attached to this session directly]")
+        self._resolve_attention(worker)
+        self.emit(
+            ev.WORKER_ATTACHED,
+            worker_id=worker.id,
+            job_id=worker.job_id,
+            summary=f"Attached to {worker.title}.",
+            payload={"session_id": attachment.session_id, "cwd": str(attachment.cwd)},
+        )
+        return attachment
+
     # ----------------------------------------------------------------- cleanup
 
     async def request_cleanup(
@@ -1452,6 +1484,18 @@ class SessionManager:
                 self.selected_worker_id = proposal.worker_id
                 worker = self._require_worker(proposal.worker_id)
                 return f"Sent to {worker.title}. {proposal.reason}"
+            case "attach_worker":
+                assert proposal.worker_id is not None
+                try:
+                    attachment = await self.attach(proposal.worker_id)
+                except AttachError as exc:
+                    return f"Cannot attach: {exc}"
+                self.selected_worker_id = proposal.worker_id
+                worker = self._require_worker(proposal.worker_id)
+                return (
+                    f"{worker.title} is yours. Press Ctrl+E to enter it here, or run:\n"
+                    f"{attachment.shell_hint}"
+                )
             case "start_workflow":
                 name = proposal.workflow or "ask-question"
                 if get_workflow(name).is_composite:
