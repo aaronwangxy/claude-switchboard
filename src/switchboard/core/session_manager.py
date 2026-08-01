@@ -846,7 +846,9 @@ class SessionManager:
         grant_approval = (
             run.status is RunStatus.AWAITING_APPROVAL and run.current_step_completed
         )
-        if run.current_worker_id is not None and not run.current_step_completed:
+        if run.current_worker_id is not None and (
+            not run.current_step_completed or run.human_intervened
+        ):
             worker = self.store.get_worker(run.current_worker_id)
             runtime = self.store.current_runtime(run.current_worker_id)
             if worker is None or runtime is None or runtime.owner is RuntimeOwner.HUMAN:
@@ -861,6 +863,7 @@ class SessionManager:
                 used = run.iterations.get(str(run.step_index), 0)
                 run.iterations[str(run.step_index)] = max(0, used - 1)
                 run.current_worker_id = None
+                run.current_step_completed = False
                 run.completion_turn_id = None
                 run.human_intervened = False
             else:

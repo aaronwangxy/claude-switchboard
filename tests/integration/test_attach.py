@@ -188,6 +188,10 @@ class TestAttachHandsOverControl:
         """Attaching must not be a one-way door for the ritual."""
         run = await session_manager.start_run("complete-ticket", job_id=worker.job_id)
         current = session_manager.store.get_run(run.id)
+        # Even a terminal event cannot be trusted once the human takes ownership before
+        # durable advancement; reconciliation must replay rather than skip the step.
+        current.current_step_completed = True
+        session_manager.store.save_run(current)
         running = session_manager.store.get_worker(current.current_worker_id)
         running.session_id = "sess-run"
         session_manager.store.save_worker(running)
@@ -198,6 +202,7 @@ class TestAttachHandsOverControl:
 
         resumed = await session_manager.resume_run(run.id)
         assert resumed.status is not RunStatus.BLOCKED
+        assert resumed.iterations["0"] == 1
 
     async def test_attaching_to_a_read_only_observer_warns_about_the_worktree(
         self, session_manager, worker
