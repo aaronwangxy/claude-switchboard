@@ -20,8 +20,8 @@ from switchboard.agents.backend import (
     WorkerSpec,
 )
 from switchboard.config import Config
-from switchboard.domain.enums import NativeTurnOrigin, RuntimeProcessState
-from switchboard.domain.models import RuntimeHookEvent
+from switchboard.domain.enums import NativeTurnOrigin, NativeTurnStatus, RuntimeProcessState
+from switchboard.domain.models import RuntimeHookEvent, now
 from switchboard.runtime.native_claude import NativeClaudeRuntime
 from switchboard.runtime.supervisor import TmuxRuntimeSupervisor
 from switchboard.runtime.tmux import TmuxController, TmuxError, TmuxRuntimeStatus
@@ -224,7 +224,20 @@ class NativeClaudeBackend:
         )
         runtime_id = self._runtime_id(session.spec)
         turns = self.store.list_native_turns(runtime_id)
-        if turns and self.runtime.completed(turns[-1].id) is not None:
+        if (
+            turns
+            and turns[-1].status is NativeTurnStatus.PENDING
+            and turns[-1].human_intervened
+        ):
+            turns[-1].status = NativeTurnStatus.INTERRUPTED
+            turns[-1].error = "Human reconciled uncertain delivery and cleared the composer."
+            turns[-1].updated_at = now()
+            self.store.save_native_turn(turns[-1])
+        if (
+            turns
+            and turns[-1].status is not NativeTurnStatus.INTERRUPTED
+            and self.runtime.completed(turns[-1].id) is not None
+        ):
             self.runtime.acknowledge(runtime_id, turns[-1].id)
 
     async def _wait_ready(self, runtime_id: UUID, timeout: float = 30.0) -> None:

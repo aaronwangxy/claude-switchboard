@@ -527,6 +527,40 @@ async def test_job_inspection_uses_the_explicit_authoritative_worktree(
     assert "intended.txt" not in switched_diff
 
 
+async def test_legacy_multiple_writer_job_requires_explicit_lineage(
+    session_manager, git_repo
+):
+    sm = session_manager
+    repo = sm.register_repository(git_repo("legacy-lineage"), "legacy")
+    job = sm.create_job("Legacy", repo.id)
+    first = await sm.create_worker(
+        role=WorkerRole.IMPLEMENTER, title="first", prompt="", job_id=job.id, writable=True
+    )
+    second = await sm.create_worker(
+        role=WorkerRole.IMPLEMENTER, title="second", prompt="", job_id=job.id, writable=True
+    )
+    legacy = sm.store.get_job(job.id)
+    legacy.authoritative_worktree_id = None
+    sm.store.save_job(legacy)
+
+    with pytest.raises(Exception, match="multiple writable worktrees"):
+        await sm.start_run("complete-ticket", job_id=job.id)
+
+    sm.set_authoritative_worktree(job.id, second.worktree_id)
+    observer = await sm.create_worker(
+        role=WorkerRole.QUESTION,
+        title="old observer",
+        prompt="",
+        job_id=job.id,
+        writable=False,
+    )
+    sm.set_authoritative_worktree(job.id, first.worktree_id)
+    with pytest.raises(Exception, match="observes a different worktree"):
+        await sm.start_workflow(
+            "ask-question", job_id=job.id, target_worker_id=observer.id, request="inspect"
+        )
+
+
 async def test_send_failure_does_not_leave_the_runtime_working(
     session_manager, git_repo, backend
 ):

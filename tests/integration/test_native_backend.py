@@ -295,6 +295,49 @@ async def test_recovery_advances_a_durably_completed_native_step_once(
     assert any("composite run reconciled" in note for note in notes)
 
 
+async def test_recovery_blocks_uncertain_prompt_delivery_until_human_reconciliation(
+    native_services, git_repo, monkeypatch
+):
+    manager, backend, _ = native_services
+    repo = manager.register_repository(git_repo("native-uncertain-delivery"))
+    job = manager.create_job("uncertain delivery", repo.id)
+    monkeypatch.setattr(backend.supervisor, "send", lambda runtime_id, text: None)
+
+    run = await manager.start_run("complete-ticket", job_id=job.id)
+    pending = manager.store.get_run(run.id)
+    worker_id = pending.current_worker_id
+    runtime = manager.store.current_runtime(worker_id)
+    assert manager.store.list_native_turns(runtime.id)[-1].status.value == "pending"
+    manager._pumps.pop(worker_id).cancel()
+    backend._sessions[worker_id].task.cancel()
+
+    restarted_backend = NativeClaudeBackend(
+        manager.store,
+        manager.config,
+        backend.runtime.state_dir.parent,
+        socket_path=backend.controller.socket_path,
+        tmux_executable=backend.controller.executable,
+    )
+    restarted = SessionManager(
+        manager.store, restarted_backend, manager.config, manager.worktrees
+    )
+    notes = await restarted.recover()
+
+    blocked = restarted.store.get_run(run.id)
+    assert blocked.status is RunStatus.BLOCKED
+    assert "delivery is uncertain" in blocked.detail
+    assert any("uncertain prompt delivery blocked" in note for note in notes)
+    with pytest.raises(SessionManagerError, match="trusted completion"):
+        await restarted.resume_run(run.id)
+
+    await restarted.attach(worker_id)
+    restarted.detach(worker_id, composer_cleared=True)
+    await restarted.resume_run(run.id)
+    await wait_for(
+        lambda: restarted.store.get_run(run.id).status is RunStatus.AWAITING_APPROVAL
+    )
+
+
 async def test_human_intervention_taints_and_replays_the_same_native_step(
     native_services, git_repo
 ):

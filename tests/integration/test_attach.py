@@ -197,6 +197,9 @@ class TestAttachHandsOverControl:
         session_manager.store.save_worker(running)
 
         await session_manager.attach(running.id)
+        queued = await session_manager.advance_run(run.id)
+        assert queued.status is RunStatus.BLOCKED
+        assert queued.step_index == 0
         session_manager.detach(running.id, composer_cleared=True)
         assert session_manager.store.get_run(run.id).status is RunStatus.BLOCKED
 

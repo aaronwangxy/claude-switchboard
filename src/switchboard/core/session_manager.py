@@ -39,6 +39,7 @@ from switchboard.domain.enums import (
     ArtifactType,
     AttentionKind,
     JobStage,
+    NativeTurnStatus,
     RunStatus,
     RuntimeAgentKind,
     RuntimeOwner,
@@ -140,6 +141,7 @@ class SessionManager:
         self._listeners: list[Callable[[Event], None]] = []
         #: Strong references to in-flight run advances, so they are not garbage collected.
         self._background: set[asyncio.Task] = set()
+        self._run_locks: dict[UUID, asyncio.Lock] = {}
 
     # ------------------------------------------------------------------ events
 
@@ -327,6 +329,26 @@ class SessionManager:
             if worktree and worktree.path.exists():
                 return worktree.path
         return None
+
+    def _ensure_authoritative_worktree(self, job: Job) -> Job:
+        """Migrate an unambiguous legacy job, or fail closed on multiple lineages."""
+        if job.authoritative_worktree_id is not None:
+            return job
+        candidates = [
+            worker.worktree_id
+            for worker in self.store.list_workers(job.id)
+            if worker.writable and worker.worktree_id is not None
+        ]
+        if len(candidates) > 1:
+            raise SessionManagerError(
+                "This job has multiple writable worktrees but no authoritative lineage. "
+                "Choose one explicitly before running another workflow."
+            )
+        if candidates:
+            job.authoritative_worktree_id = candidates[0]
+            job.updated_at = now()
+            self.store.save_job(job)
+        return job
 
     def set_authoritative_worktree(self, job_id: UUID, worktree_id: UUID) -> Job:
         """Explicitly choose the one job lineage inspected by every downstream gate."""
@@ -529,6 +551,7 @@ class SessionManager:
         job = self.store.get_job(job_id) if job_id else None
         worker = self.store.get_worker(target_worker_id) if target_worker_id else None
         if job is not None:
+            job = self._ensure_authoritative_worktree(job)
             self._reconcile_job_git(job)
         self._assert_prerequisites(definition, job)
 
@@ -546,6 +569,16 @@ class SessionManager:
             ):
                 raise SessionManagerError(
                     f"{worker.title!r} does not own this job's authoritative change lineage."
+                )
+            if (
+                not definition.mutates_code
+                and job is not None
+                and job.authoritative_worktree_id is not None
+                and worker.cwd != self._job_inspection_path(job)
+            ):
+                raise SessionManagerError(
+                    f"{worker.title!r} observes a different worktree than this job's "
+                    "authoritative change lineage. Start a fresh worker."
                 )
             worker.workflow = definition.name
             self.store.save_worker(worker)
@@ -634,6 +667,7 @@ class SessionManager:
         job = self.store.get_job(job_id)
         if job is None:
             raise SessionManagerError(f"Job {job_id} does not exist.")
+        job = self._ensure_authoritative_worktree(job)
         existing = self.store.active_run(job.id)
         if existing is not None:
             raise SessionManagerError(
@@ -655,6 +689,11 @@ class SessionManager:
         return await self.advance_run(run.id)
 
     async def advance_run(self, run_id: UUID) -> WorkflowRun:
+        lock = self._run_locks.setdefault(run_id, asyncio.Lock())
+        async with lock:
+            return await self._advance_run(run_id)
+
+    async def _advance_run(self, run_id: UUID) -> WorkflowRun:
         """Move a run to its next applicable step, or pause it and say why.
 
         Called once when a run starts and once each time its current worker finishes a
@@ -664,7 +703,7 @@ class SessionManager:
         run = self.store.get_run(run_id)
         if run is None:
             raise SessionManagerError(f"Run {run_id} does not exist.")
-        if run.status in (RunStatus.COMPLETED, RunStatus.FAILED):
+        if run.status is not RunStatus.RUNNING:
             return run
         if not self.backend.supports_composites:
             return self._pause_run(
@@ -821,6 +860,11 @@ class SessionManager:
                 or job.authoritative_worktree_id is None
                 or w.worktree_id == job.authoritative_worktree_id
             )
+            and (
+                definition.mutates_code
+                or job.authoritative_worktree_id is None
+                or w.cwd == self._job_inspection_path(job)
+            )
         ]
         return candidates[-1].id if candidates else None
 
@@ -834,6 +878,11 @@ class SessionManager:
 
     async def resume_run(self, run_id: UUID) -> WorkflowRun:
         """Record the user's approval for the paused step and continue the run."""
+        lock = self._run_locks.setdefault(run_id, asyncio.Lock())
+        async with lock:
+            return await self._resume_run(run_id)
+
+    async def _resume_run(self, run_id: UUID) -> WorkflowRun:
         if not self.backend.supports_composites:
             raise SessionManagerError(
                 "Composite workflow advancement is disabled for native workers."
@@ -843,6 +892,8 @@ class SessionManager:
             raise SessionManagerError(f"Run {run_id} does not exist.")
         if run.status in (RunStatus.COMPLETED, RunStatus.FAILED):
             raise SessionManagerError(f"That run already {run.status.value}.")
+        if run.status is RunStatus.RUNNING:
+            return run
         grant_approval = (
             run.status is RunStatus.AWAITING_APPROVAL and run.current_step_completed
         )
@@ -875,7 +926,7 @@ class SessionManager:
             run.approved_steps = [*run.approved_steps, run.step_index]
         run.status = RunStatus.RUNNING
         self.store.save_run(run)
-        return await self.advance_run(run.id)
+        return await self._advance_run(run.id)
 
     def _job_head(self, job: Job) -> str | None:
         head, _ = self._job_head_and_dirty(job)
@@ -1804,6 +1855,8 @@ class SessionManager:
         if job is None:
             raise SessionManagerError(f"Job {job_id} does not exist.")
         blockers: list[str] = []
+        if job.authoritative_worktree_id is None:
+            blockers.append("No authoritative change worktree is selected.")
 
         contract_artifact = self.store.latest_artifact(job_id, ArtifactType.IMPLEMENTATION_CONTRACT)
         if contract_artifact is None:
@@ -2009,6 +2062,23 @@ class SessionManager:
                     )
                     notes.append(f"{run.workflow}: incomplete step requires reconciliation")
                     continue
+                if run.current_worker_id is not None and not run.current_step_completed:
+                    runtime = self.store.current_runtime(run.current_worker_id)
+                    turns = self.store.list_native_turns(runtime.id) if runtime else []
+                    if (
+                        runtime is not None
+                        and runtime.process_state is RuntimeProcessState.READY
+                        and turns
+                        and turns[-1].status is NativeTurnStatus.PENDING
+                    ):
+                        self._pause_run(
+                            run,
+                            RunStatus.BLOCKED,
+                            "Prompt delivery is uncertain before UserPromptSubmit. Attach, "
+                            "clear the composer, and hand control back before replaying it.",
+                        )
+                        notes.append(f"{run.workflow}: uncertain prompt delivery blocked")
+                        continue
                 if run.current_worker_id is None or run.current_step_completed:
                     await self.advance_run(run.id)
                     notes.append(f"{run.workflow}: composite run reconciled")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -99,6 +100,25 @@ async def test_approving_the_plan_carries_the_job_through_the_whole_ritual(proje
     assert sm.store.list_runs(job.id)[-1].status is RunStatus.COMPLETED
     assert sm.ready_to_push(job.id).ready
     assert sm.store.get_job(job.id).stage is JobStage.READY_TO_PUSH
+
+
+async def test_concurrent_resume_calls_dispatch_the_next_step_once(project, monkeypatch):
+    sm, backend, repo = project
+    _, job, _ = await paste_ticket(sm)
+    sm.record_decision(
+        job.id, "Must legacy records remain writable?", "Read legacy, write new only"
+    )
+
+    def suppress(coro):
+        coro.close()
+
+    monkeypatch.setattr(sm, "_spawn", suppress)
+    sm.approve_plan(job.id)
+    run = sm.store.active_run(job.id)
+    await asyncio.gather(sm.resume_run(run.id), sm.resume_run(run.id))
+
+    executions = [e.workflow for e in sm.store.list_workflow_executions(job.id)]
+    assert executions.count("implement-approved-plan") == 1
 
 
 async def test_each_step_runs_on_the_worker_its_declaration_asks_for(project):
