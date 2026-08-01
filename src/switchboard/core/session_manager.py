@@ -618,6 +618,12 @@ class SessionManager:
             raise SessionManagerError(f"Run {run_id} does not exist.")
         if run.status in (RunStatus.COMPLETED, RunStatus.FAILED):
             return run
+        if not self.backend.supports_composites:
+            return self._pause_run(
+                run,
+                RunStatus.BLOCKED,
+                "Composite workflow advancement is disabled for native workers.",
+            )
         job = self.store.get_job(run.job_id)
         if job is not None:
             self._reconcile_job_git(job)
@@ -767,6 +773,10 @@ class SessionManager:
 
     async def resume_run(self, run_id: UUID) -> WorkflowRun:
         """Record the user's approval for the paused step and continue the run."""
+        if not self.backend.supports_composites:
+            raise SessionManagerError(
+                "Composite workflow advancement is disabled for native workers."
+            )
         run = self.store.get_run(run_id)
         if run is None:
             raise SessionManagerError(f"Run {run_id} does not exist.")
@@ -793,6 +803,13 @@ class SessionManager:
             return
         run = self.store.run_for_worker(worker.id)
         if run is None or run.status is not RunStatus.RUNNING:
+            return
+        if not self.backend.supports_composites:
+            self._pause_run(
+                run,
+                RunStatus.BLOCKED,
+                "Composite workflow advancement is disabled for native workers.",
+            )
             return
         self._spawn(self.advance_run(run.id))
 
@@ -1772,6 +1789,15 @@ class SessionManager:
     async def recover(self) -> list[str]:
         """Adopt matching live runtimes, reconstruct absent ones, and reject stale ones."""
         notes: list[str] = []
+        if not self.backend.supports_composites:
+            for run in self.store.list_runs():
+                if run.status is RunStatus.RUNNING:
+                    self._pause_run(
+                        run,
+                        RunStatus.BLOCKED,
+                        "Composite workflow advancement is disabled for native workers.",
+                    )
+                    notes.append(f"{run.workflow}: composite run blocked for native workers")
         for worker in self.store.list_workers():
             if worker.status in (WorkerStatus.STOPPED, WorkerStatus.DONE):
                 continue

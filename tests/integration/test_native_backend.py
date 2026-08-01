@@ -20,10 +20,12 @@ from switchboard.core.session_manager import SessionManager, SessionManagerError
 from switchboard.domain.enums import (
     ArtifactType,
     NativeTurnOrigin,
+    RunStatus,
     RuntimeProcessState,
     WorkerRole,
     WorkerStatus,
 )
+from switchboard.domain.models import WorkflowRun
 from switchboard.runtime.hook_bridge import handle_hook
 from switchboard.runtime.hook_bridge import main as hook_main
 from switchboard.storage.store import Store
@@ -230,6 +232,14 @@ async def test_native_backend_explicitly_gates_composite_runs(native_services, g
     with pytest.raises(SessionManagerError, match="Composite workflows are not enabled"):
         await manager.start_run("complete-ticket", job_id=job.id)
 
+    legacy_run = manager.store.save_run(
+        WorkflowRun(job_id=job.id, workflow="complete-ticket", status=RunStatus.RUNNING)
+    )
+    notes = await manager.recover()
+    recovered = manager.store.get_run(legacy_run.id)
+    assert recovered.status is RunStatus.BLOCKED
+    assert any("composite run blocked" in note for note in notes)
+
 
 async def test_hook_application_and_delivery_marker_are_one_transaction(
     native_services, git_repo, monkeypatch
@@ -308,6 +318,33 @@ async def test_read_only_runtime_hook_durably_denies_native_write_tools(
         == 2
     )
     assert manager.store.runtime_hook_events(runtime.id)[-1].event_name == "PreToolUse"
+
+    # Policy fails closed even when observability cannot persist/correlate the event.
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.StringIO(
+            json.dumps(
+                {
+                    "hook_event_name": "PreToolUse",
+                    "session_id": runtime.claude_session_id,
+                    "tool_name": "Write",
+                }
+            )
+        ),
+    )
+    assert (
+        hook_main(
+            [
+                "--database",
+                str(manager.store.path),
+                "--runtime-id",
+                str(uuid4()),
+                "--deny-write-tools",
+            ]
+        )
+        == 2
+    )
 
 
 async def test_restart_adopts_exact_native_process_and_continues_managed_turns(

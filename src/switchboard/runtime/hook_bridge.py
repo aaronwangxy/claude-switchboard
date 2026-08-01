@@ -178,23 +178,32 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--runtime-id", type=UUID, required=True)
     parser.add_argument("--deny-write-tools", action="store_true")
     args = parser.parse_args(argv)
+    deny_write = False
     try:
         payload = json.load(sys.stdin)
         if not isinstance(payload, dict):
             raise ValueError("Hook input must be a JSON object.")
+        deny_write = (
+            args.deny_write_tools
+            and payload.get("hook_event_name") == "PreToolUse"
+            and payload.get("tool_name") in WRITE_TOOLS
+        )
         store = Store(args.database)
         try:
             handle_hook(store, args.runtime_id, payload)
         finally:
             store.close()
-        if (
-            args.deny_write_tools
-            and payload.get("hook_event_name") == "PreToolUse"
-            and payload.get("tool_name") in WRITE_TOOLS
-        ):
+        if deny_write:
             print("Switchboard read-only worker: file-editing tool denied.", file=sys.stderr)
             return 2
     except Exception as exc:
+        if deny_write:
+            print(
+                f"Switchboard read-only worker: file-editing tool denied; "
+                f"event recording also failed: {exc}",
+                file=sys.stderr,
+            )
+            return 2
         # Nonzero but not 2: observability must never block Claude or override policy.
         print(f"Switchboard hook bridge failed: {exc}", file=sys.stderr)
         return 1
