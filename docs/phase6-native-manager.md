@@ -7,13 +7,17 @@ session UUID, launch fingerprint, owner, and process state.
 
 ## Authority and MCP isolation
 
-Only the newest manager generation may act. The manager's stdio MCP command carries the
-manager UUID, runtime UUID, and generation. Every tool call reloads current durable state
-and refuses unless all three match, `agent_kind=manager`, and ownership is `manager`.
-Rotation revokes ownership before terminating the old tmux target and saving the new
-generation. Workers never receive the manager MCP config or its launch arguments.
+Only the newest manager generation may act. Every tool call reloads current durable state
+and refuses unless the runtime UUID and generation match, `agent_kind=manager`, and the
+runtime is not exited. Human ownership closes autonomous input but deliberately keeps that
+same live generation's MCP usable. Rotation marks the old runtime exited before terminating
+its tmux target and saving the new generation. Workers never receive the manager MCP config,
+socket, or launch arguments.
 
-The MCP exposes bounded semantic orchestration operations: inspect state, list workflows,
+Claude launches a real stdio MCP subprocess. It is a narrow proxy over a mode-0600,
+generation-specific Unix socket to the board's authoritative in-process `SessionManager`;
+it never constructs a peer orchestrator or worker pumps. The MCP exposes bounded semantic
+orchestration operations: inspect state, list workflows,
 start atomic/composite workflows, follow up/interupt/stop workers, inspect contracts,
 approve plans, and report status. Handlers call `SessionManager`; the native manager has no
 direct database or repository tools. Its launch disables native coding tools and allows
@@ -30,7 +34,10 @@ responses. Worker transcripts are not included.
 Switchboard state is long-term memory; the Claude transcript is working memory. Rotation
 stores at most 4,000 characters across six compact handoff fields for objective, unresolved
 decisions, rationale, questions, or corrections not otherwise durable. It then starts a
-fresh Claude session. Losing the manager transcript cannot change workflow correctness.
+fresh Claude session. Explicit "fresh manager" requests and a bounded 80-turn context-health
+limit trigger rotation; crash recovery replaces an unrecoverable process. A natural completed
+goal boundary is also a safe point for an explicit fresh manager, without making transcript
+interpretation authoritative. Losing the manager transcript cannot change workflow correctness.
 
 Entering Manager claims human ownership and attaches to the existing tmux target. It never
 uses `claude --resume`. Handback requires explicit confirmation that the composer is empty.

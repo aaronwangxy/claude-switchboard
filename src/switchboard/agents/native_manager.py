@@ -11,6 +11,7 @@ from uuid import UUID, uuid4
 
 from switchboard.agents.attach import Attachment
 from switchboard.agents.manager import APPROVE_RE, CONFIRM_RE, Manager
+from switchboard.agents.manager_mcp import ManagerTools, serve_connection
 from switchboard.agents.native_backend import NativeClaudeBackend
 from switchboard.agents.prompts import compose_manager_prompt
 from switchboard.core.session_manager import SessionManager
@@ -27,6 +28,7 @@ MANAGER_ID_KEY = "manager.identity"
 MANAGER_HANDOFF_KEY = "manager.handoff"
 MANAGER_OBJECTIVE_KEY = "manager.current_objective"
 MAX_HANDOFF_CHARS = 4000
+MAX_MANAGER_TURNS = 80
 FRESH_MANAGER_RE = re.compile(
     r"^\s*(?:start|give me|use|rotate to|create)?\s*(?:a\s+)?fresh manager\s*[.!]?\s*$",
     re.I,
@@ -40,7 +42,6 @@ class PersistentNativeManager(Manager):
         self.sm = sm
         self.backend = backend
         self.state_dir = state_dir
-        self.runtime_state_dir = backend.controller.socket_path.parent
         self.workspace = state_dir / "manager-workspace"
         self.workspace.mkdir(parents=True, exist_ok=True)
         self._assert_clean_workspace()
@@ -48,6 +49,7 @@ class PersistentNativeManager(Manager):
             sm.store.get_or_create_preference(MANAGER_ID_KEY, str(uuid4()))
         )
         self._lock = asyncio.Lock()
+        self._mcp_servers: dict[UUID, asyncio.AbstractServer] = {}
 
     @property
     def current_runtime(self) -> RuntimeInstance | None:
@@ -56,6 +58,7 @@ class PersistentNativeManager(Manager):
     async def start_or_recover(self) -> RuntimeInstance:
         current = self.current_runtime
         if current is not None:
+            await self._ensure_mcp_server(current)
             try:
                 observed = self.backend.runtime.adopt(
                     current.id,
@@ -78,6 +81,14 @@ class PersistentNativeManager(Manager):
                 replacement = await self._rotate_unlocked({"current_user_objective": objective})
                 return f"Started fresh Manager generation {replacement.generation}."
             runtime = await self.start_or_recover()
+            if len(self.sm.store.list_native_turns(runtime.id)) >= MAX_MANAGER_TURNS:
+                objective = self.sm.store.get_preference(MANAGER_OBJECTIVE_KEY, "") or ""
+                runtime = await self._rotate_unlocked(
+                    {
+                        "current_user_objective": objective,
+                        "rotation_reason": "bounded manager turn limit reached",
+                    }
+                )
             if runtime.owner is RuntimeOwner.HUMAN:
                 return "Manager is currently owned by the human session; automated input is paused."
             self.sm.store.set_preference(MANAGER_OBJECTIVE_KEY, text[:1000])
@@ -177,6 +188,7 @@ class PersistentNativeManager(Manager):
         if not created:
             return await self.start_or_recover()
         self._write_mcp_config(runtime)
+        await self._ensure_mcp_server(runtime)
         pending_handoff = self.sm.store.get_preference(MANAGER_HANDOFF_KEY, "") or ""
         self.sm.store.set_preference(f"manager.handoff.{runtime.id}", pending_handoff)
         self.sm.store.set_preference(MANAGER_HANDOFF_KEY, "")
@@ -210,6 +222,29 @@ class PersistentNativeManager(Manager):
     def _mcp_path(self, runtime: RuntimeInstance) -> Path:
         return self.state_dir / "manager" / f"mcp-{runtime.id}.json"
 
+    def _socket_path(self, runtime: RuntimeInstance) -> Path:
+        # AF_UNIX paths are limited to roughly 100 bytes on macOS; SB_HOME test and user
+        # paths can exceed that before the UUID is appended.
+        root = Path("/private/tmp") if Path("/private/tmp").is_dir() else Path("/tmp")
+        return root / f"sb-manager-{runtime.id}.sock"
+
+    async def _ensure_mcp_server(self, runtime: RuntimeInstance) -> None:
+        if runtime.id in self._mcp_servers:
+            return
+        path = self._socket_path(runtime)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists() and path.is_socket():
+            path.unlink()
+        tools = ManagerTools(self.sm, self.manager_id, runtime.id, runtime.generation)
+
+        async def connected(
+            reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+        ) -> None:
+            await serve_connection(tools, reader, writer)
+
+        self._mcp_servers[runtime.id] = await asyncio.start_unix_server(connected, path)
+        path.chmod(0o600)
+
     def _write_mcp_config(self, runtime: RuntimeInstance) -> None:
         path = self._mcp_path(runtime)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -217,16 +252,8 @@ class PersistentNativeManager(Manager):
             sys.executable,
             "-m",
             "switchboard.agents.manager_mcp",
-            "--database",
-            str(self.sm.store.path),
-            "--manager-id",
-            str(self.manager_id),
-            "--runtime-id",
-            str(runtime.id),
-            "--generation",
-            str(runtime.generation),
-            "--state-dir",
-            str(self.runtime_state_dir),
+            "--socket",
+            str(self._socket_path(runtime)),
         ]
         path.write_text(
             json.dumps(

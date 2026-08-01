@@ -44,8 +44,37 @@ def test_manager_mcp_config_is_generation_bound(session_manager, tmp_path):
     config = json.loads(manager._mcp_path(runtime).read_text())
     command = config["mcpServers"]["switchboard"]
     joined = " ".join(command["args"])
-    assert str(runtime.id) in joined and str(runtime.generation) in joined
+    assert str(runtime.id) in joined
+    assert command["command"].endswith("python") or "python" in command["command"]
     assert set(TOOL_SCHEMAS)
+
+
+async def test_manager_mcp_socket_routes_to_board_session_manager(session_manager, tmp_path):
+    state = tmp_path / "state"
+    state.mkdir()
+    manager = PersistentNativeManager(session_manager, fake_backend(tmp_path), state)  # type: ignore[arg-type]
+    from switchboard.domain.enums import RuntimeAgentKind
+    from switchboard.domain.models import RuntimeInstance
+
+    runtime = RuntimeInstance(
+        agent_id=manager.manager_id, agent_kind=RuntimeAgentKind.MANAGER, backend="native"
+    )
+    session_manager.store.save_runtime(runtime)
+    try:
+        await manager._ensure_mcp_server(runtime)
+    except PermissionError:
+        import pytest
+
+        pytest.skip("sandbox forbids local Unix sockets")
+    import asyncio
+
+    reader, writer = await asyncio.open_unix_connection(manager._socket_path(runtime))
+    writer.write(b'{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"status_summary","arguments":{}}}\n')
+    await writer.drain()
+    response = json.loads(await reader.readline())
+    assert response["id"] == 1 and "content" in response["result"]
+    writer.close()
+    await writer.wait_closed()
 
 
 def test_manager_launch_disables_coding_tools(session_manager, tmp_path):

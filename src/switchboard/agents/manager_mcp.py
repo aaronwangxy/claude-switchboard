@@ -6,7 +6,6 @@ the durable generation again, so inheriting an old pipe is not enough to retain 
 
 from __future__ import annotations
 
-import argparse
 import asyncio
 import json
 import sys
@@ -14,12 +13,8 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-from switchboard.agents.native_backend import NativeClaudeBackend
-from switchboard.config import Config, load_config, worktree_root
 from switchboard.core.session_manager import SessionManager
-from switchboard.domain.enums import RuntimeAgentKind
-from switchboard.gitops.worktrees import WorktreeService
-from switchboard.storage.store import Store
+from switchboard.domain.enums import RuntimeAgentKind, RuntimeProcessState
 from switchboard.workflows.registry import get_workflow, workflow_names
 
 TOOL_SCHEMAS: dict[str, tuple[str, dict[str, Any]]] = {
@@ -138,6 +133,7 @@ class ManagerTools:
             or current.id != self.runtime_id
             or current.generation != self.generation
             or current.agent_kind is not RuntimeAgentKind.MANAGER
+            or current.process_state is RuntimeProcessState.EXITED
         ):
             raise ManagerAuthorizationError("This manager generation no longer has authority.")
 
@@ -288,68 +284,83 @@ def _uuid(value: Any) -> UUID | None:
     return UUID(str(value)) if value else None
 
 
-async def _serve(tools: ManagerTools) -> None:
-    # The MCP process owns pumps for workers it creates. After manager rotation/crash the
-    # replacement adopts those same native workers before accepting another tool call.
-    await tools.sm.recover()
+async def handle_request(tools: ManagerTools, request: dict[str, Any]) -> dict[str, Any] | None:
+    method = request.get("method")
+    ident = request.get("id")
+    result: Any
+    if method == "initialize":
+        result = {
+            "protocolVersion": "2025-03-26",
+            "capabilities": {"tools": {}},
+            "serverInfo": {"name": "switchboard", "version": "1.0.0"},
+        }
+    elif method == "tools/list":
+        result = {
+            "tools": [
+                {
+                    "name": name,
+                    "description": spec[0],
+                    "inputSchema": spec[1] or {"type": "object", "properties": {}},
+                }
+                for name, spec in TOOL_SCHEMAS.items()
+            ]
+        }
+    elif method == "tools/call":
+        try:
+            payload = await tools.call(
+                request["params"]["name"], request["params"].get("arguments", {})
+            )
+            result = {"content": [{"type": "text", "text": json.dumps(payload, default=str)}]}
+        except Exception as exc:
+            result = {"content": [{"type": "text", "text": f"REFUSED: {exc}"}], "isError": True}
+    else:
+        if ident is None:
+            return None
+        result = {}
+    return {"jsonrpc": "2.0", "id": ident, "result": result}
+
+
+async def serve_connection(
+    tools: ManagerTools, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+) -> None:
+    try:
+        while line := await reader.readline():
+            response = await handle_request(tools, json.loads(line))
+            if response is not None:
+                writer.write((json.dumps(response) + "\n").encode())
+                await writer.drain()
+    finally:
+        writer.close()
+        await writer.wait_closed()
+
+
+async def _proxy(socket_path: Path) -> None:
+    reader, writer = await asyncio.open_unix_connection(socket_path)
     loop = asyncio.get_running_loop()
-    while line := await loop.run_in_executor(None, sys.stdin.readline):
-        request = json.loads(line)
-        method = request.get("method")
-        ident = request.get("id")
-        result: Any
-        if method == "initialize":
-            result = {
-                "protocolVersion": "2025-03-26",
-                "capabilities": {"tools": {}},
-                "serverInfo": {"name": "switchboard", "version": "1.0.0"},
-            }
-        elif method == "tools/list":
-            result = {
-                "tools": [
-                    {
-                        "name": name,
-                        "description": spec[0],
-                        "inputSchema": spec[1] or {"type": "object", "properties": {}},
-                    }
-                    for name, spec in TOOL_SCHEMAS.items()
-                ]
-            }
-        elif method == "tools/call":
-            try:
-                payload = await tools.call(
-                    request["params"]["name"], request["params"].get("arguments", {})
-                )
-                result = {"content": [{"type": "text", "text": json.dumps(payload, default=str)}]}
-            except Exception as exc:
-                result = {"content": [{"type": "text", "text": f"REFUSED: {exc}"}], "isError": True}
-        else:
-            if ident is None:
+    try:
+        while line := await loop.run_in_executor(None, sys.stdin.readline):
+            request = json.loads(line)
+            writer.write(line.encode())
+            await writer.drain()
+            if request.get("id") is None:
                 continue
-            result = {}
-        sys.stdout.write(json.dumps({"jsonrpc": "2.0", "id": ident, "result": result}) + "\n")
-        sys.stdout.flush()
+            response = await reader.readline()
+            if not response:
+                raise RuntimeError("Switchboard manager service disconnected.")
+            sys.stdout.write(response.decode())
+            sys.stdout.flush()
+    finally:
+        writer.close()
+        await writer.wait_closed()
 
 
 def main(argv: list[str] | None = None) -> int:
+    import argparse
+
     parser = argparse.ArgumentParser()
-    parser.add_argument("--database", type=Path, required=True)
-    parser.add_argument("--manager-id", type=UUID, required=True)
-    parser.add_argument("--runtime-id", type=UUID, required=True)
-    parser.add_argument("--generation", type=int, required=True)
-    parser.add_argument("--state-dir", type=Path, required=True)
+    parser.add_argument("--socket", type=Path, required=True)
     ns = parser.parse_args(argv)
-    store = Store(ns.database)
-    config: Config = load_config()
-    backend = NativeClaudeBackend(store, config, ns.state_dir)
-    sm = SessionManager(
-        store, backend, config, WorktreeService(worktree_root(), config.worktree_bootstrap.files)
-    )
-    sm.reload_workflows()
-    try:
-        asyncio.run(_serve(ManagerTools(sm, ns.manager_id, ns.runtime_id, ns.generation)))
-    finally:
-        store.close()
+    asyncio.run(_proxy(ns.socket))
     return 0
 
 
