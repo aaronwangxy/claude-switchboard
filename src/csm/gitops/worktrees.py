@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import shutil
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from uuid import UUID
@@ -61,8 +62,35 @@ class WorktreeService:
     worktree that still holds uncommitted or unmerged work.
     """
 
-    def __init__(self, root: Path | None = None) -> None:
+    def __init__(self, root: Path | None = None, bootstrap_files: Sequence[str] = ()) -> None:
         self.root = (root or worktree_root()).expanduser()
+        self.bootstrap_files = list(bootstrap_files)
+
+    # -------------------------------------------------------------- bootstrap
+
+    def bootstrap(self, repo_path: Path, worktree_path: Path) -> list[str]:
+        """Copy the explicitly configured gitignored files into a new worktree.
+
+        A worktree does not get the repository's ignored files, so something like
+        `CLAUDE.local.md` is missing unless it is copied. Only files named in
+        configuration are copied, and only plain files directly resolvable inside the
+        repository -- nothing is swept up by pattern, and nothing escapes either tree.
+        Empty by default: opting in is the user's decision, because these files are
+        exactly where credentials tend to live.
+        """
+        copied: list[str] = []
+        repo_root = repo_path.resolve()
+        for name in self.bootstrap_files:
+            source = (repo_root / name).resolve()
+            if repo_root not in source.parents or not source.is_file():
+                continue
+            destination = worktree_path / source.relative_to(repo_root)
+            if destination.exists():
+                continue
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, destination)
+            copied.append(name)
+        return copied
 
     # ------------------------------------------------------------------ paths
 
@@ -98,6 +126,7 @@ class WorktreeService:
         if path.exists():
             raise WorktreeSafetyError(f"Worktree path {path} already exists; refusing to reuse it.")
         run_git(repo_path, "worktree", "add", "-b", branch, str(path), base_ref)
+        self.bootstrap(repo_path, path)
         return Worktree(
             repository_id=repository.id,
             path=path,

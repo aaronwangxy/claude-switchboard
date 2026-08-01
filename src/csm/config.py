@@ -91,6 +91,17 @@ class ClaudeConfig(BaseModel):
     env: dict[str, str] = Field(default_factory=dict)
 
 
+class WorktreeBootstrapConfig(BaseModel):
+    """Gitignored repository-local files to copy into a new worktree.
+
+    Empty by default: a worktree gets exactly what Git puts there. Only files named here
+    are copied, and only from the repository root, so nothing sweeps up `.env` or a
+    credential file by accident.
+    """
+
+    files: list[str] = Field(default_factory=list)
+
+
 class Config(BaseModel):
     communication: CommunicationConfig = Field(default_factory=CommunicationConfig)
     subagents: SubagentConfig = Field(default_factory=SubagentConfig)
@@ -103,6 +114,7 @@ class Config(BaseModel):
     #: The composite workflow a new job follows unless the job or repository says otherwise.
     default_profile: str = "complete-ticket"
     claude: ClaudeConfig = Field(default_factory=ClaudeConfig)
+    worktree_bootstrap: WorktreeBootstrapConfig = Field(default_factory=WorktreeBootstrapConfig)
 
     def model_for_role(self, role: str) -> str | None:
         return getattr(self.models, role, None) or self.models.general

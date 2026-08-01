@@ -62,7 +62,7 @@ def build_services() -> Services:
         from csm.agents.sdk_backend import SdkWorkerBackend
 
         backend = SdkWorkerBackend()
-    worktrees = WorktreeService(worktree_root())
+    worktrees = WorktreeService(worktree_root(), config.worktree_bootstrap.files)
     session_manager = SessionManager(store, backend, config, worktrees)
     manager: Manager = (
         DeterministicManager(session_manager) if scripted else ModelManager(session_manager)
