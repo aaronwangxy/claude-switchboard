@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from switchboard.agents.backend import WorkerBackend
-from switchboard.agents.manager import DeterministicManager, Manager, ModelManager
+from switchboard.agents.manager import DeterministicManager, Manager
 from switchboard.config import (
     Config,
     config_path,
@@ -76,9 +76,13 @@ def build_services() -> Services:
     worktrees = WorktreeService(worktree_root(), config.worktree_bootstrap.files)
     session_manager = SessionManager(store, backend, config, worktrees)
     session_manager.reload_workflows()
-    manager: Manager = (
-        DeterministicManager(session_manager) if scripted else ModelManager(session_manager)
-    )
+    if scripted:
+        manager: Manager = DeterministicManager(session_manager)
+    else:
+        from switchboard.agents.native_manager import PersistentNativeManager
+
+        assert isinstance(backend, NativeClaudeBackend)
+        manager = PersistentNativeManager(session_manager, backend, home_dir())
     return Services(
         config=config,
         store=store,
@@ -105,7 +109,9 @@ def register_repositories(
     return notes
 
 
-def build_app(register: Sequence[str | Path] = (), services: Services | None = None) -> SwitchboardApp:
+def build_app(
+    register: Sequence[str | Path] = (), services: Services | None = None
+) -> SwitchboardApp:
     """Build the Textual app with its services already wired."""
     services = services or build_services()
     notes = register_repositories(services.session_manager, register)

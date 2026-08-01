@@ -1,66 +1,81 @@
-"""The manager's context is Switchboard's own state -- never a repository's.
-
-If the manager inherited the CLAUDE.md of whichever repository Switchboard happened to be
-launched from, it would stop being a router and start behaving like that repository's
-coding agent. These assertions are about that boundary, not about model behaviour.
-"""
+"""Native manager launch isolation is structural rather than prompt-only."""
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from types import SimpleNamespace
 
-import pytest
-
-from switchboard.agents.manager import MANAGER_TOOL_NAMES, ModelManager
+from switchboard.agents.manager_mcp import TOOL_SCHEMAS
+from switchboard.agents.native_backend import NativeClaudeBackend
+from switchboard.agents.native_manager import PersistentNativeManager
 from switchboard.config import Config
 
-pytest.importorskip("claude_agent_sdk")
+
+def fake_backend(tmp_path: Path):
+    backend = object.__new__(NativeClaudeBackend)
+    backend.controller = SimpleNamespace(socket_path=tmp_path / "runtime" / "tmux.sock")
+    return backend
 
 
-@pytest.fixture
-def options(session_manager, monkeypatch, git_repo):
-    """Manager options built while the process is sitting inside a real repository."""
-    repo = git_repo("noisy")
-    (repo / "CLAUDE.md").write_text("# Always edit files immediately.\n")
-    session_manager.register_repository(repo)
-    monkeypatch.chdir(repo)
-    return ModelManager(session_manager).options()
+def test_manager_has_dedicated_non_repository_workspace(session_manager, tmp_path):
+    state = tmp_path / "state"
+    state.mkdir()
+    backend = fake_backend(tmp_path)
+    manager = PersistentNativeManager(session_manager, backend, state)  # type: ignore[arg-type]
+    assert manager.workspace == state / "manager-workspace"
+    assert not (manager.workspace / ".git").exists()
+    assert manager.workspace != Path.cwd()
 
 
-def test_the_manager_loads_no_setting_sources(options):
-    assert options.setting_sources == []
+def test_manager_mcp_config_is_generation_bound(session_manager, tmp_path):
+    state = tmp_path / "state"
+    state.mkdir()
+    backend = fake_backend(tmp_path)
+    manager = PersistentNativeManager(session_manager, backend, state)  # type: ignore[arg-type]
+    from switchboard.domain.enums import RuntimeAgentKind
+    from switchboard.domain.models import RuntimeInstance
+
+    runtime = RuntimeInstance(
+        agent_id=manager.manager_id, agent_kind=RuntimeAgentKind.MANAGER, backend="native"
+    )
+    session_manager.store.save_runtime(runtime)
+    manager._write_mcp_config(runtime)
+    config = json.loads(manager._mcp_path(runtime).read_text())
+    command = config["mcpServers"]["switchboard"]
+    joined = " ".join(command["args"])
+    assert str(runtime.id) in joined and str(runtime.generation) in joined
+    assert set(TOOL_SCHEMAS)
 
 
-def test_the_manager_runs_in_the_switchboard_data_directory(options, session_manager):
-    assert Path(options.cwd) == session_manager.store.path.parent
+def test_manager_launch_disables_coding_tools(session_manager, tmp_path):
+    state = tmp_path / "state"
+    state.mkdir()
+    backend = fake_backend(tmp_path)
+    manager = PersistentNativeManager(session_manager, backend, state)  # type: ignore[arg-type]
+    from switchboard.domain.enums import RuntimeAgentKind
+    from switchboard.domain.models import RuntimeInstance
+
+    runtime = RuntimeInstance(
+        agent_id=manager.manager_id, agent_kind=RuntimeAgentKind.MANAGER, backend="native"
+    )
+    args = manager._extra_args(runtime)
+    assert "--strict-mcp-config" in args
+    assert "--tools" in args and args[args.index("--tools") + 1] == ""
+    denied = args[args.index("--disallowedTools") + 1]
+    assert all(name in denied for name in ("Bash", "Edit", "Write", "Read", "Task"))
+    assert "mcp__switchboard__*" in args
 
 
-def test_the_manager_has_no_file_shell_or_subagent_tools(options):
-    for denied in ("Bash", "Edit", "Write", "Read", "Glob", "Grep", "Task"):
-        assert denied in options.disallowed_tools
-    assert all(name.startswith("mcp__switchboard__") for name in options.allowed_tools)
-    assert set(options.allowed_tools) == {f"mcp__switchboard__{name}" for name in MANAGER_TOOL_NAMES}
-
-
-def test_the_manager_turn_is_bounded(options):
-    assert options.max_turns == 12
-
-
-def test_the_configured_executable_and_env_reach_the_manager(session_manager, tmp_path):
-    import stat
-
+def test_configured_wrapper_and_environment_are_shared_with_native_runtime(
+    session_manager, tmp_path
+):
     wrapper = tmp_path / "company-claude"
     wrapper.write_text("#!/bin/sh\nexit 0\n")
-    wrapper.chmod(wrapper.stat().st_mode | stat.S_IXUSR)
+    wrapper.chmod(0o700)
     config = Config()
     config.claude.executable = str(wrapper)
     config.claude.env = {"COMPANY_PROXY": "on"}
     session_manager.config = config
-
-    options = ModelManager(session_manager).options()
-    assert Path(options.cli_path) == wrapper
-    assert options.env == {"COMPANY_PROXY": "on"}
-
-
-def test_workers_by_contrast_do_inherit_repository_settings(session_manager):
-    """The mirror image of the invariant above: workers *should* see the repository."""
+    assert session_manager.config.claude.executable == str(wrapper)
+    assert session_manager.config.claude.env == {"COMPANY_PROXY": "on"}

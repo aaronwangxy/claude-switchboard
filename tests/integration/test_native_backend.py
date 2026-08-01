@@ -15,6 +15,7 @@ import pytest
 
 from switchboard.agents.backend import WorkerEvent
 from switchboard.agents.native_backend import NativeClaudeBackend
+from switchboard.agents.native_manager import MAX_HANDOFF_CHARS, PersistentNativeManager
 from switchboard.config import ClaudeConfig, Config
 from switchboard.core.session_manager import SessionManager, SessionManagerError
 from switchboard.domain.enums import (
@@ -40,6 +41,41 @@ async def wait_for(check, timeout: float = 5.0):
             return value
         await asyncio.sleep(0.02)
     raise AssertionError("condition did not become true")
+
+
+async def test_native_manager_is_persistent_adoptable_and_rotatable(native_services, tmp_path):
+    sm, backend, _ = native_services
+    manager = PersistentNativeManager(sm, backend, tmp_path / "manager-state")
+
+    first = await manager.start_or_recover()
+    reply = await manager.handle("What is blocked?")
+    assert "Plan ready" in reply
+    assert (await manager.start_or_recover()).id == first.id
+
+    restarted = PersistentNativeManager(sm, backend, tmp_path / "manager-state")
+    adopted = await restarted.start_or_recover()
+    assert adopted.id == first.id
+    assert adopted.claude_session_id == first.claude_session_id
+
+    replacement = await restarted.rotate(
+        {"objective": "continue active work", "rationale": "user changed priority"}
+    )
+    assert replacement.generation == first.generation + 1
+    assert replacement.id != first.id
+    assert len(sm.store.get_preference("manager.handoff", "") or "") <= MAX_HANDOFF_CHARS
+    assert sm.store.get_runtime(first.id).owner.value == "human"
+
+
+async def test_native_manager_human_entry_uses_same_process(native_services, tmp_path):
+    sm, backend, _ = native_services
+    manager = PersistentNativeManager(sm, backend, tmp_path / "manager-entry")
+    runtime = await manager.start_or_recover()
+    attachment = await manager.enter()
+    assert attachment.session_id == runtime.claude_session_id
+    assert "--resume" not in attachment.argv
+    assert sm.store.get_runtime(runtime.id).owner.value == "human"
+    manager.release_human(composer_cleared=True)
+    assert sm.store.get_runtime(runtime.id).owner.value == "manager"
 
 
 @pytest.fixture
@@ -68,9 +104,7 @@ def native_services(store: Store, worktree_service, tmp_path: Path):
             env={
                 "FAKE_NATIVE_LOG": str(log),
                 "FAKE_NATIVE_COMPOSITE": "1",
-                "FAKE_NATIVE_RESPONSE": "Plan ready.\n```json\n"
-                + json.dumps(response)
-                + "\n```",
+                "FAKE_NATIVE_RESPONSE": "Plan ready.\n```json\n" + json.dumps(response) + "\n```",
             },
         )
     )
@@ -105,7 +139,9 @@ async def test_atomic_workflow_consumes_only_managed_stop_and_returns_ready(
     assert turns[-1].origin is NativeTurnOrigin.MANAGED
     assert turns[-1].claude_prompt_id
     assert worker.session_id == runtime.claude_session_id
-    started = json.loads((await wait_for(lambda: log.read_text() if log.exists() else "")).splitlines()[0])
+    started = json.loads(
+        (await wait_for(lambda: log.read_text() if log.exists() else "")).splitlines()[0]
+    )
     assert started["argv"][started["argv"].index("--permission-mode") + 1] == "plan"
     transcript_count = len(manager.store.transcript(worker.id))
     artifact_count = len(manager.store.list_artifacts(job.id))
@@ -146,7 +182,10 @@ async def test_atomic_workflow_consumes_only_managed_stop_and_returns_ready(
         },
     )
     await asyncio.sleep(0.15)
-    assert manager.store.latest_artifact(job.id, ArtifactType.IMPLEMENTATION_CONTRACT).id == managed_artifact_id
+    assert (
+        manager.store.latest_artifact(job.id, ArtifactType.IMPLEMENTATION_CONTRACT).id
+        == managed_artifact_id
+    )
     manager.detach(worker.id, composer_cleared=True)
     assert manager.store.current_runtime(worker.id).process_state is RuntimeProcessState.READY
 
@@ -163,8 +202,9 @@ async def test_permission_and_busy_lane_are_normalized_without_prompt_corruption
         repository_id=repo.id,
     )
     await wait_for(
-        lambda: manager.store.current_runtime(worker.id).process_state
-        is RuntimeProcessState.WAITING
+        lambda: (
+            manager.store.current_runtime(worker.id).process_state is RuntimeProcessState.WAITING
+        )
     )
     transcript_before = list(manager.store.transcript(worker.id))
     with pytest.raises(SessionManagerError, match="active turn|waiting"):
@@ -172,7 +212,11 @@ async def test_permission_and_busy_lane_are_normalized_without_prompt_corruption
     assert manager.store.transcript(worker.id) == transcript_before
     await wait_for(lambda: manager.store.get_worker(worker.id).status is WorkerStatus.IDLE)
     assert manager.store.current_runtime(worker.id).process_state is RuntimeProcessState.READY
-    prompts = [json.loads(line)["text"] for line in log.read_text().splitlines() if '"event": "prompt"' in line]
+    prompts = [
+        json.loads(line)["text"]
+        for line in log.read_text().splitlines()
+        if '"event": "prompt"' in line
+    ]
     assert len(prompts) == 1
     assert "SECOND_PROMPT_MUST_NOT_APPEAR" not in prompts[0]
 
@@ -196,14 +240,17 @@ async def test_human_entry_taints_active_managed_turn_and_notification_blocks(
     turn = manager.store.list_native_turns(runtime.id)[-1]
     assert turn.human_intervened
     assert manager.store.get_worker(worker.id).status is WorkerStatus.WORKING
-    assert not [message for message in manager.store.transcript(worker.id) if message.role == "assistant"]
+    assert not [
+        message for message in manager.store.transcript(worker.id) if message.role == "assistant"
+    ]
     manager.detach(worker.id, composer_cleared=True)
     assert manager.store.current_runtime(worker.id).process_state is RuntimeProcessState.READY
 
     await manager.send(worker.id, "NOTIFICATION_PERMISSION HOLD_TURN")
     await wait_for(
-        lambda: manager.store.current_runtime(worker.id).process_state
-        is RuntimeProcessState.WAITING
+        lambda: (
+            manager.store.current_runtime(worker.id).process_state is RuntimeProcessState.WAITING
+        )
     )
     await wait_for(lambda: manager.store.get_worker(worker.id).status is WorkerStatus.BLOCKED)
 
@@ -283,9 +330,7 @@ async def test_recovery_advances_a_durably_completed_native_step_once(
         socket_path=backend.controller.socket_path,
         tmux_executable=backend.controller.executable,
     )
-    restarted = SessionManager(
-        manager.store, restarted_backend, manager.config, manager.worktrees
-    )
+    restarted = SessionManager(manager.store, restarted_backend, manager.config, manager.worktrees)
     notes = await restarted.recover()
 
     recovered = restarted.store.get_run(run.id)
@@ -318,9 +363,7 @@ async def test_recovery_blocks_uncertain_prompt_delivery_until_human_reconciliat
         socket_path=backend.controller.socket_path,
         tmux_executable=backend.controller.executable,
     )
-    restarted = SessionManager(
-        manager.store, restarted_backend, manager.config, manager.worktrees
-    )
+    restarted = SessionManager(manager.store, restarted_backend, manager.config, manager.worktrees)
     notes = await restarted.recover()
 
     blocked = restarted.store.get_run(run.id)
@@ -333,9 +376,7 @@ async def test_recovery_blocks_uncertain_prompt_delivery_until_human_reconciliat
     await restarted.attach(worker_id)
     restarted.detach(worker_id, composer_cleared=True)
     await restarted.resume_run(run.id)
-    await wait_for(
-        lambda: restarted.store.get_run(run.id).status is RunStatus.AWAITING_APPROVAL
-    )
+    await wait_for(lambda: restarted.store.get_run(run.id).status is RunStatus.AWAITING_APPROVAL)
 
 
 async def test_human_intervention_taints_and_replays_the_same_native_step(
@@ -344,9 +385,7 @@ async def test_human_intervention_taints_and_replays_the_same_native_step(
     manager, _, _ = native_services
     repo = manager.register_repository(git_repo("native-composite-human"))
     job = manager.create_job("human composite", repo.id)
-    run = await manager.start_run(
-        "complete-ticket", job_id=job.id, request="HOLD_TURN"
-    )
+    run = await manager.start_run("complete-ticket", job_id=job.id, request="HOLD_TURN")
     active = await wait_for(lambda: manager.store.get_run(run.id).current_worker_id)
     worker_id = active
     runtime = manager.store.current_runtime(worker_id)
@@ -362,9 +401,7 @@ async def test_human_intervention_taints_and_replays_the_same_native_step(
     manager.detach(worker_id, composer_cleared=True)
     resumed = await manager.resume_run(run.id)
     assert resumed.iterations == {"0": 1}
-    await wait_for(
-        lambda: manager.store.get_run(run.id).status is RunStatus.AWAITING_APPROVAL
-    )
+    await wait_for(lambda: manager.store.get_run(run.id).status is RunStatus.AWAITING_APPROVAL)
 
 
 async def test_failed_native_composite_turn_never_advances(native_services, git_repo):
@@ -372,9 +409,7 @@ async def test_failed_native_composite_turn_never_advances(native_services, git_
     repo = manager.register_repository(git_repo("native-composite-failure"))
     job = manager.create_job("failed composite", repo.id)
 
-    run = await manager.start_run(
-        "complete-ticket", job_id=job.id, request="STOP_FAILURE"
-    )
+    run = await manager.start_run("complete-ticket", job_id=job.id, request="STOP_FAILURE")
     blocked = await wait_for(
         lambda: (
             candidate
@@ -521,9 +556,7 @@ async def test_restart_adopts_exact_native_process_and_continues_managed_turns(
         socket_path=backend.controller.socket_path,
         tmux_executable=backend.controller.executable,
     )
-    restarted = SessionManager(
-        manager.store, restarted_backend, manager.config, manager.worktrees
-    )
+    restarted = SessionManager(manager.store, restarted_backend, manager.config, manager.worktrees)
     notes = await restarted.recover()
 
     assert any("adopted" in note for note in notes)
@@ -535,9 +568,7 @@ async def test_restart_adopts_exact_native_process_and_continues_managed_turns(
     assert len(restarted.store.list_native_turns(adopted.id)) == 2
 
 
-async def test_missing_native_process_is_recreated_as_a_new_generation(
-    native_services, git_repo
-):
+async def test_missing_native_process_is_recreated_as_a_new_generation(native_services, git_repo):
     manager, backend, _ = native_services
     repo = manager.register_repository(git_repo("native-recreate"))
     worker = await manager.create_worker(
@@ -560,9 +591,7 @@ async def test_missing_native_process_is_recreated_as_a_new_generation(
         socket_path=backend.controller.socket_path,
         tmux_executable=backend.controller.executable,
     )
-    restarted = SessionManager(
-        manager.store, restarted_backend, manager.config, manager.worktrees
-    )
+    restarted = SessionManager(manager.store, restarted_backend, manager.config, manager.worktrees)
     notes = await restarted.recover()
 
     replacement = restarted.store.current_runtime(worker.id)

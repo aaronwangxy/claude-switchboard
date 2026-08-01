@@ -76,6 +76,7 @@ class NativeClaudeRuntime:
         permission_mode: str | None = None,
         read_only: bool = False,
         system_prompt_append: str = "",
+        extra_args: tuple[str, ...] = (),
     ) -> NativeClaudeLaunch:
         executable = self._executable()
         runtime = self.store.get_runtime(runtime_id)
@@ -88,11 +89,10 @@ class NativeClaudeRuntime:
             permission_mode=permission_mode,
             read_only=read_only,
             system_prompt_append=system_prompt_append,
+            extra_args=extra_args,
         )
         if runtime.launch_fingerprint != expected_fingerprint:
-            raise TmuxError(
-                "Native Claude launch fingerprint does not match the durable runtime."
-            )
+            raise TmuxError("Native Claude launch fingerprint does not match the durable runtime.")
         # Re-running launch during recovery must describe/adopt the same Claude session,
         # not allocate a replacement identity before the supervisor can observe tmux.
         session_id = runtime.claude_session_id or str(uuid4())
@@ -109,6 +109,7 @@ class NativeClaudeRuntime:
             *(("--model", model) if model else ()),
             *(("--permission-mode", permission_mode) if permission_mode else ()),
             *(("--append-system-prompt", system_prompt_append) if system_prompt_append else ()),
+            *extra_args,
         )
         launched = self.supervisor.launch(
             runtime_id,
@@ -127,6 +128,7 @@ class NativeClaudeRuntime:
         permission_mode: str | None = None,
         read_only: bool = False,
         system_prompt_append: str = "",
+        extra_args: tuple[str, ...] = (),
     ) -> str:
         """Hash every stable launch input that defines a reusable native process."""
         payload = {
@@ -142,6 +144,7 @@ class NativeClaudeRuntime:
             "read_only": read_only,
             "state_dir": str(self.state_dir.resolve()),
             "system_prompt_append": system_prompt_append,
+            "extra_args": extra_args,
         }
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
         return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
@@ -155,6 +158,7 @@ class NativeClaudeRuntime:
         permission_mode: str | None = None,
         read_only: bool = False,
         system_prompt_append: str = "",
+        extra_args: tuple[str, ...] = (),
     ) -> SupervisedRuntime:
         runtime = self.store.get_runtime(runtime_id)
         if runtime is None:
@@ -165,6 +169,7 @@ class NativeClaudeRuntime:
             permission_mode=permission_mode,
             read_only=read_only,
             system_prompt_append=system_prompt_append,
+            extra_args=extra_args,
         ):
             raise TmuxError(
                 "Native Claude launch fingerprint does not match this controller configuration."
@@ -261,14 +266,14 @@ class NativeClaudeRuntime:
         self.state_dir.mkdir(parents=True, exist_ok=True)
         path = self.state_dir / f"native-{runtime_id}.settings.json"
         command_parts = [
-                self.python_executable,
-                "-m",
-                "switchboard.runtime.hook_bridge",
-                "--database",
-                str(self.store.path),
-                "--runtime-id",
-                str(runtime_id),
-            ]
+            self.python_executable,
+            "-m",
+            "switchboard.runtime.hook_bridge",
+            "--database",
+            str(self.store.path),
+            "--runtime-id",
+            str(runtime_id),
+        ]
         if read_only:
             command_parts.append("--deny-write-tools")
         command = shlex.join(command_parts)

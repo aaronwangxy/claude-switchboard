@@ -8,7 +8,6 @@ version = "0.1.0"
 description = "One board for many Claude Code sessions: route the work, gate it on contracts and evidence, step into any line."
 requires-python = ">=3.12"
 dependencies = [
-    "claude-agent-sdk>=0.1.0",
     "textual>=1.0",
     "pydantic>=2.7",
     "pyyaml>=6.0",
