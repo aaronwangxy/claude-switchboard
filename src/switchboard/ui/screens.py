@@ -70,7 +70,7 @@ class ManagerPane(Vertical):
         self._entries: deque[list[str | None]] = deque(maxlen=MAX_MANAGER_EXCHANGES)
 
     def compose(self) -> ComposeResult:
-        yield Static("Manager", classes="pane-title")
+        yield Static("Manager", classes="pane-title", id="manager-title")
         with VerticalScroll(id="manager-scroll"):
             yield Static(id="manager-log")
         yield Input(
@@ -334,6 +334,14 @@ class SwitchboardApp(App[None]):
 
     def _tick(self) -> None:
         """Low-frequency backstop in case a listener call was missed."""
+        if hasattr(self.manager, "status"):
+            status = self.manager.status()  # type: ignore[attr-defined]
+            generation = status.get("generation") or "-"
+            state = status.get("state") or "absent"
+            owner = status.get("owner") or "-"
+            self.query_one("#manager-title", Static).update(
+                f"Manager · g{generation} · {state} · {owner}"
+            )
         self.refresh_workers()
         self.refresh_worker_pane()
 
