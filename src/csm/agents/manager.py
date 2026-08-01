@@ -11,6 +11,8 @@ Two interchangeable implementations share one contract:
 
 from __future__ import annotations
 
+import dataclasses
+import functools
 import json
 import logging
 import re
@@ -59,6 +61,8 @@ class ModelManager:
         self._fallback = DeterministicManager(session_manager)
         #: Set per turn from the user's own words; a model claim of confirmation is not enough.
         self._user_confirmed = False
+        #: The tool objects from the most recent `_tools()` build, keyed by name.
+        self.tool_objects: dict[str, Any] = {}
 
     # ------------------------------------------------------------------- tools
 
@@ -262,27 +266,28 @@ class ModelManager:
                 return err(str(exc))
             return ok({"recorded": True})
 
-        return create_sdk_mcp_server(
-            name="csm",
-            version="1.0.0",
-            tools=[
-                list_repositories,
-                register_repository,
-                list_jobs,
-                list_workers,
-                inspect_worker,
-                create_job,
-                create_worker,
-                route_message,
-                start_workflow,
-                open_worker,
-                interrupt_worker,
-                stop_worker,
-                request_cleanup,
-                list_attention_items,
-                record_decision,
-            ],
-        )
+        registered = [
+            list_repositories,
+            register_repository,
+            list_jobs,
+            list_workers,
+            inspect_worker,
+            create_job,
+            create_worker,
+            route_message,
+            start_workflow,
+            open_worker,
+            interrupt_worker,
+            stop_worker,
+            request_cleanup,
+            list_attention_items,
+            record_decision,
+        ]
+        # A malformed argument must come back as a refusal the manager can read and
+        # correct, never as an exception that kills the turn.
+        guarded = [dataclasses.replace(t, handler=_guard(t.handler, err)) for t in registered]
+        self.tool_objects = {t.name: t for t in guarded}
+        return create_sdk_mcp_server(name="csm", version="1.0.0", tools=guarded)
 
     # ------------------------------------------------------------------ handle
 
@@ -376,6 +381,19 @@ MANAGER_TOOL_NAMES = [
     "list_attention_items",
     "record_decision",
 ]
+
+
+def _guard(handler: Any, err: Any) -> Any:
+    """Turn any handler failure into a refusal message naming what went wrong."""
+
+    @functools.wraps(handler)
+    async def wrapper(args: dict) -> dict:
+        try:
+            return await handler(args)
+        except (SessionManagerError, ValueError, KeyError, TypeError) as exc:
+            return err(str(exc) or exc.__class__.__name__)
+
+    return wrapper
 
 
 def _require_uuid(value: Any) -> UUID:
