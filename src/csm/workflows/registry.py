@@ -11,7 +11,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from csm.domain.enums import WorkerRole
-from csm.workflows.loader import load_all
+from csm.workflows.loader import REPO_WORKFLOW_DIR, load_all
 from csm.workflows.spec import (
     Approval,
     StepCondition,
@@ -30,6 +30,7 @@ __all__ = [
     "WorkflowDefinition",
     "WorkflowError",
     "WorkflowStep",
+    "REPO_WORKFLOW_DIR",
     "get_workflow",
     "load_problems",
     "reload_workflows",

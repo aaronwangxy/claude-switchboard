@@ -68,12 +68,14 @@ from csm.workflows.freshness import (
     relineage,
 )
 from csm.workflows.registry import (
+    REPO_WORKFLOW_DIR,
     Approval,
     WorkerMode,
     WorkflowDefinition,
     WorkflowError,
     WorkflowStep,
     get_workflow,
+    reload_workflows,
     render_template,
     validate_for_role,
 )
@@ -170,10 +172,25 @@ class SessionManager:
             root_path=root,
             default_branch=runner.default_branch(root),
         )
-        return self.store.add_repository(repo)
+        self.store.add_repository(repo)
+        self.reload_workflows()
+        return repo
 
     def list_repositories(self) -> list[Repository]:
         return self.store.list_repositories()
+
+    def reload_workflows(self) -> list[str]:
+        """Reload built-in, user, and repository-local workflows. Returns any problems.
+
+        A registered repository may carry its own workflows in `.csm/workflows`, so a
+        team convention travels with the repository rather than with this machine.
+        """
+        directories = [
+            repo.root_path / REPO_WORKFLOW_DIR
+            for repo in self.store.list_repositories()
+            if (repo.root_path / REPO_WORKFLOW_DIR).is_dir()
+        ]
+        return reload_workflows(directories)
 
     # -------------------------------------------------------------------- jobs
 

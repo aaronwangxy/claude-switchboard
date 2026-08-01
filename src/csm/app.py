@@ -64,6 +64,7 @@ def build_services() -> Services:
         backend = SdkWorkerBackend()
     worktrees = WorktreeService(worktree_root(), config.worktree_bootstrap.files)
     session_manager = SessionManager(store, backend, config, worktrees)
+    session_manager.reload_workflows()
     manager: Manager = (
         DeterministicManager(session_manager) if scripted else ModelManager(session_manager)
     )
