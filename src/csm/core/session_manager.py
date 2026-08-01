@@ -333,6 +333,7 @@ class SessionManager:
         definition = get_workflow(workflow_name)
         job = self.store.get_job(job_id) if job_id else None
         worker = self.store.get_worker(target_worker_id) if target_worker_id else None
+        self._assert_prerequisites(definition, job)
 
         if worker is not None:
             validate_for_role(workflow_name, worker.role)
@@ -363,6 +364,44 @@ class SessionManager:
         self._snapshot_before_change(worker)
         self._advance_stage(job, workflow_name)
         return worker
+
+    def _assert_prerequisites(self, definition: WorkflowDefinition, job: Job | None) -> None:
+        """A workflow cannot run before the artifacts it declares it needs exist.
+
+        This is what stops implementation from starting without an approved plan, however
+        confidently a model asks for it.
+        """
+        if not definition.required_artifacts:
+            return
+        if job is None:
+            raise SessionManagerError(
+                f"{definition.name} needs a job carrying "
+                f"{', '.join(sorted(a.value for a in definition.required_artifacts))}."
+            )
+        for required in sorted(definition.required_artifacts, key=lambda a: a.value):
+            artifact = self.store.latest_artifact(job.id, required)
+            if artifact is None or artifact.stale:
+                raise SessionManagerError(
+                    f"{definition.name} needs a current {required.value} for this job and there "
+                    "is none. Run plan-feature first, then approve the plan."
+                )
+            if (
+                required is ArtifactType.IMPLEMENTATION_CONTRACT
+                and definition.mutates_code
+                and self.config.commits.require_plan
+            ):
+                contract = ImplementationContract.model_validate(artifact.body)
+                if not contract.approved:
+                    raise SessionManagerError(
+                        f"{definition.name} needs an approved implementation contract. "
+                        "The plan exists but has not been approved yet."
+                    )
+                if contract.blocking_decisions():
+                    raise SessionManagerError(
+                        f"{definition.name} is blocked on "
+                        f"{len(contract.blocking_decisions())} unanswered decision(s): "
+                        f"{contract.blocking_decisions()[0].question}"
+                    )
 
     def _advance_stage(self, job: Job | None, workflow_name: str) -> None:
         if job is not None and workflow_name in WORKFLOW_STAGE:

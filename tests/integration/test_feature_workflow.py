@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import subprocess
-from pathlib import Path
 
 import pytest
 
@@ -125,6 +123,34 @@ async def test_a_plan_cannot_be_approved_while_a_decision_blocks_it(project):
         sm.approve_plan(job.id)
     sm.record_decision(job.id, "Must legacy records remain writable?", "Read legacy only")
     sm.approve_plan(job.id)
+
+
+async def test_implementation_cannot_start_without_an_approved_plan(project):
+    """The declared prerequisites are enforced in code, not by asking a model nicely."""
+    sm, backend, repo = project
+    manager = DeterministicManager(sm)
+
+    job = sm.create_job("No plan yet", sm.store.list_repositories()[0].id)
+    with pytest.raises(Exception, match="needs a current implementation_contract"):
+        await sm.start_workflow("implement-approved-plan", job_id=job.id, request="go")
+
+    await manager.handle(TICKET)
+    await settle()
+    planned = sm.store.list_jobs()[0]
+    with pytest.raises(Exception, match="has not been approved"):
+        await sm.start_workflow("implement-approved-plan", job_id=planned.id, request="go")
+
+    sm.record_decision(planned.id, "Must legacy records remain writable?", "Read legacy only")
+    sm.approve_plan(planned.id)
+    worker = await sm.start_workflow("implement-approved-plan", job_id=planned.id, request="go")
+    assert worker.writable
+
+
+async def test_verification_cannot_run_without_a_behavior_contract(project):
+    sm, backend, repo = project
+    job = sm.create_job("No criteria", sm.store.list_repositories()[0].id)
+    with pytest.raises(Exception, match="needs a current behavior_contract"):
+        await sm.start_workflow("full-verify", job_id=job.id)
 
 
 # ------------------------------------------------------------ the full loop

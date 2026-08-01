@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
-from uuid import uuid4
 
 import pytest
 
@@ -112,7 +111,7 @@ def test_inactive_workers_are_summarised_rather_than_detailed(repo):
 
 
 def test_recent_events_are_capped(repo):
-    events = [Event(kind=f"worker.output", summary=f"event-{i}") for i in range(MAX_EVENTS + 5)]
+    events = [Event(kind="worker.output", summary=f"event-{i}") for i in range(MAX_EVENTS + 5)]
     snapshot = build(repo, events=events)
     assert "event-0" in snapshot
     assert f"event-{MAX_EVENTS}" not in snapshot

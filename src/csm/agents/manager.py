@@ -23,6 +23,7 @@ from csm.core.session_manager import SessionManager, SessionManagerError
 from csm.domain.enums import WorkerRole
 from csm.routing import router
 from csm.routing.router import RouteError
+from csm.workflows.registry import WORKFLOWS
 
 log = logging.getLogger(__name__)
 
@@ -153,13 +154,17 @@ class ModelManager:
 
         @tool(
             "create_worker",
-            "Create an independent worker session.",
+            "Create an independent worker session. Prefer start_workflow, which creates the "
+            f"right worker for you. role must be one of: {ROLE_VALUES}.",
             {"role": str, "title": str, "prompt": str, "job_id": str, "repository_id": str, "writable": bool},
         )
         async def create_worker(args: dict) -> dict:
+            role = args.get("role")
+            if role not in _ROLE_SET:
+                return err(f"{role!r} is not a role. Use one of: {ROLE_VALUES}.")
             try:
                 worker = await sm.create_worker(
-                    role=WorkerRole(args["role"]),
+                    role=WorkerRole(role),
                     title=args["title"],
                     prompt=args.get("prompt", ""),
                     job_id=_uuid(args.get("job_id")),
@@ -180,10 +185,14 @@ class ModelManager:
 
         @tool(
             "start_workflow",
-            "Run a reusable workflow on a job, optionally targeting an existing worker.",
+            "Run a reusable workflow on a job. Creates the worker the workflow needs, in the "
+            "right worktree, unless you target an existing one. workflow_name must be one of: "
+            f"{WORKFLOW_VALUES}.",
             {"workflow_name": str, "job_id": str, "target_worker_id": str, "request": str},
         )
         async def start_workflow(args: dict) -> dict:
+            if args.get("workflow_name") not in WORKFLOWS:
+                return err(f"{args.get('workflow_name')!r} is not a workflow. Use one of: {WORKFLOW_VALUES}.")
             try:
                 worker = await sm.start_workflow(
                     args["workflow_name"],
@@ -345,6 +354,10 @@ class ModelManager:
         self.exchanges.append(Exchange(user=text, manager=reply))
         return reply
 
+
+ROLE_VALUES = ", ".join(r.value for r in WorkerRole)
+WORKFLOW_VALUES = ", ".join(sorted(WORKFLOWS))
+_ROLE_SET = {r.value for r in WorkerRole}
 
 MANAGER_TOOL_NAMES = [
     "list_repositories",

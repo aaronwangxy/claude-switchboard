@@ -12,8 +12,8 @@ from csm.domain.models import Job, Repository, Worker
 from csm.routing.router import (
     RouteError,
     RoutingState,
-    extract_title,
     extract_ticket_ref,
+    extract_title,
     looks_like_question,
     looks_like_ticket,
     resolve_route,
