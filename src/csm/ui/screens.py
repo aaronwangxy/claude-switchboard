@@ -30,6 +30,7 @@ from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.css.query import NoMatches
 from textual.screen import Screen
 from textual.widgets import Button, DataTable, Footer, Header, Input, Static
 
@@ -351,6 +352,17 @@ class CsmApp(App[None]):
         return ordered
 
     def refresh_workers(self) -> None:
+        """Repaint the worker list.
+
+        A repaint can be triggered by a worker event, so it may arrive before the screen
+        has mounted or after it has gone. Painting is never important enough to raise.
+        """
+        try:
+            self._refresh_workers()
+        except NoMatches:  # not mounted, or already torn down
+            log.debug("worker list repaint skipped: pane not mounted")
+
+    def _refresh_workers(self) -> None:
         rows = self.ordered_workers()
         jobs = {job.id: job for job in self.sm.store.list_jobs()}
         repos = {repo.id: repo for repo in self.sm.store.list_repositories()}
@@ -376,6 +388,13 @@ class CsmApp(App[None]):
         self.query_one("#worker-list-title", Static).update(title)
 
     def refresh_worker_pane(self) -> None:
+        """Redraw the selected worker, for the same reasons and with the same guard."""
+        try:
+            self._refresh_worker_pane()
+        except NoMatches:  # not mounted, or already torn down
+            log.debug("worker pane repaint skipped: pane not mounted")
+
+    def _refresh_worker_pane(self) -> None:
         """Redraw only when something actually changed, so scrolling is not fought."""
         worker_id = self.sm.selected_worker_id
         worker = self.sm.store.get_worker(worker_id) if worker_id else None
