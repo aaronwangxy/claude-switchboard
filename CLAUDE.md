@@ -126,8 +126,9 @@ worktree. Reachable by `Ctrl+E`, the `attach_worker` tool, and the router.
 **Worker backend.** `agents/backend.py` defines `WorkerSpec`/`WorkerHandle`/`WorkerEvent`
 and the `WorkerBackend` protocol (start, send, stream, interrupt, stop, resume, health,
 observe, adopt).
-`SdkWorkerBackend` runs one `ClaudeSDKClient` per worker; `ScriptedWorkerBackend` emits the
-same normalized events in-process. Orchestration never touches SDK types.
+`NativeClaudeBackend` runs durable native Claude Code processes through the runtime
+supervisor and tmux; `ScriptedWorkerBackend` emits the same normalized events in-process
+for deterministic tests. Orchestration never touches tmux or hook payload types.
 
 **Runtime instances.** Each worker has a durable, generation-numbered `RuntimeInstance`.
 It records substrate-neutral process/turn state, manager-vs-human input ownership, Claude
@@ -136,10 +137,10 @@ for an active writable turn. Recovery observes the backend first: it adopts only
 runtime-id/generation match, reconstructs an absent manager-owned runtime as a new generation,
 and refuses a live mismatch or an unobservable human-owned runtime.
 
-The Phase 2 tmux prototype is below the production backend boundary: one dedicated tmux
+The production native substrate uses one dedicated tmux
 server, one session per runtime generation. `TmuxController` contains every tmux command and
-parser; `TmuxRuntimeSupervisor` binds exact targets to `RuntimeInstance`. Production workers
-still use the SDK. See `docs/tmux-runtime.md` for topology, input, entry, and ownership rules.
+parser; `TmuxRuntimeSupervisor` binds exact targets to `RuntimeInstance`. See
+`docs/tmux-runtime.md` for topology, input, entry, and ownership rules.
 
 **Session lifecycle.** `create_worker` → allocate a worktree if writable → `backend.start`
 → an asyncio pump task consumes `backend.stream` → `_apply` normalizes each event into
@@ -195,7 +196,15 @@ change only moves lineage forward, a tree change invalidates behavioral artifact
 gate, and a bounded `max_iterations`. `WorkflowRun` is persisted, so a run survives a
 restart; `core/runs.py` evaluates every condition from stored state alone. The only
 backwards move is a bounded repeat, so a run provably terminates. Safety invariants are
-never configurable from a workflow.
+never configurable from a workflow. A durable completion marker, set only while applying
+a trusted managed terminal event and its artifacts, authorizes advancement; assigning or
+sending to a worker never does. Human intervention taints the current attempt and requires
+explicit resume/replay before automatic mutation continues.
+
+Each job persists one `authoritative_worktree_id`. The first writable worker establishes it,
+and `set_authoritative_worktree` changes it explicitly. Reviewers, verifiers, freshness,
+Git invalidation, and ready-to-push inspect only that lineage; other writable workers stay
+isolated and cannot silently become the change under review.
 
 **Mining.** `mine-workflows` is an ordinary read-only workflow whose input is
 `SessionManager.workflow_history()` -- Switchboard's own record of what ran, in order,
