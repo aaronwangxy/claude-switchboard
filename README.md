@@ -88,23 +88,33 @@ yours to decide.
 +------------------------------+----------------------------------------+
 ```
 
-## Setup
+## Install
 
-Requires Python 3.12+, `git`, and the `claude` CLI on your `PATH`.
+Requires `git` and the `claude` CLI on your `PATH`; [uv](https://docs.astral.sh/uv/)
+supplies the Python (3.12+).
 
 ```bash
-python3 -m venv .venv
-./.venv/bin/pip install -e ".[dev]"
+uv tool install --editable .    # puts `sb` on your PATH
+```
+
+`--editable` points the installed command at this checkout, so an edit here is live on
+the next `sb` — which is what you want while iterating. Drop it for a frozen copy. Either
+way, re-run with `--reinstall` after changing dependencies in `pyproject.toml`.
+
+To try it without installing anything:
+
+```bash
+uvx --from . sb
 ```
 
 ## Run
 
 ```bash
-./.venv/bin/sb                          # launch the interface (or: sb claude)
-./.venv/bin/sb --register /path/repo    # register a repository at startup
-./.venv/bin/sb workflows                # what this installation can route to
-./.venv/bin/sb config                   # effective configuration and its paths
-SB_BACKEND=scripted ./.venv/bin/sb      # offline demo: no model calls
+sb                          # launch the interface (or: sb claude)
+sb --register /path/repo    # register a repository at startup
+sb workflows                # what this installation can route to
+sb config                   # effective configuration and its paths
+SB_BACKEND=scripted sb      # offline demo: no model calls
 ```
 
 Press `?` in the app for the key bindings.
@@ -132,9 +142,12 @@ loaded. `mine-workflows` reads Switchboard's own record of what you have been ru
 *proposes* workflows for rituals you keep assembling by hand; a proposal changes nothing
 until you accept it.
 
-## Test
+## Develop
+
+The tooling runs from a plain virtualenv, independent of the installed `sb`:
 
 ```bash
+python3 -m venv .venv && ./.venv/bin/pip install -e ".[dev]"
 ./.venv/bin/python -m pytest -q
 ./.venv/bin/ruff check src tests
 ./.venv/bin/mypy

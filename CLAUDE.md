@@ -224,15 +224,19 @@ enforced by tool policy and prompt, not a sandbox. See `docs/mvp-evidence.md` li
 
 ## Commands
 
-```bash
-python3 -m venv .venv && ./.venv/bin/pip install -e ".[dev]"   # install
-./.venv/bin/sb                                                 # launch (or: sb claude)
-./.venv/bin/sb --register /path/to/repo                        # register a repo at startup
-./.venv/bin/sb workflows                                       # what routing can reach
-./.venv/bin/sb config                                          # effective config and paths
-./.venv/bin/sb --log-file /tmp/switchboard.log                 # logs (otherwise discarded)
-SB_BACKEND=scripted ./.venv/bin/sb                             # offline: no model calls
+`sb` is installed on my PATH with `uv tool install --editable .`, so it runs *this*
+checkout: source edits are live immediately, but a `pyproject.toml` dependency change
+needs `uv tool install --editable . --reinstall`.
 
+```bash
+sb                                                             # launch (or: sb claude)
+sb --register /path/to/repo                                    # register a repo at startup
+sb workflows                                                   # what routing can reach
+sb config                                                      # effective config and paths
+sb --log-file /tmp/switchboard.log                             # logs (otherwise discarded)
+SB_BACKEND=scripted sb                                         # offline: no model calls
+
+python3 -m venv .venv && ./.venv/bin/pip install -e ".[dev]"   # dev tooling
 ./.venv/bin/python -m pytest -q                                # full suite, ~40s
 ./.venv/bin/ruff check src tests
 ./.venv/bin/mypy
