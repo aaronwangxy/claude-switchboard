@@ -94,6 +94,7 @@ reach for.
 | `gitops/` | `runner` (argv-only git) and `WorktreeService` |
 | `workflows/` | `WORKFLOWS` registry and deterministic artifact freshness |
 | `agents/` | `WorkerBackend` protocol, SDK + scripted backends, manager, prompt composition, bounded snapshots |
+| `runtime/` | Substrate-neutral durable runtime supervision and focused tmux process control |
 | `routing/` | Deterministic router and attention-queue ordering |
 | `core/` | `SessionManager` (the orchestrator) and guarded state transitions |
 | `ui/` | Three-pane Textual app; presentation only |
@@ -134,6 +135,11 @@ session identity, launch fingerprint, opaque future substrate identity, and the 
 for an active writable turn. Recovery observes the backend first: it adopts only an exact
 runtime-id/generation match, reconstructs an absent manager-owned runtime as a new generation,
 and refuses a live mismatch or an unobservable human-owned runtime.
+
+The Phase 2 tmux prototype is below the production backend boundary: one dedicated tmux
+server, one session per runtime generation. `TmuxController` contains every tmux command and
+parser; `TmuxRuntimeSupervisor` binds exact targets to `RuntimeInstance`. Production workers
+still use the SDK. See `docs/tmux-runtime.md` for topology, input, entry, and ownership rules.
 
 **Session lifecycle.** `create_worker` → allocate a worktree if writable → `backend.start`
 → an asyncio pump task consumes `backend.stream` → `_apply` normalizes each event into
