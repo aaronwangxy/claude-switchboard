@@ -28,6 +28,7 @@ def main() -> int:
     os.write(sys.stdout.fileno(), b"\x1b[?2004hREADY\r\n")
     pending = bytearray()
     pasted: bytearray | None = None
+    awaiting_enter = False
     try:
         while True:
             chunk = os.read(sys.stdin.fileno(), 4096)
@@ -36,6 +37,12 @@ def main() -> int:
             pending.extend(chunk)
             while pending:
                 if pasted is None:
+                    if awaiting_enter:
+                        if pending[:1] in (b"\r", b"\n"):
+                            del pending[:1]
+                            awaiting_enter = False
+                            continue
+                        break
                     start = pending.find(START)
                     if start >= 0:
                         del pending[: start + len(START)]
@@ -62,6 +69,8 @@ def main() -> int:
                     pasted = None
                     if pending[:1] in (b"\r", b"\n"):
                         del pending[:1]
+                    else:
+                        awaiting_enter = True
                 record(log, {"event": "turn", "text": text, "pid": os.getpid()})
                 if text == "__exit__":
                     return 7

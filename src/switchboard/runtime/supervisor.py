@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -59,17 +60,36 @@ class TmuxRuntimeSupervisor:
         # session. TmuxController.create performs the same check atomically on races.
         discovered = self.controller.observe(binding, None)
         if discovered.status is TmuxRuntimeStatus.ALIVE:
-            raise TmuxError("A tmux runtime exists without matching durable target identity.")
+            assert discovered.target is not None
+            runtime.substrate = discovered.target.as_substrate()
+            runtime.updated_at = now()
+            self.store.save_runtime(runtime)
+            return self._record(runtime, discovered, adopted=True)
         if discovered.status is TmuxRuntimeStatus.STALE:
             raise TmuxError("A stale tmux runtime occupies this runtime identity.")
-        target = self.controller.create(binding, command, cwd=cwd, env=env)
+        try:
+            target = self.controller.create(binding, command, cwd=cwd, env=env)
+        except TmuxError:
+            # Another controller may have won between observe and create, or this
+            # controller may have died after binding tmux metadata but before saving the
+            # opaque target. Adopt only an exact binding; every mismatch remains stale.
+            raced = self._observe_launch_race(binding)
+            if raced.status is not TmuxRuntimeStatus.ALIVE or raced.target is None:
+                raise
+            target = raced.target
+            runtime.substrate = target.as_substrate()
+            runtime.updated_at = now()
+            self.store.save_runtime(runtime)
+            return self._record(runtime, raced, adopted=True)
         runtime.substrate = target.as_substrate()
-        runtime.process_state = RuntimeProcessState.READY
+        # Tmux proves the process exists, not that an interactive agent is semantically
+        # ready for a turn. A future backend signal owns the STARTING -> READY transition.
+        runtime.process_state = RuntimeProcessState.STARTING
         runtime.owner = RuntimeOwner.MANAGER
         runtime.updated_at = now()
         self.store.save_runtime(runtime)
         observation = self.controller.observe(binding, target)
-        return SupervisedRuntime(runtime, observation, adopted=False)
+        return self._record(runtime, observation, adopted=False)
 
     def observe(self, runtime_id: UUID) -> SupervisedRuntime:
         runtime = self._runtime(runtime_id)
@@ -108,8 +128,6 @@ class TmuxRuntimeSupervisor:
             runtime.process_state = RuntimeProcessState.EXITED
         elif observation.status is TmuxRuntimeStatus.ABSENT:
             runtime.process_state = RuntimeProcessState.ABSENT
-        elif observation.status is TmuxRuntimeStatus.STALE:
-            runtime.process_state = RuntimeProcessState.WAITING
         runtime.updated_at = now()
         self.store.save_runtime(runtime)
         return SupervisedRuntime(runtime, observation, adopted=adopted)
@@ -119,6 +137,16 @@ class TmuxRuntimeSupervisor:
         if runtime is None:
             raise TmuxError(f"Runtime {runtime_id} does not exist in durable state.")
         return runtime
+
+    def _observe_launch_race(self, binding: RuntimeBinding) -> TmuxObservation:
+        """Give a winning creator a bounded moment to finish writing exact metadata."""
+        observation = self.controller.observe(binding, None)
+        for _ in range(20):
+            if observation.status is not TmuxRuntimeStatus.STALE:
+                return observation
+            time.sleep(0.01)
+            observation = self.controller.observe(binding, None)
+        return observation
 
     @staticmethod
     def _binding(runtime: RuntimeInstance) -> RuntimeBinding:

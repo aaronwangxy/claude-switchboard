@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import subprocess
 from collections.abc import Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -117,6 +118,7 @@ class TmuxController:
     ) -> TmuxTarget:
         if not command:
             raise TmuxError("A runtime command cannot be empty.")
+        self._ensure_server()
         session_name = self.session_name(binding.runtime_id)
         result = self._run(
             [
@@ -145,8 +147,6 @@ class TmuxController:
         except (ValueError, TypeError) as exc:
             raise TmuxError("tmux did not return a usable pane identity.") from exc
 
-        # A dead pane is retained so observation distinguishes exited from absent.
-        self._run(["set-option", "-p", "-t", target.pane_id, "remain-on-exit", "on"])
         self._set_metadata(target, binding, RuntimeOwner.MANAGER)
         return target
 
@@ -154,6 +154,9 @@ class TmuxController:
         self, binding: RuntimeBinding, expected: TmuxTarget | None
     ) -> TmuxObservation:
         session_name = expected.session_name if expected else self.session_name(binding.runtime_id)
+        present = self._run(["has-session", "-t", session_name], check=False)
+        if present.returncode != 0:
+            return TmuxObservation(TmuxRuntimeStatus.ABSENT, detail="tmux session is absent")
         result = self._run(
             [
                 "display-message",
@@ -209,21 +212,36 @@ class TmuxController:
     def set_owner(
         self, binding: RuntimeBinding, target: TmuxTarget, owner: RuntimeOwner
     ) -> None:
-        self._require_exact(binding, target, allow_exited=False)
-        self._run(["set-option", "-q", "-t", target.session_name, self._OWNER, owner.value])
+        with self._runtime_lock(binding):
+            self._require_exact(binding, target, allow_exited=False)
+            self._run(
+                ["set-option", "-q", "-t", target.session_name, self._OWNER, owner.value]
+            )
 
     def send_literal(self, binding: RuntimeBinding, target: TmuxTarget, text: str) -> None:
-        observation = self._require_exact(binding, target, allow_exited=False)
-        if observation.owner is not RuntimeOwner.MANAGER:
-            raise TmuxError("Runtime input is human-controlled; programmatic input is refused.")
-        if observation.attached_clients:
-            raise TmuxError("A tmux client is viewing this runtime; programmatic input is refused.")
-        buffer_name = f"switchboard-{uuid4().hex}"
-        self._run(["load-buffer", "-b", buffer_name, "-"], input_bytes=text.encode("utf-8"))
-        self._run(
-            ["paste-buffer", "-d", "-p", "-b", buffer_name, "-t", target.pane_id]
-        )
-        self._run(["send-keys", "-t", target.pane_id, "Enter"])
+        with self._runtime_lock(binding):
+            observation = self._require_exact(binding, target, allow_exited=False)
+            if observation.owner is not RuntimeOwner.MANAGER:
+                raise TmuxError(
+                    "Runtime input is human-controlled; programmatic input is refused."
+                )
+            if observation.attached_clients:
+                raise TmuxError(
+                    "A tmux client is viewing this runtime; programmatic input is refused."
+                )
+            buffer_name = f"switchboard-{uuid4().hex}"
+            self._run(
+                ["load-buffer", "-b", buffer_name, "-"], input_bytes=text.encode("utf-8")
+            )
+            try:
+                self._run(
+                    ["paste-buffer", "-d", "-p", "-b", buffer_name, "-t", target.pane_id]
+                )
+            finally:
+                # `-d` deletes on success; the explicit best-effort cleanup covers a pane
+                # disappearing between load and paste so prompt contents do not linger.
+                self._run(["delete-buffer", "-b", buffer_name], check=False)
+            self._run(["send-keys", "-t", target.pane_id, "Enter"])
 
     def view(self, binding: RuntimeBinding, target: TmuxTarget) -> TmuxView:
         self._require_exact(binding, target, allow_exited=False)
@@ -256,6 +274,28 @@ class TmuxController:
         }
         for key, value in values.items():
             self._run(["set-option", "-q", "-t", target.session_name, key, value])
+
+    def _ensure_server(self) -> None:
+        """Start a persistent dedicated server and set exit retention before launch."""
+        bootstrap = f"switchboard-bootstrap-{uuid4().hex}"
+        created = self._run(["new-session", "-d", "-s", bootstrap], check=False)
+        if created.returncode == 0:
+            self._run(["set-option", "-g", "exit-empty", "off"])
+        # Window defaults apply to the runtime pane from its first instruction, so even
+        # an immediately exiting child remains observable as EXITED.
+        self._run(["set-option", "-g", "-w", "remain-on-exit", "on"])
+        if created.returncode == 0:
+            self._run(["kill-session", "-t", bootstrap])
+
+    @contextmanager
+    def _runtime_lock(self, binding: RuntimeBinding):
+        """Serialize ownership and input transactions across controller processes."""
+        channel = f"switchboard-lock-{binding.runtime_id.hex}-{binding.generation}"
+        self._run(["wait-for", "-L", channel])
+        try:
+            yield
+        finally:
+            self._run(["wait-for", "-U", channel], check=False)
 
     def _metadata(self, target: TmuxTarget) -> dict[str, str]:
         values: dict[str, str] = {}

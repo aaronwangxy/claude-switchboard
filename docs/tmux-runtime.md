@@ -16,11 +16,17 @@ The durable binding has two halves:
 
 Observation accepts a runtime only when both halves match. A reused name, changed generation
 or fingerprint, or different pane identity is stale rather than adoptable.
+If the tmux half is exact but Python died before saving the opaque target, recovery repairs the
+durable half and adopts it. Concurrent creators are serialized by tmux's session-name creation;
+the loser waits briefly for the winner's metadata and adopts the same pane rather than launching
+a second child.
 
 Input uses `tmux load-buffer` with the prompt on stdin, followed by bracketed
 `paste-buffer -p` and a separate Enter key. Prompt bytes are never command arguments and no
 shell interpolation is used. Interactive applications normalize terminal carriage returns
 inside a bracketed paste back to logical newlines.
+Ownership changes and the load/paste/Enter transaction share a tmux-native per-runtime lock,
+so separate controller processes cannot interleave two turns.
 
 Entry is a view description, not a blocking child process owned by Switchboard. An external
 terminal attaches to the existing session. A client already connected to the same dedicated
@@ -35,3 +41,5 @@ does not durably claim ownership; the caller must claim it before presenting the
 
 This layer observes only process lifetime and ownership. It does not interpret terminal
 contents as Claude readiness, turn completion, blocking, or permission state.
+A newly launched live pane therefore remains `STARTING`; tmux does not promote it to semantic
+`READY`.

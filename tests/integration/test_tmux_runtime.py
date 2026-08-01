@@ -10,6 +10,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from uuid import uuid4
 
@@ -113,6 +114,56 @@ def test_runtime_survives_controller_restart_and_is_adopted_without_duplication(
     assert [event for event in events(log) if event["event"] == "started"] == [events(log)[0]]
 
 
+def test_exact_tmux_metadata_repairs_a_missing_durable_target_without_relaunch(launched, store):
+    supervisor, runtime, target, log = launched
+    stored = store.get_runtime(runtime.id)
+    stored.substrate = {}
+    store.save_runtime(stored)
+
+    restarted = TmuxRuntimeSupervisor(
+        store, TmuxController(supervisor.controller.socket_path, supervisor.controller.executable)
+    )
+    adopted = restarted.launch(
+        runtime.id,
+        [sys.executable, "-c", "raise SystemExit('must not launch')"],
+        cwd=log.parent,
+    )
+
+    assert adopted.adopted
+    assert adopted.observation.target == target
+    assert store.get_runtime(runtime.id).substrate == target.as_substrate()
+    assert len([event for event in events(log) if event["event"] == "started"]) == 1
+
+
+def test_concurrent_controllers_create_one_process_and_the_loser_adopts(
+    store: Store,
+    runtime: RuntimeInstance,
+    tmux_controller: TmuxController,
+    tmp_path: Path,
+):
+    log = tmp_path / "concurrent.jsonl"
+    command = [sys.executable, "-u", str(FAKE), str(log)]
+
+    def launch():
+        thread_store = Store(store.path)
+        try:
+            supervisor = TmuxRuntimeSupervisor(
+                thread_store,
+                TmuxController(tmux_controller.socket_path, tmux_controller.executable),
+            )
+            return supervisor.launch(runtime.id, command, cwd=tmp_path)
+        finally:
+            thread_store.close()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: launch(), range(2)))
+    wait_for(lambda: events(log))
+
+    assert sorted(result.adopted for result in results) == [False, True]
+    assert results[0].observation.target == results[1].observation.target
+    assert len([event for event in events(log) if event["event"] == "started"]) == 1
+
+
 def test_generation_fingerprint_and_exact_pane_identity_are_all_required(launched):
     supervisor, runtime, target, log = launched
     controller = supervisor.controller
@@ -135,6 +186,32 @@ def test_literal_input_is_one_multiline_unicode_turn_with_metacharacters(launche
 
     assert turn["text"] == message
     assert turn["pid"] == target.pane_pid
+
+
+def test_concurrent_controllers_serialize_complete_input_turns(launched, store):
+    supervisor, runtime, target, log = launched
+    messages = ["alpha\nA", "beta\nB"]
+
+    def send(message: str):
+        thread_store = Store(store.path)
+        try:
+            controller = TmuxController(
+                supervisor.controller.socket_path, supervisor.controller.executable
+            )
+            TmuxRuntimeSupervisor(thread_store, controller).send(runtime.id, message)
+        finally:
+            thread_store.close()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        list(pool.map(send, messages))
+    turns = wait_for(
+        lambda: (
+            found if len(found := [e for e in events(log) if e["event"] == "turn"]) == 2 else None
+        )
+    )
+
+    assert sorted(event["text"] for event in turns) == sorted(messages)
+    assert all(event["pid"] == target.pane_pid for event in turns)
 
 
 def test_owner_is_reconstructed_and_human_control_refuses_programmatic_input(
@@ -240,6 +317,31 @@ def test_exited_and_absent_are_distinct(launched):
     absent = supervisor.observe(runtime.id).observation
     assert absent.status is TmuxRuntimeStatus.ABSENT
     assert store_state(supervisor, runtime.id) is RuntimeProcessState.ABSENT
+
+
+def test_an_immediately_exiting_process_is_retained_as_exited(
+    store: Store,
+    runtime: RuntimeInstance,
+    tmux_controller: TmuxController,
+    tmp_path: Path,
+):
+    supervisor = TmuxRuntimeSupervisor(store, tmux_controller)
+    launched = supervisor.launch(
+        runtime.id,
+        [sys.executable, "-c", "raise SystemExit(9)"],
+        cwd=tmp_path,
+    )
+    observation = wait_for(
+        lambda: (
+            current
+            if (current := supervisor.observe(runtime.id).observation).status
+            is TmuxRuntimeStatus.EXITED
+            else None
+        )
+    )
+
+    assert launched.observation.status in {TmuxRuntimeStatus.ALIVE, TmuxRuntimeStatus.EXITED}
+    assert observation.exit_status == 9
 
 
 def store_state(supervisor: TmuxRuntimeSupervisor, runtime_id):
