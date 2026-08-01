@@ -13,6 +13,9 @@ from switchboard.domain.enums import (
     AttentionKind,
     JobStage,
     RunStatus,
+    RuntimeAgentKind,
+    RuntimeOwner,
+    RuntimeProcessState,
     WorkerRole,
     WorkerStatus,
 )
@@ -77,6 +80,27 @@ class Worker(Base):
     workflow: str | None = None
     prompt_policy_version: str = "1"
     active_helpers: int = 0
+    created_at: datetime = Field(default_factory=now)
+    updated_at: datetime = Field(default_factory=now)
+
+
+class RuntimeInstance(Base):
+    """Durable identity and observed state of one substrate-owned agent process."""
+
+    id: UUID = Field(default_factory=uuid4)
+    agent_id: UUID
+    agent_kind: RuntimeAgentKind = RuntimeAgentKind.WORKER
+    generation: int = Field(default=1, ge=1)
+    backend: str
+    claude_session_id: str | None = None
+    process_state: RuntimeProcessState = RuntimeProcessState.STARTING
+    owner: RuntimeOwner = RuntimeOwner.MANAGER
+    launch_fingerprint: str = ""
+    #: Opaque substrate identity. A future backend may store a tmux target here;
+    #: orchestration must never interpret these keys.
+    substrate: dict[str, str] = Field(default_factory=dict)
+    git_head_before_turn: str | None = None
+    git_tree_before_turn: str | None = None
     created_at: datetime = Field(default_factory=now)
     updated_at: datetime = Field(default_factory=now)
 

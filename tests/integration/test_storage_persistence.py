@@ -12,6 +12,8 @@ from switchboard.domain.enums import (
     ArtifactType,
     AttentionKind,
     JobStage,
+    RuntimeOwner,
+    RuntimeProcessState,
     WorkerRole,
     WorkerStatus,
 )
@@ -22,6 +24,7 @@ from switchboard.domain.models import (
     Event,
     Job,
     Repository,
+    RuntimeInstance,
     TranscriptMessage,
     Worker,
     WorkflowExecution,
@@ -358,6 +361,35 @@ def test_preferences_round_trip(store: Store, reopen):
     assert store.get_preference("verbosity") == "concise"
 
     assert reopen(store).get_preference("verbosity") == "concise"
+
+
+def test_runtime_generations_and_ownership_round_trip(store: Store, reopen):
+    agent_id = uuid4()
+    first = RuntimeInstance(
+        agent_id=agent_id,
+        generation=1,
+        backend="scripted",
+        claude_session_id="session-1",
+        process_state=RuntimeProcessState.TURN_ACTIVE,
+        launch_fingerprint="fingerprint",
+        git_head_before_turn="abc",
+        git_tree_before_turn="def",
+    )
+    second = RuntimeInstance(
+        agent_id=agent_id,
+        generation=2,
+        backend="scripted",
+        owner=RuntimeOwner.HUMAN,
+        process_state=RuntimeProcessState.READY,
+        substrate={"target": "opaque"},
+    )
+    store.save_runtime(first)
+    store.save_runtime(second)
+
+    fresh = reopen(store)
+    assert fresh.get_runtime(first.id) == first
+    assert fresh.current_runtime(agent_id) == second
+    assert fresh.list_runtimes(agent_id) == [first, second]
 
 
 def test_deleting_a_worker_removes_its_transcript_and_attention(store: Store, tmp_path: Path):

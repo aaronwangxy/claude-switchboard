@@ -16,6 +16,30 @@ class WorkerStatus(str, Enum):
     DISCONNECTED = "disconnected"
 
 
+class RuntimeProcessState(str, Enum):
+    """Substrate-neutral lifecycle of one agent process instance."""
+
+    ABSENT = "absent"
+    STARTING = "starting"
+    READY = "ready"
+    TURN_ACTIVE = "turn_active"
+    WAITING = "waiting"
+    TURN_COMPLETE = "turn_complete"
+    EXITED = "exited"
+
+
+class RuntimeOwner(str, Enum):
+    """Who is currently allowed to drive the runtime's input."""
+
+    MANAGER = "manager"
+    HUMAN = "human"
+
+
+class RuntimeAgentKind(str, Enum):
+    WORKER = "worker"
+    MANAGER = "manager"
+
+
 TERMINAL_WORKER_STATUSES = frozenset(
     {WorkerStatus.DONE, WorkerStatus.FAILED, WorkerStatus.STOPPED, WorkerStatus.DISCONNECTED}
 )

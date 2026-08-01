@@ -9,7 +9,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_meta (version INTEGER NOT NULL);
@@ -48,6 +48,18 @@ CREATE TABLE IF NOT EXISTS workers (
     writable INTEGER NOT NULL,
     created_at TEXT NOT NULL,
     data TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS runtime_instances (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    agent_kind TEXT NOT NULL,
+    generation INTEGER NOT NULL,
+    process_state TEXT NOT NULL,
+    owner TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    data TEXT NOT NULL,
+    UNIQUE(agent_id, generation)
 );
 
 CREATE TABLE IF NOT EXISTS events (
@@ -117,6 +129,7 @@ CREATE TABLE IF NOT EXISTS preferences (
 );
 
 CREATE INDEX IF NOT EXISTS idx_workers_job ON workers(job_id);
+CREATE INDEX IF NOT EXISTS idx_runtime_agent ON runtime_instances(agent_id, generation);
 CREATE INDEX IF NOT EXISTS idx_transcript_worker ON transcript(worker_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at);
 CREATE INDEX IF NOT EXISTS idx_artifacts_job ON artifacts(job_id, type);

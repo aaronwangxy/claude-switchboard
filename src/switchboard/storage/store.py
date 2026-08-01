@@ -17,6 +17,7 @@ from switchboard.domain.models import (
     Event,
     Job,
     Repository,
+    RuntimeInstance,
     TranscriptMessage,
     Worker,
     WorkflowExecution,
@@ -197,6 +198,53 @@ class Store:
         self.conn.execute("DELETE FROM transcript WHERE worker_id=?", (str(worker_id),))
         self.conn.execute("DELETE FROM attention_items WHERE worker_id=?", (str(worker_id),))
         self.conn.commit()
+
+    # --------------------------------------------------------------- runtimes
+
+    def save_runtime(self, runtime: RuntimeInstance) -> RuntimeInstance:
+        self.conn.execute(
+            "INSERT OR REPLACE INTO runtime_instances"
+            " (id, agent_id, agent_kind, generation, process_state, owner, updated_at, data)"
+            " VALUES (?,?,?,?,?,?,?,?)",
+            (
+                str(runtime.id),
+                str(runtime.agent_id),
+                runtime.agent_kind.value,
+                runtime.generation,
+                runtime.process_state.value,
+                runtime.owner.value,
+                runtime.updated_at.isoformat(),
+                _dump(runtime),
+            ),
+        )
+        self.conn.commit()
+        return runtime
+
+    def get_runtime(self, runtime_id: UUID) -> RuntimeInstance | None:
+        row = self.conn.execute(
+            "SELECT data FROM runtime_instances WHERE id=?", (str(runtime_id),)
+        ).fetchone()
+        return _load(RuntimeInstance, row) if row else None
+
+    def current_runtime(self, agent_id: UUID) -> RuntimeInstance | None:
+        row = self.conn.execute(
+            "SELECT data FROM runtime_instances WHERE agent_id=?"
+            " ORDER BY generation DESC LIMIT 1",
+            (str(agent_id),),
+        ).fetchone()
+        return _load(RuntimeInstance, row) if row else None
+
+    def list_runtimes(self, agent_id: UUID | None = None) -> list[RuntimeInstance]:
+        if agent_id is None:
+            rows = self.conn.execute(
+                "SELECT data FROM runtime_instances ORDER BY agent_id, generation"
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                "SELECT data FROM runtime_instances WHERE agent_id=? ORDER BY generation",
+                (str(agent_id),),
+            ).fetchall()
+        return [_load(RuntimeInstance, row) for row in rows]
 
     # ------------------------------------------------------------------ events
 
