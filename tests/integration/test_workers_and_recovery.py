@@ -327,6 +327,25 @@ async def test_recovery_rejects_a_live_generation_mismatch(
     assert "Refusing to adopt" in restored.waiting_for
 
 
+async def test_recovery_rejects_a_live_launch_fingerprint_mismatch(
+    session_manager, git_repo, backend
+):
+    sm = session_manager
+    repo = sm.register_repository(git_repo("config-drift"), "config-drift")
+    worker = await sm.create_worker(
+        role=WorkerRole.GENERAL, title="w", prompt="hi", repository_id=repo.id
+    )
+    await settle()
+    sm._pumps.pop(worker.id).cancel()
+    changed = Config(setting_sources=["user"])
+
+    restarted = SessionManager(sm.store, backend, changed, sm.worktrees)
+    notes = await restarted.recover()
+
+    assert any("stale runtime rejected" in note for note in notes)
+    assert restarted.store.get_worker(worker.id).status is WorkerStatus.DISCONNECTED
+
+
 async def test_recovery_reconciles_a_durable_git_baseline(
     session_manager, git_repo
 ):
@@ -362,6 +381,40 @@ async def test_recovery_reconciles_a_durable_git_baseline(
     runtime = restarted.store.current_runtime(worker.id)
     assert runtime.git_head_before_turn is None
     assert runtime.git_tree_before_turn is None
+
+
+async def test_a_new_turn_reconciles_an_unfinished_baseline_before_replacing_it(
+    session_manager, git_repo
+):
+    sm = session_manager
+    repo = sm.register_repository(git_repo("next-turn"), "next-turn")
+    job = sm.create_job("Next turn", repo.id)
+    worker = await sm.create_worker(
+        role=WorkerRole.IMPLEMENTER,
+        title="w",
+        prompt="",
+        job_id=job.id,
+        writable=True,
+    )
+    sm.store.save_artifact(
+        Artifact(
+            job_id=job.id,
+            worker_id=worker.id,
+            type=ArtifactType.VERIFICATION,
+            head_commit=runner.head_commit(worker.cwd),
+            tree_hash=runner.tree_hash(worker.cwd),
+            body={"evidence": []},
+        )
+    )
+    sm._snapshot_before_change(worker)
+    commit_file(worker.cwd, "between.txt", "changed\n", "between turns")
+
+    await sm.send(worker.id, "continue")
+
+    artifact = sm.store.latest_artifact(job.id, ArtifactType.VERIFICATION)
+    assert artifact.stale
+    runtime = sm.store.current_runtime(worker.id)
+    assert runtime.git_head_before_turn == runner.head_commit(worker.cwd)
 
 
 async def test_a_worker_whose_worktree_vanished_is_marked_disconnected(

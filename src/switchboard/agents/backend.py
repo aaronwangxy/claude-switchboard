@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Literal, Protocol
 from uuid import UUID
 
+from switchboard.domain.enums import RuntimeProcessState
+
 EventType = Literal[
     "session",  # session id captured
     "text",  # assistant text
@@ -72,6 +74,7 @@ class RuntimeObservation:
     exists: bool
     runtime_id: UUID | None = None
     generation: int | None = None
+    process_state: RuntimeProcessState | None = None
     detail: str = ""
 
 

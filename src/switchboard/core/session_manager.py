@@ -282,6 +282,7 @@ class SessionManager:
 
         self.store.save_worker(worker)
         self.store.save_runtime(self._new_runtime(worker, generation=1))
+        self._snapshot_before_change(worker)
         self.emit(
             ev.WORKER_CREATED,
             job_id=worker.job_id,
@@ -325,9 +326,10 @@ class SessionManager:
         runtime = self.store.current_runtime(worker.id)
         if runtime is None:
             raise SessionManagerError(f"Worker {worker.title!r} has no runtime instance.")
-        runtime.process_state = RuntimeProcessState.STARTING
-        runtime.updated_at = now()
-        self.store.save_runtime(runtime)
+        if not adopt:
+            runtime.process_state = RuntimeProcessState.STARTING
+            runtime.updated_at = now()
+            self.store.save_runtime(runtime)
         spec = WorkerSpec(
             worker_id=worker.id,
             role=worker.role.value,
@@ -361,6 +363,9 @@ class SessionManager:
                 else await self.backend.start(spec)
             )
         except Exception as exc:
+            runtime.process_state = RuntimeProcessState.EXITED
+            runtime.updated_at = now()
+            self.store.save_runtime(runtime)
             self._set_status(worker, WorkerStatus.FAILED, waiting_for=f"Backend error: {exc}")
             self.emit(
                 ev.WORKER_FAILED, worker_id=worker.id, job_id=worker.job_id, summary=str(exc)
@@ -369,9 +374,10 @@ class SessionManager:
         if handle.session_id:
             worker.session_id = handle.session_id
             runtime.claude_session_id = handle.session_id
-        runtime.process_state = (
-            RuntimeProcessState.TURN_ACTIVE if prompt else RuntimeProcessState.READY
-        )
+        if not adopt:
+            runtime.process_state = (
+                RuntimeProcessState.TURN_ACTIVE if prompt else RuntimeProcessState.READY
+            )
         runtime.updated_at = now()
         self.store.save_runtime(runtime)
         self._set_status(worker, WorkerStatus.WORKING)
@@ -384,7 +390,17 @@ class SessionManager:
         self._pumps[worker.id] = asyncio.create_task(self._pump(worker.id))
 
     def _new_runtime(self, worker: Worker, *, generation: int) -> RuntimeInstance:
-        fingerprint = hashlib.sha256(
+        return RuntimeInstance(
+            agent_id=worker.id,
+            agent_kind=RuntimeAgentKind.WORKER,
+            generation=generation,
+            backend=type(self.backend).__name__,
+            claude_session_id=worker.session_id,
+            launch_fingerprint=self._runtime_fingerprint(worker),
+        )
+
+    def _runtime_fingerprint(self, worker: Worker) -> str:
+        return hashlib.sha256(
             json.dumps(
                 {
                     "cwd": str(worker.cwd),
@@ -398,14 +414,6 @@ class SessionManager:
                 sort_keys=True,
             ).encode()
         ).hexdigest()
-        return RuntimeInstance(
-            agent_id=worker.id,
-            agent_kind=RuntimeAgentKind.WORKER,
-            generation=generation,
-            backend=type(self.backend).__name__,
-            claude_session_id=worker.session_id,
-            launch_fingerprint=fingerprint,
-        )
 
     def _set_runtime_state(
         self, worker_id: UUID, state: RuntimeProcessState
@@ -442,6 +450,9 @@ class SessionManager:
         self._record(worker, "user", message)
         self._resolve_attention(worker)
         self._set_status(worker, WorkerStatus.WORKING, waiting_for=None)
+        self._apply_invalidation(
+            worker, self.store.get_job(worker.job_id) if worker.job_id else None
+        )
         self._snapshot_before_change(worker)
         self._set_runtime_state(worker.id, RuntimeProcessState.TURN_ACTIVE)
         self._unpause_run_of(worker)
@@ -501,7 +512,6 @@ class SessionManager:
             workflow=definition.name,
         )
         self._note_execution(job, worker, definition.name)
-        self._snapshot_before_change(worker)
         self._advance_stage(job, definition)
         self._adopt_into_run(job, worker, definition)
         return worker
@@ -1746,6 +1756,7 @@ class SessionManager:
                     if (
                         observed.runtime_id != runtime.id
                         or observed.generation != runtime.generation
+                        or runtime.launch_fingerprint != self._runtime_fingerprint(worker)
                     ):
                         runtime.process_state = RuntimeProcessState.WAITING
                         runtime.updated_at = now()
@@ -1758,6 +1769,10 @@ class SessionManager:
                         )
                         notes.append(f"{worker.title}: stale runtime rejected")
                         continue
+                    if observed.process_state is not None:
+                        runtime.process_state = observed.process_state
+                        runtime.updated_at = now()
+                        self.store.save_runtime(runtime)
                     await self._start_backend(worker, prompt="", adopt=True)
                     action = "adopted"
                 else:
