@@ -13,7 +13,13 @@ from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from uuid import UUID, uuid4
 
-from switchboard.agents.backend import BackendHealth, WorkerEvent, WorkerHandle, WorkerSpec
+from switchboard.agents.backend import (
+    BackendHealth,
+    RuntimeObservation,
+    WorkerEvent,
+    WorkerHandle,
+    WorkerSpec,
+)
 
 Responder = Callable[[WorkerSpec, str], list[WorkerEvent]]
 
@@ -133,10 +139,41 @@ class ScriptedWorkerBackend:
         await session.outbox.put(WorkerEvent(spec.worker_id, "session", session.session_id))
         if spec.initial_prompt:
             await self._turn(session, spec.initial_prompt)
-        return WorkerHandle(worker_id=spec.worker_id, session_id=session.session_id)
+        return WorkerHandle(
+            worker_id=spec.worker_id,
+            session_id=session.session_id,
+            runtime_id=spec.runtime_id,
+            runtime_generation=spec.runtime_generation,
+        )
 
     async def resume(self, spec: WorkerSpec) -> WorkerHandle:
         return await self.start(spec)
+
+    async def observe(self, worker_id: UUID) -> RuntimeObservation:
+        session = self._sessions.get(worker_id)
+        if session is None or not session.alive:
+            return RuntimeObservation(exists=False)
+        return RuntimeObservation(
+            exists=True,
+            runtime_id=session.spec.runtime_id,
+            generation=session.spec.runtime_generation,
+            detail="scripted runtime is alive",
+        )
+
+    async def adopt(self, spec: WorkerSpec) -> WorkerHandle:
+        session = self._require(spec.worker_id)
+        if (
+            session.spec.runtime_id != spec.runtime_id
+            or session.spec.runtime_generation != spec.runtime_generation
+        ):
+            raise RuntimeError("The live scripted runtime does not match the recorded generation.")
+        return WorkerHandle(
+            worker_id=spec.worker_id,
+            session_id=session.session_id,
+            runtime_id=spec.runtime_id,
+            runtime_generation=spec.runtime_generation,
+            adopted=True,
+        )
 
     async def send(self, worker_id: UUID, message: str) -> None:
         await self._turn(self._require(worker_id), message)

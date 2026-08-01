@@ -9,7 +9,12 @@ import pytest
 from switchboard.agents.scripted_backend import ScriptedWorkerBackend
 from switchboard.config import Config
 from switchboard.core.session_manager import SessionManager
-from switchboard.domain.enums import AttentionKind, WorkerRole, WorkerStatus
+from switchboard.domain.enums import (
+    AttentionKind,
+    RuntimeProcessState,
+    WorkerRole,
+    WorkerStatus,
+)
 from switchboard.gitops import runner
 from switchboard.routing.attention import next_actionable
 from switchboard.storage.store import Store
@@ -257,7 +262,9 @@ async def test_transcript_survives_selection_and_restart(session_manager, git_re
 # --------------------------------------------------------------- recovery
 
 
-async def test_restart_resumes_a_session_by_its_stored_id(session_manager, git_repo, sb_home):
+async def test_restart_recreates_an_absent_runtime_from_its_stored_session(
+    session_manager, git_repo, sb_home
+):
     sm = session_manager
     repo = sm.register_repository(git_repo("alpha"), "alpha")
     worker = await sm.create_worker(
@@ -272,10 +279,50 @@ async def test_restart_resumes_a_session_by_its_stored_id(session_manager, git_r
     notes = await restarted.recover()
     await settle()
 
-    assert any("resumed" in note for note in notes)
+    assert any("recreated" in note for note in notes)
     resumed_spec = next(s for s in fresh_backend.started if s.worker_id == worker.id)
     assert resumed_spec.resume_session_id == original_session
+    runtimes = restarted.store.list_runtimes(worker.id)
+    assert [runtime.generation for runtime in runtimes] == [1, 2]
+    assert runtimes[0].process_state is RuntimeProcessState.ABSENT
     assert restarted.store.get_worker(worker.id).status is not WorkerStatus.DISCONNECTED
+
+
+async def test_recovery_adopts_an_exact_live_runtime(session_manager, git_repo, backend):
+    sm = session_manager
+    repo = sm.register_repository(git_repo("adopt"), "adopt")
+    worker = await sm.create_worker(
+        role=WorkerRole.GENERAL, title="w", prompt="hi", repository_id=repo.id
+    )
+    await settle()
+    sm._pumps.pop(worker.id).cancel()
+
+    restarted = SessionManager(sm.store, backend, Config(), sm.worktrees)
+    notes = await restarted.recover()
+
+    assert any("adopted" in note for note in notes)
+    assert len(restarted.store.list_runtimes(worker.id)) == 1
+
+
+async def test_recovery_rejects_a_live_generation_mismatch(
+    session_manager, git_repo, backend
+):
+    sm = session_manager
+    repo = sm.register_repository(git_repo("stale"), "stale")
+    worker = await sm.create_worker(
+        role=WorkerRole.GENERAL, title="w", prompt="hi", repository_id=repo.id
+    )
+    await settle()
+    sm._pumps.pop(worker.id).cancel()
+    backend._sessions[worker.id].spec.runtime_generation += 1
+
+    restarted = SessionManager(sm.store, backend, Config(), sm.worktrees)
+    notes = await restarted.recover()
+
+    assert any("stale runtime rejected" in note for note in notes)
+    restored = restarted.store.get_worker(worker.id)
+    assert restored.status is WorkerStatus.DISCONNECTED
+    assert "Refusing to adopt" in restored.waiting_for
 
 
 async def test_a_worker_whose_worktree_vanished_is_marked_disconnected(

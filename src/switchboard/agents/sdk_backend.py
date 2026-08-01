@@ -22,6 +22,7 @@ from claude_agent_sdk import (
 from switchboard.agents.backend import (
     BackendHealth,
     EventType,
+    RuntimeObservation,
     WorkerEvent,
     WorkerHandle,
     WorkerSpec,
@@ -78,6 +79,32 @@ class SdkWorkerBackend:
 
     async def resume(self, spec: WorkerSpec) -> WorkerHandle:
         return await self._launch(spec)
+
+    async def observe(self, worker_id: UUID) -> RuntimeObservation:
+        session = self._sessions.get(worker_id)
+        if session is None or not session.alive:
+            return RuntimeObservation(exists=False)
+        return RuntimeObservation(
+            exists=True,
+            runtime_id=session.spec.runtime_id,
+            generation=session.spec.runtime_generation,
+            detail="SDK client is alive in this process.",
+        )
+
+    async def adopt(self, spec: WorkerSpec) -> WorkerHandle:
+        session = self._require(spec.worker_id)
+        if (
+            session.spec.runtime_id != spec.runtime_id
+            or session.spec.runtime_generation != spec.runtime_generation
+        ):
+            raise RuntimeError("The live SDK runtime does not match the recorded generation.")
+        return WorkerHandle(
+            worker_id=spec.worker_id,
+            session_id=session.session_id,
+            runtime_id=spec.runtime_id,
+            runtime_generation=spec.runtime_generation,
+            adopted=True,
+        )
 
     async def send(self, worker_id: UUID, message: str) -> None:
         session = self._require(worker_id)
@@ -140,7 +167,12 @@ class SdkWorkerBackend:
             session.detail = "Timed out connecting to the Claude runtime."
             raise RuntimeError(session.detail) from exc
         session.session_id = session_id
-        return WorkerHandle(worker_id=spec.worker_id, session_id=session_id)
+        return WorkerHandle(
+            worker_id=spec.worker_id,
+            session_id=session_id,
+            runtime_id=spec.runtime_id,
+            runtime_generation=spec.runtime_generation,
+        )
 
     def _options(self, spec: WorkerSpec) -> ClaudeAgentOptions:
         allowed = None if spec.writable else READ_ONLY_TOOLS

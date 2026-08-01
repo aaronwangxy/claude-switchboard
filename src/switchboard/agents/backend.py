@@ -37,6 +37,8 @@ class WorkerSpec:
     claude_executable: str | None = None
     #: Extra environment for the session, merged over the inherited parent environment.
     env: dict[str, str] = field(default_factory=dict)
+    runtime_id: UUID | None = None
+    runtime_generation: int = 1
 
 
 @dataclass
@@ -44,6 +46,9 @@ class WorkerHandle:
     worker_id: UUID
     session_id: str | None = None
     started: bool = True
+    runtime_id: UUID | None = None
+    runtime_generation: int = 1
+    adopted: bool = False
 
 
 @dataclass
@@ -57,6 +62,16 @@ class WorkerEvent:
 @dataclass
 class BackendHealth:
     alive: bool
+    detail: str = ""
+
+
+@dataclass(frozen=True)
+class RuntimeObservation:
+    """What the backend substrate currently has for an agent identity."""
+
+    exists: bool
+    runtime_id: UUID | None = None
+    generation: int | None = None
     detail: str = ""
 
 
@@ -78,5 +93,9 @@ class WorkerBackend(Protocol):
     async def stop(self, worker_id: UUID) -> None: ...
 
     async def resume(self, spec: WorkerSpec) -> WorkerHandle: ...
+
+    async def observe(self, worker_id: UUID) -> RuntimeObservation: ...
+
+    async def adopt(self, spec: WorkerSpec) -> WorkerHandle: ...
 
     async def health(self, worker_id: UUID) -> BackendHealth: ...

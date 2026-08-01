@@ -8,6 +8,8 @@ Python -- never by asking a model to behave.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -40,6 +42,8 @@ from switchboard.domain.enums import (
     AttentionKind,
     JobStage,
     RunStatus,
+    RuntimeAgentKind,
+    RuntimeProcessState,
     Verbosity,
     WorkerRole,
     WorkerStatus,
@@ -51,6 +55,7 @@ from switchboard.domain.models import (
     Event,
     Job,
     Repository,
+    RuntimeInstance,
     TranscriptMessage,
     Worker,
     WorkflowExecution,
@@ -134,7 +139,6 @@ class SessionManager:
         self.verbosity: dict[UUID, Verbosity] = {}
         self._pumps: dict[UUID, asyncio.Task] = {}
         self._pending_change: dict[UUID, GitSnapshot] = {}
-        #: Workers whose session the user is currently driving themselves.
         self._attached: set[UUID] = set()
         self._listeners: list[Callable[[Event], None]] = []
         #: Strong references to in-flight run advances, so they are not garbage collected.
@@ -278,6 +282,7 @@ class SessionManager:
             worker.cwd = self._job_inspection_path(job) or repo.root_path
 
         self.store.save_worker(worker)
+        self.store.save_runtime(self._new_runtime(worker, generation=1))
         self.emit(
             ev.WORKER_CREATED,
             job_id=worker.job_id,
@@ -315,7 +320,15 @@ class SessionManager:
                     return worktree.path
         return None
 
-    async def _start_backend(self, worker: Worker, prompt: str, resume: bool = False) -> None:
+    async def _start_backend(
+        self, worker: Worker, prompt: str, resume: bool = False, adopt: bool = False
+    ) -> None:
+        runtime = self.store.current_runtime(worker.id)
+        if runtime is None:
+            raise SessionManagerError(f"Worker {worker.title!r} has no runtime instance.")
+        runtime.process_state = RuntimeProcessState.STARTING
+        runtime.updated_at = now()
+        self.store.save_runtime(runtime)
         spec = WorkerSpec(
             worker_id=worker.id,
             role=worker.role.value,
@@ -335,12 +348,18 @@ class SessionManager:
             max_helpers=self.config.subagents.max_concurrent_per_worker,
             claude_executable=self.config.claude.executable,
             env=dict(self.config.claude.env),
+            runtime_id=runtime.id,
+            runtime_generation=runtime.generation,
         )
         if prompt:
             self._record(worker, "user", prompt)
         try:
             handle = (
-                await self.backend.resume(spec) if resume else await self.backend.start(spec)
+                await self.backend.adopt(spec)
+                if adopt
+                else await self.backend.resume(spec)
+                if resume
+                else await self.backend.start(spec)
             )
         except Exception as exc:
             self._set_status(worker, WorkerStatus.FAILED, waiting_for=f"Backend error: {exc}")
@@ -350,6 +369,12 @@ class SessionManager:
             raise SessionManagerError(f"Could not start worker {worker.title!r}: {exc}") from exc
         if handle.session_id:
             worker.session_id = handle.session_id
+            runtime.claude_session_id = handle.session_id
+        runtime.process_state = (
+            RuntimeProcessState.TURN_ACTIVE if prompt else RuntimeProcessState.READY
+        )
+        runtime.updated_at = now()
+        self.store.save_runtime(runtime)
         self._set_status(worker, WorkerStatus.WORKING)
         self.emit(
             ev.WORKER_RESUMED if resume else ev.WORKER_STARTED,
@@ -358,6 +383,40 @@ class SessionManager:
             summary=worker.title,
         )
         self._pumps[worker.id] = asyncio.create_task(self._pump(worker.id))
+
+    def _new_runtime(self, worker: Worker, *, generation: int) -> RuntimeInstance:
+        fingerprint = hashlib.sha256(
+            json.dumps(
+                {
+                    "cwd": str(worker.cwd),
+                    "model": worker.model,
+                    "writable": worker.writable,
+                    "setting_sources": self.config.setting_sources,
+                    "executable": self.config.claude.executable,
+                    "env_keys": sorted(self.config.claude.env),
+                    "prompt_policy_version": worker.prompt_policy_version,
+                },
+                sort_keys=True,
+            ).encode()
+        ).hexdigest()
+        return RuntimeInstance(
+            agent_id=worker.id,
+            agent_kind=RuntimeAgentKind.WORKER,
+            generation=generation,
+            backend=type(self.backend).__name__,
+            claude_session_id=worker.session_id,
+            launch_fingerprint=fingerprint,
+        )
+
+    def _set_runtime_state(
+        self, worker_id: UUID, state: RuntimeProcessState
+    ) -> RuntimeInstance | None:
+        runtime = self.store.current_runtime(worker_id)
+        if runtime is None:
+            return None
+        runtime.process_state = state
+        runtime.updated_at = now()
+        return self.store.save_runtime(runtime)
 
     def _workflow_policy(self, workflow: str | None) -> str | None:
         definition = self._definition(workflow)
@@ -384,6 +443,7 @@ class SessionManager:
         self._resolve_attention(worker)
         self._set_status(worker, WorkerStatus.WORKING, waiting_for=None)
         self._snapshot_before_change(worker)
+        self._set_runtime_state(worker.id, RuntimeProcessState.TURN_ACTIVE)
         self._unpause_run_of(worker)
         await self.backend.send(worker_id, message)
 
@@ -952,6 +1012,7 @@ class SessionManager:
         self._record(worker, "system", "[interrupted by the user]")
         self._resolve_attention(worker)
         self._set_status(worker, WorkerStatus.IDLE, waiting_for=None)
+        self._set_runtime_state(worker.id, RuntimeProcessState.READY)
 
     async def stop_worker(self, worker_id: UUID) -> None:
         worker = self._require_worker(worker_id)
@@ -960,6 +1021,7 @@ class SessionManager:
         if pump is not None:
             pump.cancel()
         self._set_status(worker, WorkerStatus.STOPPED, waiting_for=None)
+        self._set_runtime_state(worker.id, RuntimeProcessState.EXITED)
         self.emit(ev.WORKER_STOPPED, worker_id=worker.id, job_id=worker.job_id, summary=worker.title)
 
     # ------------------------------------------------------------------ attach
@@ -1197,6 +1259,11 @@ class SessionManager:
             case "session":
                 worker.session_id = event.text
                 self.store.save_worker(worker)
+                runtime = self.store.current_runtime(worker.id)
+                if runtime is not None:
+                    runtime.claude_session_id = event.text
+                    runtime.updated_at = now()
+                    self.store.save_runtime(runtime)
             case "text":
                 self._record(worker, "assistant", event.text)
                 self.emit(ev.WORKER_OUTPUT, worker_id=worker.id, job_id=worker.job_id)
@@ -1206,12 +1273,14 @@ class SessionManager:
                 worker.active_helpers = int(event.data.get("active", 0))
                 self.store.save_worker(worker)
             case "permission":
+                self._set_runtime_state(worker.id, RuntimeProcessState.WAITING)
                 self._set_status(worker, WorkerStatus.BLOCKED, waiting_for=event.text)
                 self.raise_attention(
                     worker, AttentionKind.PERMISSION_REQUIRED, event.text, event.text
                 )
                 self.emit(ev.WORKER_PERMISSION_REQUIRED, worker_id=worker.id, job_id=worker.job_id)
             case "blocked":
+                self._set_runtime_state(worker.id, RuntimeProcessState.WAITING)
                 self._finish_turn(worker, event.text)
                 reason = _last_question(event.text)
                 self._set_status(worker, WorkerStatus.BLOCKED, waiting_for=reason)
@@ -1229,6 +1298,7 @@ class SessionManager:
                 self._pause_run_of(worker, RunStatus.AWAITING_APPROVAL, reason)
             case "result":
                 self._finish_turn(worker, event.text)
+                self._set_runtime_state(worker.id, RuntimeProcessState.TURN_COMPLETE)
                 if event.data.get("is_error"):
                     self._set_status(worker, WorkerStatus.FAILED, waiting_for="Turn failed.")
                     self.raise_attention(
@@ -1241,6 +1311,7 @@ class SessionManager:
                     self.emit(ev.WORKER_COMPLETED, worker_id=worker.id, job_id=worker.job_id)
                     self._schedule_run_advance(worker)
             case "failed":
+                self._set_runtime_state(worker.id, RuntimeProcessState.EXITED)
                 self._set_status(worker, WorkerStatus.FAILED, waiting_for=event.text[:200])
                 self.raise_attention(worker, AttentionKind.WORKER_FAILED, event.text[:200])
                 self.emit(
@@ -1248,6 +1319,7 @@ class SessionManager:
                 )
                 self._pause_run_of(worker, RunStatus.BLOCKED, event.text[:200])
             case "stopped":
+                self._set_runtime_state(worker.id, RuntimeProcessState.EXITED)
                 self._set_status(worker, WorkerStatus.STOPPED, waiting_for=None)
 
     def _finish_turn(self, worker: Worker, text: str) -> None:
@@ -1589,7 +1661,7 @@ class SessionManager:
     # ---------------------------------------------------------------- recovery
 
     async def recover(self) -> list[str]:
-        """Restore durable state on startup; resume what can be resumed, mark the rest."""
+        """Adopt matching live runtimes, reconstruct absent ones, and reject stale ones."""
         notes: list[str] = []
         for worker in self.store.list_workers():
             if worker.status in (WorkerStatus.STOPPED, WorkerStatus.DONE):
@@ -1614,10 +1686,43 @@ class SessionManager:
                 )
                 notes.append(f"{worker.title}: no session id")
                 continue
+            runtime = self.store.current_runtime(worker.id)
+            if runtime is None:
+                # Databases created before runtime instances existed are reconstructable
+                # from the worker's durable Claude session identity.
+                runtime = self.store.save_runtime(self._new_runtime(worker, generation=1))
             try:
-                await self._start_backend(worker, prompt="", resume=True)
+                observed = await self.backend.observe(worker.id)
+                if observed.exists:
+                    if (
+                        observed.runtime_id != runtime.id
+                        or observed.generation != runtime.generation
+                    ):
+                        runtime.process_state = RuntimeProcessState.WAITING
+                        runtime.updated_at = now()
+                        self.store.save_runtime(runtime)
+                        self._force_status(
+                            worker,
+                            WorkerStatus.DISCONNECTED,
+                            "A live runtime exists for this worker but its identity or generation "
+                            "does not match durable state. Refusing to adopt or replace it.",
+                        )
+                        notes.append(f"{worker.title}: stale runtime rejected")
+                        continue
+                    await self._start_backend(worker, prompt="", adopt=True)
+                    action = "adopted"
+                else:
+                    runtime.process_state = RuntimeProcessState.ABSENT
+                    runtime.updated_at = now()
+                    self.store.save_runtime(runtime)
+                    replacement = self._new_runtime(
+                        worker, generation=runtime.generation + 1
+                    )
+                    self.store.save_runtime(replacement)
+                    await self._start_backend(worker, prompt="", resume=True)
+                    action = "recreated"
                 self._force_status(worker, WorkerStatus.IDLE, None)
-                notes.append(f"{worker.title}: resumed")
+                notes.append(f"{worker.title}: {action}")
             except Exception as exc:
                 self._force_status(
                     worker,
