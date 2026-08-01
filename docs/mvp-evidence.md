@@ -41,8 +41,8 @@ options.
 | `PYTHONPATH=src ./.venv/bin/python -m pytest -q` | 0 | **189 passed** in ~35s |
 | `./.venv/bin/ruff check src tests` | 0 | `All checks passed!` |
 | `./.venv/bin/mypy` | 0 | `Success: no issues found in 34 source files` |
-| real-SDK smoke (`docs/smoke-real-sdk.log`) | 0 | `REAL SMOKE COMPLETE` |
-| scenario (`docs/scenario.log`) | 0 | `SCENARIO COMPLETE` |
+| real-SDK smoke (`smoke-real-sdk.log`) | 0 | `REAL SMOKE COMPLETE` |
+| scenario (`scenario.log`) | 0 | `SCENARIO COMPLETE` |
 | headless UI pilot (folded into `tests/integration/test_ui.py`) | 0 | 10 passed |
 
 Test breakdown: 121 unit, 68 integration. Integration tests use real temporary Git
@@ -81,14 +81,14 @@ manager → UI → tests → evidence. The delivered stack (§5) matches, with t
 
 ### 4.2 Behavior contract
 
-The 50 acceptance criteria in `CLAUDE_SESSION_MANAGER_GOAL.md` §17 are the behavior
+The 50 acceptance criteria in `original-spec.md` §17 are the behavior
 contract verbatim. The checklist is in §8 below.
 
 ### 4.3 Evidence contract
 
 - Every criterion is evidenced by a named test, a log excerpt, or a terminal capture.
 - The deepest practical end-to-end test is a real run against the actual Agent SDK and a
-  real manager model, tracing the true data and control flow (`docs/smoke-real-sdk.log`).
+  real manager model, tracing the true data and control flow (`smoke-real-sdk.log`).
 - Worktree behavior is evidenced by `git worktree list` output from real repositories.
 - UI behavior is evidenced by headless Textual pilot assertions plus terminal captures.
 - Limitations are stated rather than papered over (§10).
@@ -137,7 +137,7 @@ the primary worker was editing.
 | Helper | Scope | Owned files | How its output was verified |
 | --- | --- | --- | --- |
 | Storage/worktree tests | Write tests for the persistence and worktree layers; report but do not fix source bugs | `tests/conftest.py`, `tests/unit/test_worktree_safety.py`, `tests/integration/test_storage_persistence.py`, `tests/integration/test_worktrees.py` | Reran its 39 tests directly; read its reported source findings and fixed two myself (see below). |
-| Textual UI | Build the three-pane UI against a frozen `SessionManager` API | `src/csm/ui/*`, `src/csm/app.py`, `src/csm/__main__.py`, `docs/ui-*.txt` | Reran its headless pilot on current HEAD (all checks pass), read `app.py` and the relevant parts of `screens.py`, fixed the one mypy error it left, and folded a durable version of its pilot into `tests/integration/test_ui.py`. |
+| Textual UI | Build the three-pane UI against a frozen `SessionManager` API | `src/csm/ui/*`, `src/csm/app.py`, `src/csm/__main__.py`, `ui-*.txt` | Reran its headless pilot on current HEAD (all checks pass), read `app.py` and the relevant parts of `screens.py`, fixed the one mypy error it left, and folded a durable version of its pilot into `tests/integration/test_ui.py`. |
 | Independent reviewer | Fresh review of `dd39f29..HEAD` with the spec, diff, commits, and evidence but not the implementer's reasoning | none (read-only) | Findings triaged in §7. |
 
 Helper completion was never treated as evidence. Both writable helpers reported real
@@ -167,7 +167,7 @@ It raised **four blocking findings. All four were valid and all four are fixed.*
 
 | # | Finding | Resolution |
 | --- | --- | --- |
-| 1 | §9 quoted log excerpts — worktree paths, branch suffixes, commit hashes, session ids, and the `ui-03` pane — that did not appear in the files they were attributed to, while the document claimed excerpts were "copied from real runs". The quotes came from an earlier scenario run whose log was overwritten by a later one. | Re-quoted every excerpt from the current `docs/`. A sweep now checks each hash-like token, session id, branch name, and temp-dir name in this file against `docs/`, `git log`, and `src/`: **0 unsubstantiated**. The §9.4 decision example was also re-attributed from `scenario.log`, which never printed it, to `scripted_backend.py:28-40`, where it is defined and from which `ui-03` renders it. |
+| 1 | §9 quoted log excerpts — worktree paths, branch suffixes, commit hashes, session ids, and the `ui-03` pane — that did not appear in the files they were attributed to, while the document claimed excerpts were "copied from real runs". The quotes came from an earlier scenario run whose log was overwritten by a later one. | Re-quoted every excerpt from the current ``. A sweep now checks each hash-like token, session id, branch name, and temp-dir name in this file against ``, `git log`, and `src/`: **0 unsubstantiated**. The §9.4 decision example was also re-attributed from `scenario.log`, which never printed it, to `scripted_backend.py:28-40`, where it is defined and from which `ui-03` renders it. |
 | 2 | Criterion 49 was ticked ✓ in §8 while §7 was an empty placeholder — the review evidence did not exist. | This section. The ✓ is now earned rather than anticipated. |
 | 3 | `sdk_backend.py` claimed `READ_ONLY_TOOLS` "deliberately excludes every file-mutating tool" while including `Bash`; `prompts.py` told read-only workers "You have no file-editing tools"; and `test_read_only_workers_get_no_file_mutating_tools` named a guarantee stronger than it asserted. §10.1 already documented the truth, so code and docs disagreed. | Comment now states that `Bash` is deliberately retained and that read-only is enforced by tool policy, not a sandbox. The prompt now says file-editing tools are withheld and shell access is for inspection and tests only. The test is renamed `..._no_file_editing_tools`, documents the exception, and asserts it. `ALWAYS_DISALLOWED`'s misleading comment was corrected too: the real guarantee is structural (`mcp_servers={}`). |
 | 4 | `artifacts_invalidated_by`, `is_fresh`, and `relineage` had no production callers — `_apply_invalidation` reimplemented the logic inline — so 11 of the 15 `test_freshness.py` tests covered dead code — only the four `classify_change` tests exercised live code — while the file was cited as primary evidence for criterion 34. | `_apply_invalidation` and `ready_to_push` now call the helpers; every substitution is behavior-preserving. Confirmed by mutation test: stubbing `artifacts_invalidated_by` to return an empty set now fails 5 tests **including the integration test** `test_a_code_change_invalidates_verification_and_review_and_blocks_the_push`, so the production path is genuinely covered. Reachability of the `CodeChange` members is now documented on the enum. |
@@ -215,23 +215,23 @@ Its remaining observations were non-blocking. No unresolved blocking finding rem
 
 ## 8. Acceptance-criteria checklist
 
-All 50 criteria from `CLAUDE_SESSION_MANAGER_GOAL.md` §17. "Test" names are in
-`tests/`; "log" refers to the files in `docs/`.
+All 50 criteria from `original-spec.md` §17. "Test" names are in
+`tests/`; "log" refers to the `.log` and `.txt` files beside this one.
 
 ### Core application
 
 | # | Criterion | ✓ | Evidence |
 | --- | --- | --- | --- |
 | 1 | `python -m csm` launches after documented setup | ✓ | §1–2 above; `--help` exits 0; `test_ui.py` boots the real `CsmApp` |
-| 2 | UI has manager, worker list/attention, and worker panes | ✓ | `test_the_window_has_all_three_panes_and_one_manager_input`; `docs/ui-01…04` |
-| 3 | A repository can be registered and persisted | ✓ | `test_storage_persistence.py`; `docs/scenario.log` §1; recovery restores it (§9) |
-| 4 | Two independent workers in one repository, no shared writable worktree | ✓ | `test_two_writable_workers_in_one_repo_get_separate_worktrees`; `docs/scenario.log` §3 |
+| 2 | UI has manager, worker list/attention, and worker panes | ✓ | `test_the_window_has_all_three_panes_and_one_manager_input`; `ui-01…04` |
+| 3 | A repository can be registered and persisted | ✓ | `test_storage_persistence.py`; `scenario.log` §1; recovery restores it (§9) |
+| 4 | Two independent workers in one repository, no shared writable worktree | ✓ | `test_two_writable_workers_in_one_repo_get_separate_worktrees`; `scenario.log` §3 |
 | 5 | Workers in different repositories | ✓ | `test_workers_in_different_repositories_are_independent` |
 | 6 | Multiple workers stream concurrently; only the selected one occupies the right pane | ✓ | One `asyncio` pump per worker (`SessionManager._pump`); `test_one_worker_blocks_while_another_keeps_working`; the UI renders exactly one worker (`WorkerPane.show_worker`) |
 | 7 | Selecting a worker restores its transcript and allows follow-ups | ✓ | `test_selecting_a_worker_restores_its_transcript`, `test_a_follow_up_through_the_worker_input_is_recorded` |
-| 8 | Independent session ids, contexts, and working directories | ✓ | Phase-0 SDK spike (two live sessions, distinct ids, distinct `cwd`); `test_workers_in_different_repositories_are_independent`; `docs/scenario.log` §3 |
+| 8 | Independent session ids, contexts, and working directories | ✓ | Phase-0 SDK spike (two live sessions, distinct ids, distinct `cwd`); `test_workers_in_different_repositories_are_independent`; `scenario.log` §3 |
 | 9 | Workers cannot access global registry/manager tools | ✓ | `SdkWorkerBackend._options` passes `mcp_servers={}`; `test_no_worker_is_given_manager_tools_or_registry_access`, `test_workers_never_receive_manager_tools` |
-| 10 | Restart restores state; resumes or clearly marks unresumable sessions | ✓ | `test_restart_resumes_a_session_by_its_stored_id`, `test_a_worker_whose_worktree_vanished_is_marked_disconnected`, `test_a_worker_with_no_session_id_is_never_reported_as_running`; `docs/scenario.log` §9 |
+| 10 | Restart restores state; resumes or clearly marks unresumable sessions | ✓ | `test_restart_resumes_a_session_by_its_stored_id`, `test_a_worker_whose_worktree_vanished_is_marked_disconnected`, `test_a_worker_with_no_session_id_is_never_reported_as_running`; `scenario.log` §9 |
 
 ### Manager and routing
 
@@ -239,7 +239,7 @@ All 50 criteria from `CLAUDE_SESSION_MANAGER_GOAL.md` §17. "Test" names are in
 | --- | --- | --- | --- |
 | 11 | Manager can create, list, inspect, open, message, interrupt, stop, request cleanup | ✓ | `test_the_manager_can_drive_a_worker_through_its_whole_life` exercises all fifteen tools |
 | 12 | "Rebase this", "run another smoke test", "rereview it" route correctly | ✓ | `test_shorthands_route_to_the_selected_job_and_right_workflow`, `test_smoke_test_and_rereview_can_be_invoked_independently` |
-| 13 | An unrelated request creates a new job/worker | ✓ | `test_unrelated_request_creates_its_own_job_rather_than_polluting_a_worker`; `docs/scenario.log` §2 |
+| 13 | An unrelated request creates a new job/worker | ✓ | `test_unrelated_request_creates_its_own_job_rather_than_polluting_a_worker`; `scenario.log` §2 |
 | 14 | Ambiguous destructive operations require clarification or confirmation | ✓ | `test_destructive_requests_require_explicit_confirmation` (4 phrasings), `test_a_destructive_request_is_gated_before_the_model_is_invoked`, `test_cleanup_through_the_manager_needs_the_users_own_confirmation` |
 | 15 | Manager context is bounded and built from structured state | ✓ | `test_transitions_and_snapshots.py`: worker/event/exchange caps, status-count summarisation, completed jobs excluded unless referenced, `test_snapshot_never_contains_worker_transcripts` |
 | 16 | Pasting a ticket routes without a separate form or selector | ✓ | `test_pasting_a_ticket_creates_a_job_and_shows_its_worker`; the UI has exactly two inputs and no mode switch |
@@ -250,9 +250,9 @@ All 50 criteria from `CLAUDE_SESSION_MANAGER_GOAL.md` §17. "Test" names are in
 
 | # | Criterion | ✓ | Evidence |
 | --- | --- | --- | --- |
-| 19 | One worker blocks while another continues | ✓ | `test_one_worker_blocks_while_another_keeps_working`; `docs/scenario.log` §4 |
-| 20 | The blocked worker tops the queue with a concise reason | ✓ | `test_priority_follows_the_specified_order`, `test_blocking_plan_raises_a_prioritised_attention_item`; `docs/scenario.log` §5 |
-| 21 | After the user responds, the next actionable worker opens | ✓ | `test_answering_a_blocked_worker_resumes_it_and_advances_the_queue`; `docs/scenario.log` §6 |
+| 19 | One worker blocks while another continues | ✓ | `test_one_worker_blocks_while_another_keeps_working`; `scenario.log` §4 |
+| 20 | The blocked worker tops the queue with a concise reason | ✓ | `test_priority_follows_the_specified_order`, `test_blocking_plan_raises_a_prioritised_attention_item`; `scenario.log` §5 |
+| 21 | After the user responds, the next actionable worker opens | ✓ | `test_answering_a_blocked_worker_resumes_it_and_advances_the_queue`; `scenario.log` §6 |
 | 22 | Auto-advance can be paused; workers pinned and snoozed | ✓ | `test_auto_advance_can_be_paused`, `test_a_pinned_current_worker_holds_the_pane`, `test_snoozed_workers_are_hidden_until_their_snooze_expires`, `test_auto_advance_can_be_paused_and_workers_pinned` (through the UI) |
 | 23 | The UI never auto-switches while the user is typing | ✓ | `test_auto_advance_never_switches_while_the_user_is_typing` and `test_the_ui_never_auto_switches_while_the_user_is_typing` (real focused `Input`) |
 
@@ -262,7 +262,7 @@ All 50 criteria from `CLAUDE_SESSION_MANAGER_GOAL.md` §17. "Test" names are in
 | --- | --- | --- | --- |
 | 24 | No two writable workers own the same worktree | ✓ | Path embeds the worker id; `assert_single_writable_owner` guards adoption; `test_two_writable_workers_in_one_repo_get_separate_worktrees`, `test_worktree_safety.py` |
 | 25 | Review/question workers are read-only by default | ✓ | `READ_ONLY_ROLES` drives the default; `test_review_and_question_workers_are_read_only_by_default`, `test_a_read_only_workflow_is_refused_on_a_read_only_worker` |
-| 26 | Unsafe cleanup is refused without losing work, and explains why | ✓ | `test_cleanup_requires_confirmation_and_then_refuses_unsafe_removal`, `test_cleanup_refuses_to_discard_unmerged_commits`; `docs/scenario.log` §8 |
+| 26 | Unsafe cleanup is refused without losing work, and explains why | ✓ | `test_cleanup_requires_confirmation_and_then_refuses_unsafe_removal`, `test_cleanup_refuses_to_discard_unmerged_commits`; `scenario.log` §8 |
 | 27 | Safe cleanup stops the worker and removes only safe state | ✓ | `test_safe_cleanup_stops_the_worker_and_preserves_the_branch` |
 | 28 | No force-push, merge, branch deletion, or discard without approval | ✓ | No code path invokes `push`, `merge`, `branch -d`, or `reset --hard`; cleanup preserves branches by construction; destructive phrasing is gated (criterion 14) |
 
@@ -270,12 +270,12 @@ All 50 criteria from `CLAUDE_SESSION_MANAGER_GOAL.md` §17. "Test" names are in
 
 | # | Criterion | ✓ | Evidence |
 | --- | --- | --- | --- |
-| 29 | A feature request produces ≤10 plan lines plus structured decisions, criteria, evidence, risks, commit stack | ✓ | `test_plan_produces_all_three_contracts`; real planner output in `docs/smoke-real-sdk.log` §3–4; the cap is enforced in `_store_plan` |
+| 29 | A feature request produces ≤10 plan lines plus structured decisions, criteria, evidence, risks, commit stack | ✓ | `test_plan_produces_all_three_contracts`; real planner output in `smoke-real-sdk.log` §3–4; the cap is enforced in `_store_plan` |
 | 30 | Material decisions appear as concrete choices with a recommendation | ✓ | `test_plan_produces_all_three_contracts` asserts options and recommendation; sample in §9.4 |
 | 31 | Approved contracts seed a separate implementation worker without the planner transcript | ✓ | `test_the_implementer_is_seeded_with_contracts_not_the_planner_transcript` |
-| 32 | Verification records criterion-specific evidence tied to current HEAD | ✓ | `test_full_feature_loop_reaches_ready_to_push_with_a_blurb`; real per-criterion commands and exit codes in `docs/smoke-real-sdk.log` §9 |
+| 32 | Verification records criterion-specific evidence tied to current HEAD | ✓ | `test_full_feature_loop_reaches_ready_to_push_with_a_blurb`; real per-criterion commands and exit codes in `smoke-real-sdk.log` §9 |
 | 33 | A fresh reviewer receives contracts, diff, commits, and evidence but not implementer reasoning | ✓ | `test_the_reviewer_gets_the_diff_and_evidence_but_no_implementer_reasoning` |
-| 34 | Code changes deterministically invalidate stale review/verification | ✓ | `test_freshness.py` (15 tests), `test_a_code_change_invalidates_verification_and_review_and_blocks_the_push`; `docs/scenario.log` §7 |
+| 34 | Code changes deterministically invalidate stale review/verification | ✓ | `test_freshness.py` (15 tests), `test_a_code_change_invalidates_verification_and_review_and_blocks_the_push`; `scenario.log` §7 |
 | 35 | No `ready_to_push` with unresolved blocking findings, stale evidence, or unmet criteria | ✓ | `test_a_blocking_review_finding_prevents_ready_to_push`, `test_verification_failure_is_recorded_honestly_and_blocks_the_push`, and the stale-evidence case above |
 | 36 | The final notification has a copy-pastable blurb from stored evidence and honest limitations | ✓ | `verification_blurb` reads only stored artifacts; samples in §9.5 |
 
@@ -298,7 +298,7 @@ All 50 criteria from `CLAUDE_SESSION_MANAGER_GOAL.md` §17. "Test" names are in
 | 44 | The complete test suite passes | ✓ | 189 passed, exit 0 (§3) |
 | 45 | Type hints throughout; subprocess failures surface actionable errors | ✓ | `mypy` clean on 34 files; `GitError` carries command, exit code, and stderr |
 | 46 | Prompt templates enforce concise output without reducing reasoning or tools | ✓ | `test_prompts.py`: policy present for every role, `"Think and investigate as deeply as needed"` preserved, preset appended not replaced |
-| 47 | Representative manager, planner, worker, verifier, reviewer responses are concise | ✓ | Real responses in `docs/smoke-real-sdk.log`: manager one sentence, planner 4 lines, implementer one sentence, verifier verdict-first, reviewer `pass` with no filler |
+| 47 | Representative manager, planner, worker, verifier, reviewer responses are concise | ✓ | Real responses in `smoke-real-sdk.log`: manager one sentence, planner 4 lines, implementer one sentence, verifier verdict-first, reviewer `pass` with no filler |
 | 48 | Delivered as a coherent atomic commit stack, each commit listed with its purpose | ✓ | §5 |
 | 49 | Bounded subagents used, with a fresh independent final review and no overlapping writable ownership | ✓ | §6 and §7 |
 | 50 | Contracts recorded before substantial implementation and verified against | ✓ | §4, verified by this checklist |
@@ -308,17 +308,17 @@ All 50 criteria from `CLAUDE_SESSION_MANAGER_GOAL.md` §17. "Test" names are in
 
 ## 9. Demonstrated scenarios
 
-Full logs: `docs/scenario.log` (deterministic backend) and `docs/smoke-real-sdk.log`
+Full logs: `scenario.log` (deterministic backend) and `smoke-real-sdk.log`
 (real Agent SDK and real manager model).
 
-`docs/scenario.log` predates the freshness refactor in `f04bd51`, which touches the
+`scenario.log` predates the freshness refactor in `f04bd51`, which touches the
 invalidation behaviour the log demonstrates, so the scenario was rerun on the final HEAD
 and the two outputs compared with commit hashes, temporary paths, and session ids
 normalised. They are identical, confirming the committed log still describes current
 behaviour; the raw identifiers differ only because each run creates fresh temporary
 repositories.
 
-`docs/smoke-real-sdk.log` predates `eeef1b9`, which reworded `READ_ONLY_NOTE`. It was not
+`smoke-real-sdk.log` predates `eeef1b9`, which reworded `READ_ONLY_NOTE`. It was not
 regenerated: a rerun costs real model calls and is non-deterministic, so a fresh log could
 not be diffed against it the way the scenario was. The change is a wording clarification to
 one prompt note — the tool policy it describes is unchanged, and `tests/unit/test_prompts.py`
@@ -327,7 +327,7 @@ revision of that prompt, not by the exact final HEAD.
 
 ### 9.1 Two independent workers in separate worktrees
 
-From `docs/scenario.log` §3 — two unrelated tickets pasted into the one manager input,
+From `scenario.log` §3 — two unrelated tickets pasted into the one manager input,
 each producing its own job and its own writable worker in the same repository:
 
 ```text
@@ -347,12 +347,12 @@ $ git worktree list
 Distinct worktrees, distinct branches, distinct session ids, and neither worktree is
 inside the user's source repository.
 
-The real-SDK run shows the same from the other direction (`docs/smoke-real-sdk.log` §6):
+The real-SDK run shows the same from the other direction (`smoke-real-sdk.log` §6):
 one managed worktree holding two real commits produced by a real implementation worker.
 
 ### 9.2 A blocked worker while another continues
 
-From `docs/scenario.log` §4:
+From `scenario.log` §4:
 
 ```text
   ENG-118 · implementer   status=blocked  waiting_for=[NEEDS INPUT] Should an expired
@@ -369,7 +369,7 @@ The blocked worker sits at the top of the queue with a concise reason (§5 of th
 
 ### 9.3 Response followed by attention auto-advance
 
-From `docs/scenario.log` §6:
+From `scenario.log` §6:
 
 ```text
   selected before: ENG-118 · implementer
@@ -382,7 +382,7 @@ From `docs/scenario.log` §6:
 ### 9.4 A concise contract set
 
 Produced by a real planner session against a real repository
-(`docs/smoke-real-sdk.log` §3–§4). The user-facing plan:
+(`smoke-real-sdk.log` §3–§4). The user-facing plan:
 
 ```text
 ## Plan: Add greeting helper
@@ -402,7 +402,7 @@ The structured contract stored alongside it: 4 plan lines (cap is 10), a 2-commi
 
 The scripted planner (`src/csm/agents/scripted_backend.py:28-40`) shows the decision shape
 when one is needed — concrete options, a recommendation, and `blocking: true`. It is
-quoted here from that source. In `docs/ui-03-two-workers.txt` the worker pane is scrolled
+quoted here from that source. In `ui-03-two-workers.txt` the worker pane is scrolled
 past most of this object — only its `"blocking": true` tail is on screen — but the
 `[NEEDS DECISION] Choose the legacy-write strategy.` marker it produces is visible there,
 and it is what leaves `ENG-421` blocked in the worker list:
@@ -416,7 +416,7 @@ and it is what leaves `ENG-421` blocked in the worker list:
 
 ### 9.5 Independent review and invalidation after a code change
 
-From `docs/scenario.log` §7 — evidence recorded against an exact head, then discarded the
+From `scenario.log` §7 — evidence recorded against an exact head, then discarded the
 moment the tree changed:
 
 ```text
@@ -444,12 +444,12 @@ Limitations:
 ```
 
 The real-SDK run produced the same shape from a real verifier's own commands
-(`docs/smoke-real-sdk.log` §9), including the exact `pytest test_greet.py -v` invocation
+(`smoke-real-sdk.log` §9), including the exact `pytest test_greet.py -v` invocation
 and its exit code for each criterion.
 
 ### 9.6 Cleanup safety
 
-From `docs/scenario.log` §8:
+From `scenario.log` §8:
 
 ```text
   unconfirmed: performed=False — Cleanup is destructive and needs explicit confirmation.
@@ -461,7 +461,7 @@ From `docs/scenario.log` §8:
 
 ### 9.7 Restart recovery
 
-From `docs/scenario.log` §9 — a new process, a new backend, the same database:
+From `scenario.log` §9 — a new process, a new backend, the same database:
 
 ```text
   recovery notes: ['ENG-118 · planner: resumed', 'ENG-204 · planner: resumed',
@@ -477,8 +477,8 @@ A worker whose worktree has vanished, or which never captured a session id, is m
 
 ### 9.8 Terminal captures of the three-pane UI
 
-`docs/ui-01-startup.txt`, `docs/ui-02-blocked-planner.txt`, `docs/ui-03-two-workers.txt`,
-`docs/ui-04-help.txt`. Rows 5–12 of `ui-03`, contiguous and truncated only on the right
+`ui-01-startup.txt`, `ui-02-blocked-planner.txt`, `ui-03-two-workers.txt`,
+`ui-04-help.txt`. Rows 5–12 of `ui-03`, contiguous and truncated only on the right
 (the file is wider than this page; nothing is dropped vertically or re-paired):
 
 ```text
@@ -520,7 +520,7 @@ These are deliberate. Each is recorded rather than solved, per the prototype's s
 2. **Verifiers dirty the worktree they inspect.** Read-only verifiers and reviewers run in
    the implementer's worktree so they see the change under review. Running the test suite
    there creates `__pycache__`, which the ready-to-push gate then correctly reports as an
-   uncommitted change — visible in `docs/smoke-real-sdk.log` §9, where a genuinely complete
+   uncommitted change — visible in `smoke-real-sdk.log` §9, where a genuinely complete
    change is held back by exactly that. The gate is behaving correctly; the ergonomics are
    not. A separate read-only checkout per verifier would fix it.
 3. **Blocked detection relies on a marker.** A worker signals that it needs the user by

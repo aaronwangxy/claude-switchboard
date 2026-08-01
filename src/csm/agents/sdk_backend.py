@@ -27,7 +27,7 @@ log = logging.getLogger(__name__)
 #: (see WRITE_TOOLS), but deliberately keeps Bash: reviewers and verifiers need
 #: `git log`, `git diff`, and test commands. Read-only is therefore enforced by tool
 #: policy and prompt, not by a sandbox -- a worker that deliberately wrote through Bash
-#: would not be stopped. See MVP_EVIDENCE.md limitation 1.
+#: would not be stopped. See docs/mvp-evidence.md limitation 1.
 READ_ONLY_TOOLS = ["Read", "Grep", "Glob", "Bash", "WebFetch", "WebSearch", "TodoWrite", "Task"]
 
 #: Denied to every worker by name. Empty because the real guarantee is structural:
