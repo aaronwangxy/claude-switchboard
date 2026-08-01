@@ -122,6 +122,32 @@ class CommentResolutionReport(BaseModel):
     resolutions: list[CommentResolution] = Field(default_factory=list)
 
 
+class ProposedStep(BaseModel):
+    """One step of a proposed workflow, named after an existing workflow."""
+
+    workflow: str
+    when: str = "always"
+
+
+class WorkflowProposal(BaseModel):
+    """A reusable workflow a miner believes the user keeps performing by hand.
+
+    A proposal is inert. It becomes a workflow only when the user accepts it, which is
+    what keeps mining from quietly changing how future requests are routed.
+    """
+
+    name: str
+    description: str
+    steps: list[ProposedStep] = Field(default_factory=list)
+    worker: Literal["fresh", "existing", "auto"] = "auto"
+    evidence: str = ""
+    rationale: str = ""
+
+
+class WorkflowProposals(BaseModel):
+    proposals: list[WorkflowProposal] = Field(default_factory=list)
+
+
 def extract_json_block(text: str) -> dict | None:
     """Pull the last fenced JSON object out of agent output.
 

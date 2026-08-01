@@ -112,6 +112,7 @@ class ArtifactType(str, Enum):
     SMOKE_VERIFICATION = "smoke_verification"
     REVIEW = "review"
     COMMENT_RESOLUTIONS = "comment_resolutions"
+    WORKFLOW_PROPOSALS = "workflow_proposals"
 
 
 class AttentionKind(str, Enum):

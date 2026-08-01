@@ -29,6 +29,8 @@ JOB_READY_TO_PUSH = "job.ready_to_push"
 ARTIFACT_INVALIDATED = "artifact.invalidated"
 CLEANUP_REFUSED = "cleanup.refused"
 CLEANUP_COMPLETED = "cleanup.completed"
+#: The user turned a mined proposal into a real workflow.
+WORKFLOW_PROPOSAL_ACCEPTED = "workflow.proposal_accepted"
 
 ALL_EVENT_KINDS = frozenset(
     v for k, v in list(globals().items()) if k.isupper() and isinstance(v, str) and "." in v

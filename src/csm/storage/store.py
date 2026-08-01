@@ -363,6 +363,21 @@ class Store:
         ).fetchall()
         return [_load(WorkflowExecution, r) for r in rows]
 
+    def recent_workflow_executions(self, limit: int = 200) -> list[WorkflowExecution]:
+        """Every job's executions, oldest first, bounded.
+
+        Ordered chronologically rather than by recency because the only question worth
+        asking of this list is what the user does *in sequence*.
+        """
+        rows = self.conn.execute(
+            "SELECT data FROM ("
+            "  SELECT data, created_at, rowid FROM workflow_executions"
+            "  ORDER BY created_at DESC, rowid DESC LIMIT ?"
+            ") ORDER BY created_at, rowid",
+            (limit,),
+        ).fetchall()
+        return [_load(WorkflowExecution, r) for r in rows]
+
     # ------------------------------------------------------------ workflow runs
 
     def save_run(self, run: WorkflowRun) -> WorkflowRun:

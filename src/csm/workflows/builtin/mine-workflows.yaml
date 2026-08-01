@@ -1,0 +1,46 @@
+name: mine-workflows
+description: Look for development rituals the user keeps performing by hand and propose reusable workflows for them.
+role: question
+allowed_roles: [question]
+mutates_code: false
+produces: [workflow_proposals]
+aliases: [propose-workflows, find-rituals]
+model_role: reviewer
+worker: fresh
+prompt: |
+  Below is this application's own record of what has been run recently: which workflows
+  ran, in what order, against which job, and what the user had to decide along the way.
+  It is structured state, not a transcript.
+
+  {history}
+
+  Look for a sequence the user keeps assembling by hand -- the same two or three
+  workflows run in the same order, repeatedly, because no single workflow covers the
+  whole ritual. A rebase followed by regenerating fixtures followed by a smoke test is
+  the shape to look for.
+
+  Propose a workflow only where the evidence is real. Two occurrences of the same
+  sequence is thin; say so in the rationale rather than inflating it. Propose nothing if
+  nothing repeats -- an empty list is the correct answer far more often than not, and a
+  speculative proposal costs the user more than a missing one.
+
+  Every step must name a workflow that already exists. Do not invent step names.
+
+  Nothing you propose takes effect. The user accepts, edits, or rejects each proposal.
+
+  Available workflows to compose from:
+  {available_workflows}
+
+  End your reply with exactly one fenced ```json block. The application parses that
+  block deterministically -- prose outside it is for the user, the block is the artifact.
+  Schema:
+  {
+    "proposals": [{
+      "name": "kebab-case-name",
+      "description": "one line, used for routing",
+      "steps": [{"workflow": "existing-workflow-name", "when": "always|code-changed|verification-failed|blocking-findings|human-decisions"}],
+      "worker": "fresh|existing|auto",
+      "evidence": "which jobs and when this sequence occurred",
+      "rationale": "why automating it would save repeated work"
+    }]
+  }

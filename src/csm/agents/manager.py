@@ -274,6 +274,39 @@ class ModelManager:
                 return err(str(exc))
             return ok({"command": attachment.shell_hint, "cwd": str(attachment.cwd)})
 
+        @tool(
+            "list_workflow_proposals",
+            "List workflows a mining run proposed for a job. Proposals are inert until "
+            "the user accepts one.",
+            {"job_id": str},
+        )
+        async def list_workflow_proposals(args: dict) -> dict:
+            proposals = sm.list_proposals(_require_uuid(args["job_id"]))
+            return ok(
+                [
+                    {
+                        "name": p.name,
+                        "description": p.description,
+                        "steps": [s.workflow for s in p.steps],
+                        "evidence": p.evidence,
+                    }
+                    for p in proposals
+                ]
+            )
+
+        @tool(
+            "accept_workflow_proposal",
+            "Turn a proposed workflow into a real one. Only do this when the user has "
+            "clearly accepted that specific proposal.",
+            {"job_id": str, "name": str},
+        )
+        async def accept_workflow_proposal(args: dict) -> dict:
+            try:
+                path = sm.accept_proposal(_require_uuid(args["job_id"]), args["name"])
+            except (SessionManagerError, ValueError) as exc:
+                return err(str(exc))
+            return ok({"accepted": args["name"], "path": str(path)})
+
         @tool("stop_worker", "Stop a worker session.", {"worker_id": str})
         async def stop_worker(args: dict) -> dict:
             try:
@@ -329,6 +362,8 @@ class ModelManager:
             open_worker,
             interrupt_worker,
             attach_worker,
+            list_workflow_proposals,
+            accept_workflow_proposal,
             stop_worker,
             request_cleanup,
             list_attention_items,
@@ -417,6 +452,8 @@ MANAGER_TOOL_NAMES = [
     "open_worker",
     "interrupt_worker",
     "attach_worker",
+    "list_workflow_proposals",
+    "accept_workflow_proposal",
     "stop_worker",
     "request_cleanup",
     "list_attention_items",

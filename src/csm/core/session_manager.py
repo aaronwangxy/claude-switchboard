@@ -14,10 +14,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from uuid import UUID
 
+import yaml
+
 from csm.agents.attach import AttachError, Attachment, build_attachment
 from csm.agents.backend import WorkerBackend, WorkerEvent, WorkerSpec
 from csm.agents.prompts import PROMPT_POLICY_VERSION, compose_worker_prompt
-from csm.config import Config
+from csm.config import Config, user_workflows_dir
 from csm.core.runs import condition_holds, has_blocking_decisions
 from csm.core.transitions import assert_worker_transition
 from csm.domain import events as ev
@@ -27,6 +29,8 @@ from csm.domain.contracts import (
     ImplementationContract,
     ReviewReport,
     VerificationReport,
+    WorkflowProposal,
+    WorkflowProposals,
     extract_json_block,
 )
 from csm.domain.enums import (
@@ -55,7 +59,7 @@ from csm.domain.models import (
 )
 from csm.gitops import runner
 from csm.gitops.runner import GitError
-from csm.gitops.worktrees import CleanupDecision, WorktreeSafetyError, WorktreeService
+from csm.gitops.worktrees import CleanupDecision, WorktreeSafetyError, WorktreeService, slug
 from csm.routing import router
 from csm.routing.router import RouteError, RouteProposal, RoutingState
 from csm.storage.store import Store
@@ -79,6 +83,7 @@ from csm.workflows.registry import (
     reload_workflows,
     render_template,
     validate_for_role,
+    workflow_names,
 )
 
 log = logging.getLogger(__name__)
@@ -779,6 +784,12 @@ class SessionManager:
             "commits": "",
             "diff": "",
         }
+        # A workflow that mines rituals is given CSM's own history instead of a repository.
+        if ArtifactType.WORKFLOW_PROPOSALS in definition.produces:
+            values |= {
+                "history": self.workflow_history(),
+                "available_workflows": ", ".join(workflow_names()),
+            }
         # A workflow that produces a review needs the commit range it is reviewing.
         if job is not None and ArtifactType.REVIEW in definition.produces:
             base, head, commits, diff = self._review_inputs(job)
@@ -812,6 +823,83 @@ class SessionManager:
             return base, head, commits, runner.diff(path, base, head) or "(empty diff)"
         except GitError as exc:
             return "", "", f"(git error: {exc})", "(no diff available)"
+
+    # ---------------------------------------------------------------- mining
+
+    def workflow_history(self, limit: int = 200) -> str:
+        """CSM's own record of what was run, grouped by job and ordered in time.
+
+        This is the whole input to mining. It is structured state rather than any
+        transcript, so it stays small, contains no repository content, and can be read
+        by a worker that has no access to the repositories it describes.
+        """
+        executions = self.store.recent_workflow_executions(limit)
+        if not executions:
+            return "(no workflow history yet)"
+        titles = {job.id: (job.external_ref or job.title) for job in self.store.list_jobs()}
+        by_job: dict[UUID | None, list[WorkflowExecution]] = {}
+        for execution in executions:
+            by_job.setdefault(execution.job_id, []).append(execution)
+        lines: list[str] = []
+        for job_id, runs in by_job.items():
+            lines.append(f"### {titles.get(job_id, 'ad-hoc work') if job_id else 'ad-hoc work'}")
+            for run in runs:
+                when = run.created_at.strftime("%Y-%m-%d %H:%M")
+                head = f" at {run.head_commit[:8]}" if run.head_commit else ""
+                lines.append(f"- {when}  {run.workflow} ({run.status}){head}")
+            if job_id is not None:
+                for decision in self.store.list_decisions(job_id):
+                    lines.append(f"  decision: {decision.question} -> {decision.answer}")
+            lines.append("")
+        return "\n".join(lines).strip()
+
+    def list_proposals(self, job_id: UUID) -> list[WorkflowProposal]:
+        """The proposals from this job's most recent mining run, if any."""
+        artifact = self.store.latest_artifact(job_id, ArtifactType.WORKFLOW_PROPOSALS)
+        if artifact is None:
+            return []
+        return WorkflowProposals.model_validate(artifact.body).proposals
+
+    def accept_proposal(self, job_id: UUID, name: str) -> Path:
+        """Turn one accepted proposal into an ordinary user workflow file.
+
+        The written file is the same YAML a user would have hand-authored, in the same
+        directory, with no marker distinguishing it -- an accepted proposal is a workflow,
+        not a second-class kind of one. Only this method makes a proposal take effect.
+        """
+        proposal = next((p for p in self.list_proposals(job_id) if p.name == name), None)
+        if proposal is None:
+            raise SessionManagerError(f"No proposal named {name!r} on this job.")
+        unknown = [s.workflow for s in proposal.steps if s.workflow not in workflow_names()]
+        if unknown:
+            raise SessionManagerError(
+                f"Proposal {name!r} names workflows that do not exist: {', '.join(unknown)}."
+            )
+        if not proposal.steps:
+            raise SessionManagerError(f"Proposal {name!r} has no steps.")
+        directory = user_workflows_dir()
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / f"{slug(proposal.name)}.yaml"
+        if path.exists():
+            raise SessionManagerError(f"{path} already exists; edit or remove it first.")
+        path.write_text(
+            yaml.safe_dump(
+                {
+                    "name": proposal.name,
+                    "description": proposal.description,
+                    "steps": [{"workflow": s.workflow, "when": s.when} for s in proposal.steps],
+                },
+                sort_keys=False,
+            )
+        )
+        self.reload_workflows()
+        self.emit(
+            ev.WORKFLOW_PROPOSAL_ACCEPTED,
+            job_id=job_id,
+            summary=f"Accepted workflow proposal {proposal.name}.",
+            payload={"path": str(path)},
+        )
+        return path
 
     # ------------------------------------------------------------ interruption
 
@@ -1119,6 +1207,19 @@ class SessionManager:
             self._save_artifact(
                 job, ArtifactType.COMMENT_RESOLUTIONS, worker, report.model_dump(mode="json"), head, tree
             )
+        elif ArtifactType.WORKFLOW_PROPOSALS in produces:
+            proposals = WorkflowProposals.model_validate(block)
+            self._save_artifact(
+                job, ArtifactType.WORKFLOW_PROPOSALS, worker, proposals.model_dump(mode="json"), head, tree
+            )
+            if proposals.proposals:
+                names = ", ".join(p.name for p in proposals.proposals)
+                self.raise_attention(
+                    worker,
+                    AttentionKind.HUMAN_DECISION,
+                    f"Proposed workflows awaiting your decision: {names}.",
+                    "Accept, edit, or reject each proposal.",
+                )
 
     def _produced_artifacts(self, worker: Worker) -> frozenset[ArtifactType]:
         """What this worker's turn may produce: its workflow's declaration, else its role."""
