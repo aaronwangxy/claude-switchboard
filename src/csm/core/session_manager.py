@@ -17,6 +17,7 @@ from uuid import UUID
 from csm.agents.backend import WorkerBackend, WorkerEvent, WorkerSpec
 from csm.agents.prompts import PROMPT_POLICY_VERSION, compose_worker_prompt
 from csm.config import Config
+from csm.core.runs import condition_holds, has_blocking_decisions
 from csm.core.transitions import assert_worker_transition
 from csm.domain import events as ev
 from csm.domain.contracts import (
@@ -32,6 +33,7 @@ from csm.domain.enums import (
     ArtifactType,
     AttentionKind,
     JobStage,
+    RunStatus,
     Verbosity,
     WorkerRole,
     WorkerStatus,
@@ -46,6 +48,7 @@ from csm.domain.models import (
     TranscriptMessage,
     Worker,
     WorkflowExecution,
+    WorkflowRun,
     Worktree,
     now,
 )
@@ -65,8 +68,11 @@ from csm.workflows.freshness import (
     relineage,
 )
 from csm.workflows.registry import (
+    Approval,
+    WorkerMode,
     WorkflowDefinition,
     WorkflowError,
+    WorkflowStep,
     get_workflow,
     render_template,
     validate_for_role,
@@ -117,8 +123,10 @@ class SessionManager:
         self.auto_advance: bool = True
         self.verbosity: dict[UUID, Verbosity] = {}
         self._pumps: dict[UUID, asyncio.Task] = {}
-        self._pending_change: dict[UUID, tuple[GitSnapshot, WorkflowDefinition]] = {}
+        self._pending_change: dict[UUID, GitSnapshot] = {}
         self._listeners: list[Callable[[Event], None]] = []
+        #: Strong references to in-flight run advances, so they are not garbage collected.
+        self._background: set[asyncio.Task] = set()
 
     # ------------------------------------------------------------------ events
 
@@ -340,7 +348,17 @@ class SessionManager:
         self._resolve_attention(worker)
         self._set_status(worker, WorkerStatus.WORKING, waiting_for=None)
         self._snapshot_before_change(worker)
+        self._unpause_run_of(worker)
         await self.backend.send(worker_id, message)
+
+    def _unpause_run_of(self, worker: Worker) -> None:
+        """Answering the worker a run stopped on puts the run back in flight."""
+        run = self.store.run_for_worker(worker.id)
+        if run is not None and run.status in (RunStatus.AWAITING_APPROVAL, RunStatus.BLOCKED):
+            run.status = RunStatus.RUNNING
+            run.detail = ""
+            run.updated_at = now()
+            self.store.save_run(run)
 
     async def start_workflow(
         self,
@@ -370,6 +388,7 @@ class SessionManager:
             self.store.save_worker(worker)
             prompt = self._render(definition, job, request)
             self._note_execution(job, worker, definition.name)
+            self._adopt_into_run(job, worker, definition)
             await self.send(worker.id, prompt)
             self._advance_stage(job, definition)
             return worker
@@ -388,7 +407,276 @@ class SessionManager:
         self._note_execution(job, worker, definition.name)
         self._snapshot_before_change(worker)
         self._advance_stage(job, definition)
+        self._adopt_into_run(job, worker, definition)
         return worker
+
+    def _adopt_into_run(self, job: Job | None, worker: Worker, definition: WorkflowDefinition) -> None:
+        """Let a manually started workflow count as the run's current step.
+
+        Without this, invoking the step a paused run was about to run anyway would make
+        the run start a second worker for it once the user resumed.
+        """
+        if job is None:
+            return
+        run = self.store.active_run(job.id)
+        if run is None or run.current_worker_id is not None:
+            return
+        composite = self._definition(run.workflow)
+        if composite is None or run.step_index >= len(composite.steps):
+            return
+        if composite.steps[run.step_index].workflow != definition.name:
+            return
+        run.iterations[str(run.step_index)] = run.iterations.get(str(run.step_index), 0) + 1
+        run.current_worker_id = worker.id
+        run.status = RunStatus.RUNNING
+        run.updated_at = now()
+        self.store.save_run(run)
+
+    # ------------------------------------------------------- composite workflows
+
+    def resolve_profile(self, repository_id: UUID | None, job: Job | None = None) -> str:
+        """Which composite workflow a job should follow.
+
+        Precedence: the job's stored profile, then the repository preference, then the
+        user's configured default. A one-off instruction beats all of them by naming a
+        workflow explicitly, which never reaches this method.
+        """
+        if job is not None and job.profile:
+            return job.profile
+        if repository_id is not None:
+            preference = self.store.get_preference(f"profile:{repository_id}")
+            if preference:
+                return preference
+        return self.config.default_profile
+
+    def set_repository_profile(self, repository_id: UUID, profile: str) -> None:
+        get_workflow(profile)  # refuse to store a profile that does not exist
+        self.store.set_preference(f"profile:{repository_id}", profile)
+
+    async def start_run(self, workflow_name: str, *, job_id: UUID, request: str = "") -> WorkflowRun:
+        """Begin a composite workflow over a job and start its first applicable step."""
+        definition = get_workflow(workflow_name)
+        if not definition.is_composite:
+            raise SessionManagerError(f"{definition.name} is not a composite workflow.")
+        job = self.store.get_job(job_id)
+        if job is None:
+            raise SessionManagerError(f"Job {job_id} does not exist.")
+        existing = self.store.active_run(job.id)
+        if existing is not None:
+            raise SessionManagerError(
+                f"{job.title!r} is already running {existing.workflow} "
+                f"(step {existing.step_index + 1}, {existing.status.value})."
+            )
+        job.profile = definition.name
+        self.store.save_job(job)
+        run = WorkflowRun(
+            job_id=job.id,
+            workflow=definition.name,
+            request=request,
+            head_at_start=self._job_head(job),
+        )
+        self.store.save_run(run)
+        self.emit(
+            ev.RUN_STARTED, job_id=job.id, summary=f"{definition.name} started for {job.title!r}."
+        )
+        return await self.advance_run(run.id)
+
+    async def advance_run(self, run_id: UUID) -> WorkflowRun:
+        """Move a run to its next applicable step, or pause it and say why.
+
+        Called once when a run starts and once each time its current worker finishes a
+        turn. Every decision here reads stored state, so a run resumed after a restart
+        behaves identically.
+        """
+        run = self.store.get_run(run_id)
+        if run is None:
+            raise SessionManagerError(f"Run {run_id} does not exist.")
+        if run.status in (RunStatus.COMPLETED, RunStatus.FAILED):
+            return run
+        job = self.store.get_job(run.job_id)
+        definition = self._definition(run.workflow)
+        if job is None or definition is None or not definition.is_composite:
+            return self._pause_run(run, RunStatus.FAILED, "Its workflow or job no longer exists.")
+        steps = definition.steps
+
+        # The step that just finished decides whether the run may continue.
+        if run.current_worker_id is not None:
+            if run.step_index < len(steps) and not self._approval_satisfied(run, steps[run.step_index], job):
+                return self._pause_run(
+                    run,
+                    RunStatus.AWAITING_APPROVAL,
+                    f"Step {run.step_index + 1} ({steps[run.step_index].workflow}) needs your approval.",
+                )
+            run.current_worker_id = None
+            run.step_index += 1
+
+        while True:
+            head = self._job_head(job)
+            if run.step_index >= len(steps):
+                repeat = self._repeat_target(run, definition, job, head)
+                if repeat is None:
+                    run.status = RunStatus.COMPLETED
+                    run.detail = "Every applicable step is done."
+                    run.updated_at = now()
+                    self.store.save_run(run)
+                    self.emit(ev.RUN_COMPLETED, job_id=job.id, summary=run.detail)
+                    return run
+                run.step_index = repeat
+            step = steps[run.step_index]
+            step_definition = self._definition(step.workflow)
+            if step_definition is None:
+                return self._pause_run(
+                    run, RunStatus.FAILED, f"Step {run.step_index + 1} names an unknown workflow."
+                )
+            used = run.iterations.get(str(run.step_index), 0)
+            applies = used < step.max_iterations and condition_holds(
+                step.when,
+                store=self.store,
+                config=self.config,
+                job=job,
+                run=run,
+                definition=step_definition,
+                head=head,
+            )
+            if not applies:
+                run.step_index += 1
+                continue
+            try:
+                self._assert_prerequisites(step_definition, job)
+            except SessionManagerError as exc:
+                return self._pause_run(run, RunStatus.AWAITING_APPROVAL, str(exc))
+
+            run.status = RunStatus.RUNNING
+            run.detail = ""
+            self.store.save_run(run)
+            try:
+                worker = await self.start_workflow(
+                    step.workflow,
+                    job_id=job.id,
+                    target_worker_id=self._worker_for_step(step, step_definition, job),
+                    request=run.request,
+                )
+            except SessionManagerError as exc:
+                return self._pause_run(run, RunStatus.BLOCKED, str(exc))
+            # `start_workflow` adopts the worker into this step; only fill in if it did not.
+            run = self.store.get_run(run.id) or run
+            if run.current_worker_id is None:
+                run.iterations[str(run.step_index)] = used + 1
+                run.current_worker_id = worker.id
+                run.updated_at = now()
+                self.store.save_run(run)
+            return run
+
+    def _approval_satisfied(self, run: WorkflowRun, step: WorkflowStep, job: Job) -> bool:
+        """Whether the user has given the approval this step asks for."""
+        if step.approval is Approval.NONE:
+            return True
+        blocking = has_blocking_decisions(self.store, job)
+        if step.approval is Approval.ONLY_IF_DECISIONS and not blocking:
+            return True
+        if blocking:
+            return False
+        step_definition = self._definition(step.workflow)
+        if step_definition is not None and (
+            ArtifactType.IMPLEMENTATION_CONTRACT in step_definition.produces
+        ):
+            artifact = self.store.latest_artifact(job.id, ArtifactType.IMPLEMENTATION_CONTRACT)
+            if artifact is None:
+                return False
+            return ImplementationContract.model_validate(artifact.body).approved
+        return run.step_index in run.approved_steps
+
+    def _repeat_target(
+        self, run: WorkflowRun, definition: WorkflowDefinition, job: Job, head: str | None
+    ) -> int | None:
+        """The earliest repeatable step whose condition still holds, or None.
+
+        This is the only way a run moves backwards, and `max_iterations` bounds it, so a
+        fix/verify/review loop can never spin.
+        """
+        for index, step in enumerate(definition.steps):
+            if step.max_iterations <= 1:
+                continue
+            if run.iterations.get(str(index), 0) >= step.max_iterations:
+                continue
+            step_definition = self._definition(step.workflow)
+            if step_definition is None:
+                continue
+            if condition_holds(
+                step.when,
+                store=self.store,
+                config=self.config,
+                job=job,
+                run=run,
+                definition=step_definition,
+                head=head,
+            ):
+                return index
+        return None
+
+    def _worker_for_step(
+        self, step: WorkflowStep, definition: WorkflowDefinition, job: Job
+    ) -> UUID | None:
+        """The worker a step should run on; None means start a fresh independent session."""
+        mode = step.worker if step.worker is not WorkerMode.AUTO else definition.worker
+        if mode is WorkerMode.FRESH:
+            return None
+        candidates = [
+            w
+            for w in self.store.list_workers(job.id)
+            if w.role in definition.allowed_roles
+            and w.status not in (WorkerStatus.STOPPED, WorkerStatus.FAILED, WorkerStatus.DISCONNECTED)
+            and (w.writable or not definition.mutates_code)
+        ]
+        return candidates[-1].id if candidates else None
+
+    def _pause_run(self, run: WorkflowRun, status: RunStatus, detail: str) -> WorkflowRun:
+        run.status = status
+        run.detail = detail
+        run.updated_at = now()
+        self.store.save_run(run)
+        self.emit(ev.RUN_PAUSED, job_id=run.job_id, summary=f"{run.workflow}: {detail}")
+        return run
+
+    async def resume_run(self, run_id: UUID) -> WorkflowRun:
+        """Record the user's approval for the paused step and continue the run."""
+        run = self.store.get_run(run_id)
+        if run is None:
+            raise SessionManagerError(f"Run {run_id} does not exist.")
+        if run.status in (RunStatus.COMPLETED, RunStatus.FAILED):
+            raise SessionManagerError(f"That run already {run.status.value}.")
+        if run.step_index not in run.approved_steps:
+            run.approved_steps = [*run.approved_steps, run.step_index]
+        run.status = RunStatus.RUNNING
+        self.store.save_run(run)
+        return await self.advance_run(run.id)
+
+    def _job_head(self, job: Job) -> str | None:
+        head, _ = self._job_head_and_dirty(job)
+        return head
+
+    def _pause_run_of(self, worker: Worker, status: RunStatus, detail: str) -> None:
+        run = self.store.run_for_worker(worker.id)
+        if run is not None and run.status is RunStatus.RUNNING:
+            self._pause_run(run, status, detail)
+
+    def _schedule_run_advance(self, worker: Worker) -> None:
+        """Continue the run this worker is a step of, once its turn has finished."""
+        if worker.job_id is None:
+            return
+        run = self.store.run_for_worker(worker.id)
+        if run is None or run.status is not RunStatus.RUNNING:
+            return
+        self._spawn(self.advance_run(run.id))
+
+    def _spawn(self, coro) -> None:
+        try:
+            task = asyncio.create_task(coro)
+        except RuntimeError:  # no running loop (a synchronous unit test)
+            coro.close()
+            return
+        self._background.add(task)
+        task.add_done_callback(self._background.discard)
 
     def _assert_prerequisites(self, definition: WorkflowDefinition, job: Job | None) -> None:
         """A workflow cannot run before the artifacts it declares it needs exist.
@@ -429,9 +717,16 @@ class SessionManager:
                     )
 
     def _advance_stage(self, job: Job | None, definition: WorkflowDefinition) -> None:
-        """Each workflow declares the stage it moves its job to; unset means no change."""
-        if job is not None and definition.stage is not None:
-            self.update_job_stage(job, definition.stage)
+        """Each workflow declares the stage it moves its job to; unset means no change.
+
+        `ready_to_push` is the exception: it is a claim about the state of the change, so
+        it is granted by the deterministic gate rather than by a workflow declaring it.
+        """
+        if job is None or definition.stage is None:
+            return
+        if definition.stage is JobStage.READY_TO_PUSH and not self.ready_to_push(job.id).ready:
+            return
+        self.update_job_stage(job, definition.stage)
 
     def _note_execution(self, job: Job | None, worker: Worker, workflow_name: str) -> None:
         self.store.add_workflow_execution(
@@ -640,6 +935,10 @@ class SessionManager:
                 item.handled = True
                 self.store.save_attention_item(item)
         self.emit(ev.PLAN_APPROVED, job_id=job_id, summary="Plan approved.")
+        # Approval is what an approval-gated run was waiting for, so it continues here.
+        run = self.store.active_run(job_id)
+        if run is not None and run.status is RunStatus.AWAITING_APPROVAL:
+            self._spawn(self.resume_run(run.id))
         return contract
 
     # ------------------------------------------------------------- pin/snooze
@@ -705,6 +1004,9 @@ class SessionManager:
                 self.emit(
                     ev.WORKER_BLOCKED, worker_id=worker.id, job_id=worker.job_id, summary=reason
                 )
+                # A step that stopped to ask the user pauses its run rather than being
+                # treated as finished; the answer resumes it.
+                self._pause_run_of(worker, RunStatus.AWAITING_APPROVAL, reason)
             case "result":
                 self._finish_turn(worker, event.text)
                 if event.data.get("is_error"):
@@ -713,15 +1015,18 @@ class SessionManager:
                         worker, AttentionKind.WORKER_FAILED, "The worker's turn failed."
                     )
                     self.emit(ev.WORKER_FAILED, worker_id=worker.id, job_id=worker.job_id)
+                    self._pause_run_of(worker, RunStatus.BLOCKED, "The step's worker failed.")
                 else:
                     self._set_status(worker, WorkerStatus.IDLE, waiting_for=None)
                     self.emit(ev.WORKER_COMPLETED, worker_id=worker.id, job_id=worker.job_id)
+                    self._schedule_run_advance(worker)
             case "failed":
                 self._set_status(worker, WorkerStatus.FAILED, waiting_for=event.text[:200])
                 self.raise_attention(worker, AttentionKind.WORKER_FAILED, event.text[:200])
                 self.emit(
                     ev.WORKER_FAILED, worker_id=worker.id, job_id=worker.job_id, summary=event.text
                 )
+                self._pause_run_of(worker, RunStatus.BLOCKED, event.text[:200])
             case "stopped":
                 self._set_status(worker, WorkerStatus.STOPPED, waiting_for=None)
 
@@ -894,20 +1199,19 @@ class SessionManager:
     # ------------------------------------------------------------ invalidation
 
     def _snapshot_before_change(self, worker: Worker) -> None:
+        # Any turn a writable worker takes can change the tree, whatever workflow it is
+        # running, so the snapshot is taken from writability rather than from intent.
         if not worker.writable:
-            return
-        definition = self._definition(worker.workflow)
-        if definition is None or not definition.mutates_code:
             return
         head, tree = self._head(worker), self._tree(worker)
         if head and tree:
-            self._pending_change[worker.id] = (GitSnapshot(head, tree), definition)
+            self._pending_change[worker.id] = GitSnapshot(head, tree)
 
     def _apply_invalidation(self, worker: Worker, job: Job | None) -> None:
-        pending = self._pending_change.pop(worker.id, None)
-        if pending is None or job is None:
+        before = self._pending_change.pop(worker.id, None)
+        if before is None or job is None:
             return
-        before, definition = pending
+        definition = self._definition(worker.workflow)
         head, tree = self._head(worker), self._tree(worker)
         if not head or not tree:
             return
@@ -920,7 +1224,9 @@ class SessionManager:
                 if artifact.type in BEHAVIORAL_ARTIFACTS and not artifact.stale:
                     self.store.save_artifact(relineage(artifact, head, tree))
             return
-        targets = set(definition.invalidates) | artifacts_invalidated_by(change)
+        targets = artifacts_invalidated_by(change)
+        if definition is not None:
+            targets |= definition.invalidates
         invalidated = 0
         for artifact in self.store.list_artifacts(job.id):
             if artifact.type in targets and not artifact.stale:
@@ -1128,8 +1434,15 @@ class SessionManager:
                 worker = self._require_worker(proposal.worker_id)
                 return f"Sent to {worker.title}. {proposal.reason}"
             case "start_workflow":
+                name = proposal.workflow or "ask-question"
+                if get_workflow(name).is_composite:
+                    assert proposal.job_id is not None
+                    run = await self.start_run(
+                        name, job_id=proposal.job_id, request=proposal.message
+                    )
+                    return self._run_reply(run)
                 worker = await self.start_workflow(
-                    proposal.workflow or "ask-question",
+                    name,
                     job_id=proposal.job_id,
                     target_worker_id=proposal.worker_id,
                     request=proposal.message,
@@ -1142,7 +1455,7 @@ class SessionManager:
                 worker = await self.create_worker(
                     role=WorkerRole.QUESTION,
                     title=proposal.title or "Question",
-                    prompt=definition.template.format(request=proposal.message),
+                    prompt=render_template(definition.template, {"request": proposal.message}),
                     job_id=proposal.job_id,
                     repository_id=proposal.repository_id,
                     writable=False,
@@ -1158,13 +1471,28 @@ class SessionManager:
                     external_ref=proposal.external_ref,
                     ticket_text=proposal.message,
                 )
-                worker = await self.start_workflow(
-                    proposal.workflow or "plan-feature", job_id=job.id, request=proposal.message
-                )
-                self.selected_worker_id = worker.id
                 label = job.external_ref or job.title
+                # A one-off named workflow wins; otherwise the repository or user profile.
+                name = proposal.workflow or router.DEFAULT_PROFILE
+                if name == router.DEFAULT_PROFILE:
+                    name = self.resolve_profile(job.repository_id, job)
+                if get_workflow(name).is_composite:
+                    run = await self.start_run(name, job_id=job.id, request=proposal.message)
+                    return f"Started {label} on the {name} workflow. {self._run_reply(run)}"
+                worker = await self.start_workflow(name, job_id=job.id, request=proposal.message)
+                self.selected_worker_id = worker.id
                 return f"Started {label} in a new job. Planning is in progress."
         return proposal.reason
+
+    def _run_reply(self, run: WorkflowRun) -> str:
+        """One line describing where a run stands, for the manager pane."""
+        worker = self.store.get_worker(run.current_worker_id) if run.current_worker_id else None
+        if worker is not None:
+            self.selected_worker_id = worker.id
+            return f"Step {run.step_index + 1}: {worker.workflow} on {worker.title}."
+        if run.status is RunStatus.COMPLETED:
+            return "Every applicable step is done."
+        return run.detail or f"{run.workflow} is {run.status.value}."
 
     def status_summary(self) -> str:
         items = self.list_attention_items()

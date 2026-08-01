@@ -13,14 +13,24 @@ from tests.conftest import TICKET, commit_file
 
 
 async def settle() -> None:
-    """Let the per-worker event pumps drain."""
-    for _ in range(20):
-        await asyncio.sleep(0)
-    await asyncio.sleep(0.05)
+    """Let the event pumps drain and any composite run reach its next pause.
+
+    A composite step chains through several tasks (pump -> advance -> new worker -> pump),
+    so this gives the loop several full rounds rather than one.
+    """
+    for _ in range(10):
+        for _ in range(50):
+            await asyncio.sleep(0)
+        await asyncio.sleep(0.01)
 
 
 def committing_responder(name: str, content: str, message: str):
+    """An implementer that commits once. Later turns are a no-op, as a real one would be."""
+
     def respond(spec, _message: str) -> str:
+        path = spec.cwd / name
+        if path.exists() and path.read_text() == content:
+            return f"Nothing further to commit for {message!r}."
         commit_file(spec.cwd, name, content, message)
         return f"Committed {message!r}."
 
@@ -35,25 +45,24 @@ async def project(session_manager, git_repo, backend):
 
 
 async def drive_to_review(sm, backend, repo) -> tuple:
-    """Paste a ticket and run plan -> approve -> implement -> verify -> review."""
+    """Paste a ticket and let the complete-ticket run carry it through review.
+
+    Nothing here names a workflow: pasting the ticket starts the composite, and answering
+    the decision plus approving the plan is the only human input the ritual needs.
+    """
     manager = DeterministicManager(sm)
+    backend.responses["implementer"] = committing_responder(
+        "preferences.py", "PREFERENCES = {}\n", "feat: add preferences"
+    )
     await manager.handle(TICKET)
     await settle()
     job = sm.store.list_jobs()[0]
 
     sm.record_decision(job.id, "Must legacy records remain writable?", "Read legacy, write new only")
     sm.approve_plan(job.id)
-
-    backend.responses["implementer"] = committing_responder(
-        "preferences.py", "PREFERENCES = {}\n", "feat: add preferences"
-    )
-    impl = await sm.start_workflow("implement-approved-plan", job_id=job.id, request=TICKET)
     await settle()
 
-    await sm.start_workflow("full-verify", job_id=job.id)
-    await settle()
-    await sm.start_workflow("independent-review", job_id=job.id)
-    await settle()
+    impl = next(w for w in sm.store.list_workers(job.id) if w.role is WorkerRole.IMPLEMENTER)
     return manager, job, impl
 
 

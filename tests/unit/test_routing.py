@@ -82,7 +82,7 @@ def test_pasted_ticket_creates_a_job_and_a_read_only_planner(repo):
     assert route.external_ref == "ENG-421"
     assert route.title == "Notification preferences"
     assert route.repository_id == repo.id
-    assert route.workflow == "plan-feature"
+    assert route.workflow == "complete-ticket"
     assert route.writable is False
 
 

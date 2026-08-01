@@ -74,6 +74,19 @@ class JobStage(str, Enum):
     FAILED = "failed"
 
 
+class RunStatus(str, Enum):
+    """Where a composite workflow run stands. Persisted, so a run survives a restart."""
+
+    RUNNING = "running"
+    AWAITING_APPROVAL = "awaiting_approval"
+    BLOCKED = "blocked"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+TERMINAL_RUN_STATUSES = frozenset({RunStatus.COMPLETED, RunStatus.FAILED})
+
+
 class WorkerRole(str, Enum):
     GENERAL = "general"
     PLANNER = "planner"

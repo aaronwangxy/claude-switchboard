@@ -9,7 +9,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_meta (version INTEGER NOT NULL);
@@ -101,6 +101,16 @@ CREATE TABLE IF NOT EXISTS workflow_executions (
     data TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS workflow_runs (
+    id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL,
+    workflow TEXT NOT NULL,
+    status TEXT NOT NULL,
+    current_worker_id TEXT,
+    updated_at TEXT NOT NULL,
+    data TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS preferences (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -110,6 +120,7 @@ CREATE INDEX IF NOT EXISTS idx_workers_job ON workers(job_id);
 CREATE INDEX IF NOT EXISTS idx_transcript_worker ON transcript(worker_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at);
 CREATE INDEX IF NOT EXISTS idx_artifacts_job ON artifacts(job_id, type);
+CREATE INDEX IF NOT EXISTS idx_runs_job ON workflow_runs(job_id, updated_at);
 """
 
 
@@ -124,9 +135,16 @@ def connect(path: Path) -> sqlite3.Connection:
 
 
 def migrate(conn: sqlite3.Connection) -> None:
-    """Create the schema if absent. Version 1 is the initial schema."""
+    """Bring a database up to `SCHEMA_VERSION`.
+
+    Every statement is `IF NOT EXISTS`, and versions so far only add tables and columns
+    that default cleanly (a v1 job simply has no profile), so replaying the schema is the
+    whole migration. Anything that needs to rewrite existing rows gets an explicit step.
+    """
     conn.executescript(SCHEMA)
     row = conn.execute("SELECT version FROM schema_meta").fetchone()
     if row is None:
         conn.execute("INSERT INTO schema_meta (version) VALUES (?)", (SCHEMA_VERSION,))
+    elif row["version"] != SCHEMA_VERSION:
+        conn.execute("UPDATE schema_meta SET version = ?", (SCHEMA_VERSION,))
     conn.commit()

@@ -28,6 +28,10 @@ DESTRUCTIVE_PATTERNS = (
     "merge into", "merge to main",
 )
 
+#: What a brand new job runs when the user has expressed no other preference. The session
+#: manager may substitute a repository or user preference before executing the route.
+DEFAULT_PROFILE = "complete-ticket"
+
 Action = Literal[
     "message_worker",
     "start_workflow",
@@ -213,9 +217,7 @@ def resolve_route(text: str, state: RoutingState) -> RouteProposal:
             title=extract_title(text, ref),
             external_ref=ref,
             message=text,
-            workflow="plan-feature",
-            role=WorkerRole.PLANNER,
-            writable=False,
+            workflow=DEFAULT_PROFILE,
             priority=5,
         )
 
@@ -317,8 +319,7 @@ def resolve_route(text: str, state: RoutingState) -> RouteProposal:
         title=extract_title(text, ref),
         external_ref=ref,
         message=text,
-        workflow="plan-feature",
-        role=WorkerRole.PLANNER,
+        workflow=DEFAULT_PROFILE,
         priority=5,
     )
 
@@ -340,7 +341,7 @@ def _route_into_job(
         if worker is None:
             return RouteProposal(
                 action="start_workflow",
-                reason="Existing job has no live worker; starting a planner for it.",
+                reason="Existing job has no live worker; planning it before anything else.",
                 job_id=job.id,
                 repository_id=job.repository_id,
                 workflow="plan-feature",

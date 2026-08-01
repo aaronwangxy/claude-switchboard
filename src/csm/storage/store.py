@@ -9,7 +9,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-from csm.domain.enums import ArtifactType, JobStage, WorkerStatus
+from csm.domain.enums import TERMINAL_RUN_STATUSES, ArtifactType, JobStage, WorkerStatus
 from csm.domain.models import (
     Artifact,
     AttentionItem,
@@ -20,6 +20,7 @@ from csm.domain.models import (
     TranscriptMessage,
     Worker,
     WorkflowExecution,
+    WorkflowRun,
     Worktree,
 )
 from csm.storage.database import connect
@@ -361,6 +362,62 @@ class Store:
             (str(job_id),),
         ).fetchall()
         return [_load(WorkflowExecution, r) for r in rows]
+
+    # ------------------------------------------------------------ workflow runs
+
+    def save_run(self, run: WorkflowRun) -> WorkflowRun:
+        self.conn.execute(
+            "INSERT OR REPLACE INTO workflow_runs"
+            " (id, job_id, workflow, status, current_worker_id, updated_at, data)"
+            " VALUES (?,?,?,?,?,?,?)",
+            (
+                str(run.id),
+                str(run.job_id),
+                run.workflow,
+                run.status.value,
+                str(run.current_worker_id) if run.current_worker_id else None,
+                run.updated_at.isoformat(),
+                _dump(run),
+            ),
+        )
+        self.conn.commit()
+        return run
+
+    def get_run(self, run_id: UUID) -> WorkflowRun | None:
+        row = self.conn.execute(
+            "SELECT data FROM workflow_runs WHERE id=?", (str(run_id),)
+        ).fetchone()
+        return _load(WorkflowRun, row) if row else None
+
+    def list_runs(self, job_id: UUID | None = None) -> list[WorkflowRun]:
+        if job_id:
+            rows = self.conn.execute(
+                "SELECT data FROM workflow_runs WHERE job_id=? ORDER BY updated_at, rowid",
+                (str(job_id),),
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                "SELECT data FROM workflow_runs ORDER BY updated_at, rowid"
+            ).fetchall()
+        return [_load(WorkflowRun, r) for r in rows]
+
+    def active_run(self, job_id: UUID) -> WorkflowRun | None:
+        """The job's live run, if any. There is at most one."""
+        placeholders = ",".join("?" * len(TERMINAL_RUN_STATUSES))
+        rows = self.conn.execute(
+            f"SELECT data FROM workflow_runs WHERE job_id=? AND status NOT IN ({placeholders})"
+            " ORDER BY updated_at DESC, rowid DESC LIMIT 1",
+            (str(job_id), *sorted(s.value for s in TERMINAL_RUN_STATUSES)),
+        ).fetchall()
+        return _load(WorkflowRun, rows[0]) if rows else None
+
+    def run_for_worker(self, worker_id: UUID) -> WorkflowRun | None:
+        rows = self.conn.execute(
+            "SELECT data FROM workflow_runs WHERE current_worker_id=?"
+            " ORDER BY updated_at DESC, rowid DESC LIMIT 1",
+            (str(worker_id),),
+        ).fetchall()
+        return _load(WorkflowRun, rows[0]) if rows else None
 
     # ------------------------------------------------------------- preferences
 
