@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import shutil
 from collections.abc import Sequence
@@ -13,6 +14,8 @@ from csm.config import worktree_root
 from csm.domain.models import Job, Repository, Worker, Worktree
 from csm.gitops import runner
 from csm.gitops.runner import GitError, run_git
+
+log = logging.getLogger(__name__)
 
 _SLUG = re.compile(r"[^a-zA-Z0-9._-]+")
 
@@ -77,6 +80,10 @@ class WorktreeService:
         repository -- nothing is swept up by pattern, and nothing escapes either tree.
         Empty by default: opting in is the user's decision, because these files are
         exactly where credentials tend to live.
+
+        A file that cannot be copied is skipped rather than raised: by the time this runs
+        the worktree and its branch exist, and failing here would leave both behind with
+        nothing in the store pointing at them.
         """
         copied: list[str] = []
         repo_root = repo_path.resolve()
@@ -87,8 +94,12 @@ class WorktreeService:
             destination = worktree_path / source.relative_to(repo_root)
             if destination.exists():
                 continue
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, destination)
+            try:
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, destination)
+            except OSError:
+                log.warning("could not bootstrap %s into %s", name, worktree_path, exc_info=True)
+                continue
             copied.append(name)
         return copied
 

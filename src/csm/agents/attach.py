@@ -27,6 +27,8 @@ class Attachment:
     cwd: Path
     session_id: str
     argv: list[str]
+    #: What the user should know before taking over, if anything. See `_attach_note`.
+    note: str = ""
 
     @property
     def shell_hint(self) -> str:
@@ -35,9 +37,15 @@ class Attachment:
 
 
 def build_attachment(
-    *, cwd: Path, session_id: str | None, executable: str | None = None
+    *, cwd: Path, session_id: str | None, executable: str | None = None, note: str = ""
 ) -> Attachment:
-    """The command that resumes this worker's session in its own directory."""
+    """The command that resumes this worker's session in its own directory.
+
+    Note what this does *not* reproduce: the resumed session is an ordinary interactive
+    Claude, so the tool policy CSM gave the worker -- read-only, in particular -- does not
+    apply to it. That is the point of handing over control, but the caller is expected to
+    say so through `note` where it could surprise.
+    """
     if not session_id:
         raise AttachError(
             "This worker has no Claude session yet, so there is nothing to resume. "
@@ -49,4 +57,5 @@ def build_attachment(
         cwd=cwd,
         session_id=session_id,
         argv=[executable or "claude", "--resume", session_id],
+        note=note,
     )

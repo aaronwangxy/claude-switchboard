@@ -9,6 +9,7 @@ demoed and tested offline.
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 from collections.abc import Sequence
@@ -167,7 +168,11 @@ def list_workflows() -> int:
 
 
 def show_config() -> int:
-    """Print the effective configuration, including where everything is read from."""
+    """Print the effective configuration, including where everything is read from.
+
+    `claude.env` is redacted: it is the one place in this file a token could be sitting,
+    and the point of the command is to see where CSM is reading state from.
+    """
     config = load_config()
     print(f"config file      {config_path()}")
     print(f"data directory   {home_dir()}")
@@ -175,7 +180,9 @@ def show_config() -> int:
     print(f"worktree root    {worktree_root()}")
     print(f"user workflows   {user_workflows_dir()}")
     print()
-    print(config.model_dump_json(indent=2))
+    shown = config.model_dump(mode="json")
+    shown["claude"]["env"] = {key: "<hidden>" for key in config.claude.env}
+    print(json.dumps(shown, indent=2))
     return 0
 
 

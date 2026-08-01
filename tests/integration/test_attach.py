@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 
 from csm.agents.attach import AttachError, build_attachment
+from csm.core.session_manager import SessionManagerError
 from csm.domain import events as ev
 from csm.domain.enums import RunStatus, WorkerRole, WorkerStatus
 from csm.routing import router
@@ -101,6 +102,59 @@ class TestSessionManagerAttach:
             await session_manager.attach(worker.id)
 
 
+class TestAttachHandsOverControl:
+    async def test_csm_refuses_to_send_while_the_user_is_attached(self, session_manager, worker):
+        """Two writers would interleave turns in one session file."""
+        await session_manager.attach(worker.id)
+        with pytest.raises(SessionManagerError, match="attached"):
+            await session_manager.send(worker.id, "keep going")
+
+    async def test_leaving_gives_control_back(self, session_manager, worker):
+        await session_manager.attach(worker.id)
+        session_manager.detach(worker.id)
+        assert not session_manager.is_attached(worker.id)
+        await session_manager.send(worker.id, "keep going")  # must not raise
+
+    async def test_the_paused_run_can_be_resumed_after_leaving(self, session_manager, worker):
+        """Attaching must not be a one-way door for the ritual."""
+        run = await session_manager.start_run("complete-ticket", job_id=worker.job_id)
+        current = session_manager.store.get_run(run.id)
+        running = session_manager.store.get_worker(current.current_worker_id)
+        running.session_id = "sess-run"
+        session_manager.store.save_worker(running)
+
+        await session_manager.attach(running.id)
+        session_manager.detach(running.id)
+        assert session_manager.store.get_run(run.id).status is RunStatus.BLOCKED
+
+        resumed = await session_manager.resume_run(run.id)
+        assert resumed.status is not RunStatus.BLOCKED
+
+    async def test_attaching_to_a_read_only_observer_warns_about_the_worktree(
+        self, session_manager, worker
+    ):
+        """A read-only worker sits in the *writable* worker's tree, and `claude --resume`
+        has none of the tool restrictions that made it read-only."""
+        reviewer = await session_manager.create_worker(
+            role=WorkerRole.REVIEWER,
+            title="Review ENG-9",
+            prompt="",
+            job_id=worker.job_id,
+            repository_id=worker.repository_id,
+            writable=False,
+        )
+        reviewer.session_id = "sess-rev"
+        session_manager.store.save_worker(reviewer)
+
+        attachment = await session_manager.attach(reviewer.id)
+        assert attachment.cwd == worker.cwd  # it observes the implementer's worktree
+        assert "read-only" in attachment.note
+        assert worker.title in attachment.note
+
+    async def test_attaching_to_a_writable_worker_needs_no_warning(self, session_manager, worker):
+        assert (await session_manager.attach(worker.id)).note == ""
+
+
 class TestAttachRouting:
     async def test_asking_to_be_let_in_routes_to_the_selected_worker(
         self, session_manager, worker
@@ -124,6 +178,29 @@ class TestAttachRouting:
         state = session_manager.routing_state()
         proposal = router.resolve_route("let me in, I'll rebase it myself", state)
         assert proposal.action == "attach_worker"
+
+    async def test_a_ticket_that_matches_no_job_asks_rather_than_guessing(
+        self, session_manager, worker
+    ):
+        """Attaching interrupts a worker and pauses its run, so a wrong guess is not free."""
+        session_manager.selected_worker_id = worker.id
+        state = session_manager.routing_state()
+        proposal = router.resolve_route("drop me into ENG-777", state)
+        assert proposal.action == "clarify"
+
+    async def test_asking_the_manager_to_take_over_a_task_is_not_an_attach(
+        self, session_manager, worker
+    ):
+        session_manager.selected_worker_id = worker.id
+        state = session_manager.routing_state()
+        assert router.resolve_route("can you take over from here", state).action != "attach_worker"
+
+    async def test_resuming_a_run_is_routable(self, session_manager, worker):
+        session_manager.selected_worker_id = worker.id
+        state = session_manager.routing_state()
+        proposal = router.resolve_route("resume the run", state)
+        assert proposal.action == "resume_run"
+        assert proposal.job_id == worker.job_id
 
     async def test_with_nothing_to_attach_to_it_asks(self, session_manager):
         state = session_manager.routing_state()

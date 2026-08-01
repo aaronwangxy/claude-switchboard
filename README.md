@@ -73,7 +73,10 @@ have typed:
 cd <worktree> && claude --resume <session id>
 ```
 
-CSM interrupts the worker and pauses its run first, so nothing is steering it but you.
+CSM interrupts the worker, refuses to send to it while you are there, and pauses any
+workflow run it belongs to. When you exit, the run stays paused until you say "resume the
+run" — you have just been editing by hand, so whether the ritual should carry on is
+yours to decide.
 
 ```
 +------------------------------+----------------------------------------+
@@ -121,7 +124,9 @@ steps:
 ```
 
 Drop that in `~/.csm/workflows/` for yourself, or in a repository's `.csm/workflows/` so
-the convention travels with the clone. `csm workflows` lists everything loaded.
+the convention travels with the clone. Built-in names are reserved — a file in a
+repository must not be able to strip the prerequisites that keep implementation from
+running without an approved plan. `csm workflows` lists everything loaded.
 `mine-workflows` reads CSM's own record of what you have been running and *proposes*
 workflows for rituals you keep assembling by hand; a proposal changes nothing until you
 accept it.

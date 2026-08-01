@@ -114,9 +114,12 @@ cannot do damage.
 **Attach.** A worker is an ordinary Claude Code session, persisted by the runtime under
 `~/.claude/projects/` like any other, so `agents/attach.py` builds the command the user
 would have typed themselves: `claude --resume <session id>` in the worker's worktree.
-`SessionManager.attach` interrupts a working worker and pauses its run first -- two
-clients driving one session would interleave turns. Reachable by `Ctrl+E`, by the
-`attach_worker` manager tool, and deterministically from the router.
+`attach` interrupts the turn, marks the worker attached so `send` refuses, and pauses its
+run; `detach` gives control back but leaves the run paused, because only the user knows
+whether the ritual should carry on -- `resume_run` is how they say yes. The resumed
+session is an ordinary interactive Claude, so a worker's read-only tool policy does *not*
+survive attaching; `_attach_note` says so when the worker observes someone else's
+worktree. Reachable by `Ctrl+E`, the `attach_worker` tool, and the router.
 
 **Worker backend.** `agents/backend.py` defines `WorkerSpec`/`WorkerHandle`/`WorkerEvent`
 and the `WorkerBackend` protocol (start, send, stream, interrupt, stop, resume, health).
@@ -156,8 +159,11 @@ never replaces it — layering concision policy, role policy, read-only note, su
 workflow policy, and verbosity. `PROMPT_POLICY_VERSION` is persisted per worker.
 
 **Workflows.** `WORKFLOWS` is loaded from YAML: built-in (`workflows/builtin/`), then the
-user's (`~/.csm/workflows`), then each registered repository's `.csm/workflows`, later
-overriding earlier by name. A malformed file is reported and skipped, never raised. Each
+user's (`~/.csm/workflows`), then each registered repository's `.csm/workflows`. A
+malformed file is reported and skipped, never raised. **Built-in names are reserved**: a
+workflow's `requires` and `mutates_code` are what enforce contract prerequisites and
+worktree isolation, both default to permissive, and a repository's workflows travel
+inside the repository they would be constraining. Each
 is a `WorkflowDefinition` declaring allowed roles, required/produced artifacts, whether it
 mutates code, what it invalidates, and a prompt template. `SessionManager` renders the template, enforces prerequisites
 (`_assert_prerequisites`: implementation cannot run without a current *and approved*
@@ -196,6 +202,9 @@ Enforced in ordinary Python, never by asking a model to behave:
 7. Workflow prerequisites and `ready_to_push` are computed from stored state, not judgment.
 8. Workers run with `mcp_servers={}`, so manager tools are structurally unreachable.
 9. A malformed manager tool call returns a refusal, never an exception that kills the turn.
+10. A user or repository workflow may not redefine a built-in, so declared prerequisites
+    and `mutates_code` cannot be stripped by a file in the repository being worked on.
+11. While the user is attached to a worker, CSM refuses to send to it.
 
 Known gap: read-only workers keep Bash (reviewers and verifiers need it), so read-only is
 enforced by tool policy and prompt, not a sandbox. See `docs/mvp-evidence.md` limitation 1.

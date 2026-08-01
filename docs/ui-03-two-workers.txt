@@ -5,7 +5,7 @@ csm — two jobs in flight
  Manager                                                      │ ENG-999 · planner · blocked · planning · default model
  mgr  Registered repository repo-alpha                        │█ Reason: [NEEDS DECISION] Choose the legacy-write strategy.
  (/private/var/folders/3l/s3t0j73x1bl1bvyxr7c53bf40000gn/T/   │█ Waiting for: [NEEDS DECISION] Choose the legacy-write strategy.
- csm-capture-b0km2ir5/repo-alpha).                         ▅▅ │
+ csm-capture-i8hjr4_y/repo-alpha).                         ▅▅ │
                                                               │           {
  mgr  Nothing to recover. Nothing needs you. 0 worker(s)      │             "order": 1,
  still working.                                               │             "message": "feat: add preferences table",

@@ -80,11 +80,10 @@ class WorkflowConfig(BaseModel):
 class ClaudeConfig(BaseModel):
     """How to reach the Claude runtime.
 
-    The executable is configuration, not a hardcoded `claude`, so a wrapper that supplies
-    authentication, SSO, a proxy, a gateway, or managed configuration can be used instead.
-    The parent environment is always inherited so such a wrapper keeps working; `env` only
-    adds to it. Nothing here can bypass managed policy: the wrapper is still the Claude
-    CLI, and CSM only chooses which one to launch.
+    The executable is configuration rather than a hardcoded `claude`, so a wrapper can be
+    used instead. The parent environment is always inherited so such a wrapper keeps
+    working; `env` only adds to it. Nothing here can bypass managed policy -- the wrapper
+    is still the Claude CLI, and CSM only chooses which one to launch.
     """
 
     executable: str | None = None

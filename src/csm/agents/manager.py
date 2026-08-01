@@ -275,6 +275,22 @@ class ModelManager:
             return ok({"command": attachment.shell_hint, "cwd": str(attachment.cwd)})
 
         @tool(
+            "resume_run",
+            "Resume a paused workflow run for a job -- for example after the user worked "
+            "in the session themselves and wants the ritual to carry on.",
+            {"job_id": str},
+        )
+        async def resume_run(args: dict) -> dict:
+            run = sm.store.active_run(_require_uuid(args["job_id"]))
+            if run is None:
+                return err("That job has no paused workflow run.")
+            try:
+                resumed = await sm.resume_run(run.id)
+            except (SessionManagerError, ValueError) as exc:
+                return err(str(exc))
+            return ok({"run": str(resumed.id), "status": resumed.status.value})
+
+        @tool(
             "list_workflow_proposals",
             "List workflows a mining run proposed for a job. Proposals are inert until "
             "the user accepts one.",
@@ -362,6 +378,7 @@ class ModelManager:
             open_worker,
             interrupt_worker,
             attach_worker,
+            resume_run,
             list_workflow_proposals,
             accept_workflow_proposal,
             stop_worker,
@@ -412,10 +429,11 @@ class ModelManager:
             ),
             route=proposal,
         )
-        options = self.options()
         parts: list[str] = []
         try:
-            async with ClaudeSDKClient(options=options) as client:
+            # Inside the try: a misconfigured `claude.executable` must fall back to the
+            # deterministic router like any other manager failure, not kill the turn.
+            async with ClaudeSDKClient(options=self.options()) as client:
                 await client.query(f"{snapshot}\n\n## User request\n{text}")
                 async for message in client.receive_response():
                     if isinstance(message, AssistantMessage):
@@ -452,6 +470,7 @@ MANAGER_TOOL_NAMES = [
     "open_worker",
     "interrupt_worker",
     "attach_worker",
+    "resume_run",
     "list_workflow_proposals",
     "accept_workflow_proposal",
     "stop_worker",

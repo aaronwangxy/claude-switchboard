@@ -8,7 +8,7 @@ csm — blocked planner with attention banner
                                                               │
  mgr  Registered repository repo-alpha                        │           {
  (/private/var/folders/3l/s3t0j73x1bl1bvyxr7c53bf40000gn/T/cs │             "order": 1,
- m-capture-b0km2ir5/repo-alpha).                              │             "message": "feat: add preferences table",
+ m-capture-i8hjr4_y/repo-alpha).                              │             "message": "feat: add preferences table",
                                                               │             "purpose": "schema"
  mgr  Nothing to recover. Nothing needs you. 0 worker(s)      │           },
  still working.                                               │           {

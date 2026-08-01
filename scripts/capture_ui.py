@@ -56,7 +56,11 @@ async def settle(pilot, ticks: int = 12) -> None:
 
 
 def screen_text(app) -> str:
-    """The rendered screen as plain text, right-trimmed line by line."""
+    """The rendered screen as plain text, right-trimmed line by line.
+
+    Textual exports SVG, not text, so this reaches for the compositor. Private API: if a
+    Textual upgrade breaks it, the fix is here and nothing in `csm` is affected.
+    """
     strips = app.screen._compositor.render_strips()
     return "\n".join(strip.text.rstrip() for strip in strips).rstrip()
 

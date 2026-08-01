@@ -34,7 +34,7 @@ from textual.screen import Screen
 from textual.widgets import Button, DataTable, Footer, Header, Input, Static
 
 from csm.core.session_manager import SessionManager
-from csm.domain.enums import WorkerStatus
+from csm.domain.enums import RunStatus, WorkerStatus
 from csm.domain.models import AttentionItem, Event, Worker
 from csm.routing.attention import next_actionable, prioritize
 from csm.ui.help import HelpScreen
@@ -599,15 +599,32 @@ class CsmApp(App[None]):
         except Exception as exc:
             self.manager_pane.add_note(f"Cannot attach to that worker: {exc}")
             return
+        if attachment.note:
+            self.manager_pane.add_note(attachment.note)
         self.manager_pane.add_note(f"Attaching: {attachment.shell_hint}")
-        with self.suspend():
-            try:
-                subprocess.run(attachment.argv, cwd=attachment.cwd, check=False)
-            except OSError as exc:  # a missing or unusable executable
-                print(f"Could not start Claude: {exc}")
-        self.manager_pane.add_note("Back in CSM. The worker is idle until you send it something.")
+        try:
+            with self.suspend():
+                try:
+                    subprocess.run(attachment.argv, cwd=attachment.cwd, check=False)
+                except OSError as exc:  # a missing or unusable executable
+                    print(f"Could not start Claude: {exc}")
+        finally:
+            # Always hand control back, even if the suspend or the process failed --
+            # otherwise `send` stays refused for a session nobody is in.
+            self.sm.detach(worker_id)
+        self.manager_pane.add_note(self._back_from_attach(worker_id))
         self.refresh_workers()
         self.refresh_worker_pane()
+
+    def _back_from_attach(self, worker_id: UUID) -> str:
+        """What to tell the user on return, which depends on whether a run is waiting."""
+        run = self.sm.store.run_for_worker(worker_id)
+        if run is not None and run.status is RunStatus.BLOCKED:
+            return (
+                "Back in CSM. That worker's workflow run is paused where you left it — "
+                "say 'resume the run' to carry on, or just keep working."
+            )
+        return "Back in CSM."
 
     def action_help(self) -> None:
         self.push_screen(HelpScreen())

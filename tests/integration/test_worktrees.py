@@ -263,3 +263,27 @@ def test_inspect_worktree_reports_a_missing_directory(
     assert state.exists is False
     assert state.dirty is False
     assert worktree_service.get_head(worktree) is None
+
+
+def test_creating_a_worktree_bootstraps_the_configured_files(
+    csm_home, git_repo, session_manager
+):
+    """The wiring, not just the policy: a real worktree gets the real file."""
+    from csm.domain.enums import WorkerRole
+    from csm.domain.models import Worker
+    from csm.gitops.worktrees import WorktreeService
+
+    repo_path = git_repo("bootstrapped")
+    (repo_path / "CLAUDE.local.md").write_text("# local rules\n")
+    (repo_path / ".env").write_text("SECRET=1")
+    repo = session_manager.register_repository(repo_path)
+
+    service = WorktreeService(csm_home / "worktrees", ["CLAUDE.local.md"])
+    worker = Worker(
+        title="Implement", role=WorkerRole.IMPLEMENTER, repository_id=repo.id,
+        cwd=repo.root_path, writable=True,
+    )
+    worktree = service.create_worktree(repo, None, worker, repo.default_branch)
+
+    assert (worktree.path / "CLAUDE.local.md").read_text() == "# local rules\n"
+    assert not (worktree.path / ".env").exists()

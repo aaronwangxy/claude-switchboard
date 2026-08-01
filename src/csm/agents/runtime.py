@@ -1,10 +1,8 @@
 """Locating the Claude executable.
 
-The command is configuration, not a constant. A site may ship a wrapper -- say
-`company-claude` -- that supplies authentication, SSO, a proxy, a gateway, or managed
-configuration before exec'ing the real CLI. CSM only decides which executable to launch;
-it never passes anything that could bypass that wrapper's policy, and it always inherits
-the parent environment so the wrapper's own configuration still applies.
+The command is configuration rather than a literal `claude`, so a wrapper can be used
+instead. CSM only decides which executable to launch; the parent environment is always
+inherited, so whatever that wrapper configures still applies.
 """
 
 from __future__ import annotations

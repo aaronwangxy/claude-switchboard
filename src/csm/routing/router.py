@@ -35,6 +35,7 @@ DEFAULT_PROFILE = "complete-ticket"
 Action = Literal[
     "message_worker",
     "attach_worker",
+    "resume_run",
     "start_workflow",
     "new_job",
     "new_question_worker",
@@ -160,7 +161,6 @@ ATTACH_PHRASES = (
     "put me in",
     "jump into",
     "jump in to",
-    "take over",
     "attach to",
     "attach me",
     "enter that session",
@@ -170,7 +170,27 @@ ATTACH_PHRASES = (
     "i'll drive",
     "let me drive",
     "give me a terminal",
+    "take over that session",
+    "take over the session",
 )
+
+
+#: Asking a paused composite run to carry on, usually after working in a session by hand.
+RESUME_PHRASES = (
+    "resume the run",
+    "resume that run",
+    "resume the workflow",
+    "resume the ritual",
+    "carry on with the run",
+    "continue the run",
+    "continue the workflow",
+    "pick the run back up",
+)
+
+
+def wants_resume(text: str) -> bool:
+    lowered = (text or "").lower()
+    return any(phrase in lowered for phrase in RESUME_PHRASES)
 
 
 def wants_attach(text: str) -> bool:
@@ -187,8 +207,21 @@ def match_workflow(text: str) -> str | None:
 
 
 def _route_attach(text: str, state: RoutingState, ref: str | None) -> RouteProposal:
-    """Resolve which session the user wants to sit in themselves."""
+    """Resolve which session the user wants to sit in themselves.
+
+    Attaching interrupts a worker and pauses its run, so a misresolved target is not a
+    harmless guess. A ticket the user named that does not resolve therefore asks rather
+    than quietly falling back to whatever happens to be selected.
+    """
     job = next((j for j in state.jobs if ref and j.external_ref == ref), None)
+    if ref and job is None:
+        return RouteProposal(
+            action="clarify",
+            reason=f"{ref} was named but matches no job.",
+            message=text,
+            question=f"I have no job for {ref}. Which worker's session do you mean?",
+            priority=6,
+        )
     if job is None and state.selected_worker_id is not None:
         return RouteProposal(
             action="attach_worker",
@@ -217,6 +250,31 @@ def _route_attach(text: str, state: RoutingState, ref: str | None) -> RoutePropo
         job_id=worker.job_id,
         message=text,
         priority=1,
+    )
+
+
+def _route_resume(text: str, state: RoutingState, ref: str | None) -> RouteProposal:
+    """Put a paused composite run back in flight on the job the user means."""
+    job = next((j for j in state.jobs if ref and j.external_ref == ref), None) or state.job(
+        state.selected_job_id
+    )
+    if job is None and state.selected_worker_id is not None:
+        selected = state.worker(state.selected_worker_id)
+        job = state.job(selected.job_id) if selected else None
+    if job is None:
+        return RouteProposal(
+            action="clarify",
+            reason="No job is selected and the request does not identify one.",
+            message=text,
+            question="Which job's workflow run should carry on?",
+            priority=6,
+        )
+    return RouteProposal(
+        action="resume_run",
+        reason=f"Resume the paused run on {job.external_ref or job.title}.",
+        job_id=job.id,
+        message=text,
+        priority=2,
     )
 
 
@@ -260,6 +318,9 @@ def resolve_route(text: str, state: RoutingState) -> RouteProposal:
     # it is resolved before any workflow phrase in the same sentence is considered.
     if wants_attach(text):
         return _route_attach(text, state, ref)
+
+    if wants_resume(text):
+        return _route_resume(text, state, ref)
 
     # 1. Explicit ticket reference wins.
     referenced_job = next((j for j in state.jobs if ref and j.external_ref == ref), None)

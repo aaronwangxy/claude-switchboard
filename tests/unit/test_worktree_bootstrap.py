@@ -70,3 +70,22 @@ class TestWorktreeBootstrap:
         worktree.mkdir()
         service = WorktreeService(tmp_path / "root", ["CLAUDE.local.md"])
         assert service.bootstrap(repo, worktree) == []
+
+    def test_a_symlink_pointing_out_of_the_repository_is_refused(self, tmp_path):
+        repo, worktree = tmp_path / "repo", tmp_path / "wt"
+        repo.mkdir()
+        worktree.mkdir()
+        (tmp_path / "secrets.txt").write_text("SECRET=1")
+        (repo / "CLAUDE.local.md").symlink_to(tmp_path / "secrets.txt")
+        service = WorktreeService(tmp_path / "root", ["CLAUDE.local.md"])
+        assert service.bootstrap(repo, worktree) == []
+        assert not (worktree / "CLAUDE.local.md").exists()
+
+    def test_a_file_in_a_subdirectory_keeps_its_place(self, tmp_path):
+        repo, worktree = tmp_path / "repo", tmp_path / "wt"
+        (repo / ".claude").mkdir(parents=True)
+        worktree.mkdir()
+        (repo / ".claude" / "settings.local.json").write_text("{}")
+        service = WorktreeService(tmp_path / "root", [".claude/settings.local.json"])
+        assert service.bootstrap(repo, worktree) == [".claude/settings.local.json"]
+        assert (worktree / ".claude" / "settings.local.json").read_text() == "{}"

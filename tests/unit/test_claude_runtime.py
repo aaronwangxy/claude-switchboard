@@ -47,17 +47,23 @@ class TestClaudeExecutable:
             claude_cli_path(str(plain))
 
 
-def test_the_configured_executable_reaches_the_worker_spec():
-    """The config value is threaded to the spec, not read again inside the backend."""
+def test_the_configured_executable_reaches_the_sdk_options(tmp_path):
+    """The link that could actually break: config -> spec -> the options the SDK gets."""
+    pytest.importorskip("claude_agent_sdk")
+    from csm.agents.sdk_backend import SdkWorkerBackend
+
+    wrapper = _make_executable(tmp_path / "company-claude")
     spec = WorkerSpec(
         worker_id=uuid4(),
         role="implementer",
-        cwd=Path("."),
+        cwd=tmp_path,
         system_prompt_append="",
         initial_prompt="",
-        claude_executable="company-claude",
+        claude_executable=str(wrapper),
         env={"COMPANY_PROXY": "on"},
     )
-    assert spec.claude_executable == "company-claude"
-    assert spec.env == {"COMPANY_PROXY": "on"}
-    assert "COMPANY_PROXY" not in os.environ  # the spec never mutates the process
+    options = SdkWorkerBackend()._options(spec)
+
+    assert Path(options.cli_path) == wrapper
+    assert options.env == {"COMPANY_PROXY": "on"}
+    assert "COMPANY_PROXY" not in os.environ  # nothing mutates the process environment
