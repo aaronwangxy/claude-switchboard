@@ -200,6 +200,18 @@ def test_external_view_attaches_to_same_process_and_detach_leaves_it_alive(launc
     assert observation.attached_clients == 0
 
 
+def test_view_avoids_nested_tmux_and_switches_only_within_its_own_server(launched):
+    supervisor, runtime, target, log = launched
+    supervisor.set_owner(runtime.id, RuntimeOwner.HUMAN)
+    view = supervisor.view(runtime.id)
+
+    assert "attach-session" in view.argv(tmux_environment="")
+    same_server = f"{view.socket_path},123,0"
+    assert "switch-client" in view.argv(tmux_environment=same_server)
+    with pytest.raises(TmuxError, match="different tmux server"):
+        view.argv(tmux_environment="/tmp/some-other-tmux.sock,456,0")
+
+
 def test_exited_and_absent_are_distinct(launched):
     supervisor, runtime, target, log = launched
     supervisor.send(runtime.id, "__exit__")

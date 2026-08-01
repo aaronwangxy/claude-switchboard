@@ -78,12 +78,21 @@ class TmuxObservation:
 class TmuxView:
     """Nonblocking ways for a caller to enter the existing runtime."""
 
+    socket_path: Path
     external_argv: tuple[str, ...]
     nested_argv: tuple[str, ...]
 
-    def argv(self, *, already_in_tmux: bool | None = None) -> tuple[str, ...]:
-        nested = bool(os.getenv("TMUX")) if already_in_tmux is None else already_in_tmux
-        return self.nested_argv if nested else self.external_argv
+    def argv(self, *, tmux_environment: str | None = None) -> tuple[str, ...]:
+        current = os.getenv("TMUX") if tmux_environment is None else tmux_environment
+        if not current:
+            return self.external_argv
+        current_socket = Path(current.split(",", 1)[0])
+        if current_socket == self.socket_path:
+            return self.nested_argv
+        raise TmuxError(
+            "The current terminal belongs to a different tmux server. Open this runtime "
+            "in a separate terminal client rather than nesting tmux."
+        )
 
 
 class TmuxController:
@@ -220,6 +229,7 @@ class TmuxController:
         self._require_exact(binding, target, allow_exited=False)
         base = (self.executable, "-S", str(self.socket_path))
         return TmuxView(
+            socket_path=self.socket_path,
             external_argv=(*base, "attach-session", "-t", target.session_name),
             nested_argv=(*base, "switch-client", "-t", target.session_name),
         )
