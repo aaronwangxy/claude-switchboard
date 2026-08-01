@@ -34,13 +34,13 @@ class RecordingSupervisor:
         self.sent.append((runtime_id, prompt))
 
 
-def runtime(store):
+def runtime(store, *, fingerprint="native-test"):
     return store.save_runtime(
         RuntimeInstance(
             agent_id=uuid4(),
             agent_kind=RuntimeAgentKind.WORKER,
             backend="native-prototype",
-            launch_fingerprint="native-test",
+            launch_fingerprint=fingerprint,
             process_state=RuntimeProcessState.READY,
         )
     )
@@ -62,7 +62,8 @@ def test_launch_respects_executable_settings_sources_environment_and_hook_overla
         ),
         tmp_path / "state",
     )
-    instance = runtime(store)
+    fingerprint = prototype.launch_fingerprint(cwd=tmp_path)
+    instance = runtime(store, fingerprint=fingerprint)
 
     launch = prototype.launch(instance.id, cwd=tmp_path)
 
@@ -76,6 +77,22 @@ def test_launch_respects_executable_settings_sources_environment_and_hook_overla
     assert "switchboard.runtime.hook_bridge" in command
     assert str(instance.id) in command
     assert launch.settings_overlay.stat().st_mode & 0o777 == 0o600
+
+
+def test_launch_rejects_a_runtime_bound_to_different_configuration(store, tmp_path: Path):
+    wrapper = tmp_path / "claude"
+    wrapper.write_text("#!/bin/sh\nexit 0\n")
+    wrapper.chmod(0o755)
+    prototype = NativeClaudePrototype(
+        store,
+        RecordingSupervisor(),  # type: ignore[arg-type]
+        Config(claude=ClaudeConfig(executable=str(wrapper))),
+        tmp_path / "state",
+    )
+    instance = runtime(store, fingerprint="sha256:stale")
+
+    with pytest.raises(TmuxError, match="fingerprint"):
+        prototype.launch(instance.id, cwd=tmp_path)
 
 
 def test_pending_turn_owns_the_input_lane_before_user_prompt_submit(store, tmp_path: Path):

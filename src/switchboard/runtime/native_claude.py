@@ -6,6 +6,7 @@ capture, interruption, entry, and adoption without changing production worker ro
 
 from __future__ import annotations
 
+import hashlib
 import json
 import secrets
 import shlex
@@ -72,6 +73,14 @@ class NativeClaudePrototype:
 
     def launch(self, runtime_id: UUID, *, cwd: Path) -> NativeClaudeLaunch:
         executable = self._executable()
+        runtime = self.store.get_runtime(runtime_id)
+        if runtime is None:
+            raise TmuxError("Runtime does not exist.")
+        expected_fingerprint = self.launch_fingerprint(cwd=cwd, executable=executable)
+        if runtime.launch_fingerprint != expected_fingerprint:
+            raise TmuxError(
+                "Native Claude launch fingerprint does not match the durable runtime."
+            )
         session_id = str(uuid4())
         settings = self._write_settings(runtime_id)
         argv = (
@@ -90,6 +99,18 @@ class NativeClaudePrototype:
             env=self.config.claude.env,
         )
         return NativeClaudeLaunch(launched, session_id, executable, settings, argv)
+
+    def launch_fingerprint(self, *, cwd: Path, executable: Path | None = None) -> str:
+        """Hash every stable launch input that defines a reusable native process."""
+        payload = {
+            "adapter": "native-claude-prototype-v1",
+            "cwd": str(cwd.resolve()),
+            "env": self.config.claude.env,
+            "executable": str((executable or self._executable()).resolve()),
+            "setting_sources": self.config.setting_sources,
+        }
+        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+        return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
 
     def adopt(self, runtime_id: UUID) -> SupervisedRuntime:
         return self.supervisor.observe(runtime_id)
