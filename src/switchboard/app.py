@@ -1,9 +1,8 @@
 """Application bootstrap: wire the services, then hand them to the UI.
 
-Nothing here renders anything, and nothing in the UI constructs a service. The backend is
-chosen once, here: `SB_BACKEND=scripted` swaps the Agent SDK for the deterministic
-in-process backend and the model manager for the rule-based one, so the whole UI can be
-demoed and tested offline.
+Nothing here renders anything, and nothing in the UI constructs a service. Production workers
+are persistent native Claude processes; `SB_BACKEND=scripted` swaps them for the deterministic
+in-process backend and the model manager for the rule-based one for offline tests and demos.
 """
 
 from __future__ import annotations
@@ -69,9 +68,11 @@ def build_services() -> Services:
 
         backend = ScriptedWorkerBackend()
     else:
-        from switchboard.agents.sdk_backend import SdkWorkerBackend
+        from switchboard.agents.native_backend import NativeClaudeBackend
 
-        backend = SdkWorkerBackend()
+        runtime_dir = home_dir() / "runtime"
+        runtime_dir.mkdir(parents=True, exist_ok=True)
+        backend = NativeClaudeBackend(store, config, runtime_dir)
     worktrees = WorktreeService(worktree_root(), config.worktree_bootstrap.files)
     session_manager = SessionManager(store, backend, config, worktrees)
     session_manager.reload_workflows()

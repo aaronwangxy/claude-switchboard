@@ -8,8 +8,6 @@ Python -- never by asking a model to behave.
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import json
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -19,8 +17,8 @@ from uuid import UUID
 import yaml
 from pydantic import ValidationError
 
-from switchboard.agents.attach import AttachError, Attachment, build_attachment
-from switchboard.agents.backend import WorkerBackend, WorkerEvent, WorkerSpec
+from switchboard.agents.attach import AttachError, Attachment
+from switchboard.agents.backend import WorkerBackend, WorkerBusyError, WorkerEvent, WorkerSpec
 from switchboard.agents.prompts import PROMPT_POLICY_VERSION, compose_worker_prompt
 from switchboard.config import Config, user_workflows_dir
 from switchboard.core.runs import condition_holds, has_blocking_decisions
@@ -301,6 +299,7 @@ class SessionManager:
         already exists under another owner, refuse rather than take it over.
         """
         base_ref = job.base_ref if job else repo.default_branch
+        self._snapshot_before_change(worker)
         try:
             worktree = self.worktrees.create_worktree(repo, job, worker, base_ref)
         except (GitError, WorktreeSafetyError) as exc:
@@ -330,27 +329,12 @@ class SessionManager:
             runtime.process_state = RuntimeProcessState.STARTING
             runtime.updated_at = now()
             self.store.save_runtime(runtime)
-        spec = WorkerSpec(
-            worker_id=worker.id,
-            role=worker.role.value,
-            cwd=worker.cwd,
-            system_prompt_append=compose_worker_prompt(
-                worker.role,
-                self.config,
-                writable=worker.writable,
-                verbosity=self.verbosity.get(worker.id, Verbosity.CONCISE),
-                workflow_policy=self._workflow_policy(worker.workflow),
-            ),
-            initial_prompt=prompt,
-            model=worker.model,
-            writable=worker.writable,
-            setting_sources=list(self.config.setting_sources),
-            resume_session_id=worker.session_id if resume else None,
-            max_helpers=self.config.subagents.max_concurrent_per_worker,
-            claude_executable=self.config.claude.executable,
-            env=dict(self.config.claude.env),
+        spec = self._worker_spec(
+            worker,
+            prompt,
             runtime_id=runtime.id,
             runtime_generation=runtime.generation,
+            resume=resume,
         )
         if prompt:
             self._record(worker, "user", prompt)
@@ -371,14 +355,11 @@ class SessionManager:
                 ev.WORKER_FAILED, worker_id=worker.id, job_id=worker.job_id, summary=str(exc)
             )
             raise SessionManagerError(f"Could not start worker {worker.title!r}: {exc}") from exc
+        runtime = self.store.get_runtime(runtime.id) or runtime
         if handle.session_id:
             worker.session_id = handle.session_id
             runtime.claude_session_id = handle.session_id
             self.store.save_worker(worker)
-        if not adopt:
-            runtime.process_state = (
-                RuntimeProcessState.TURN_ACTIVE if prompt else RuntimeProcessState.READY
-            )
         runtime.updated_at = now()
         self.store.save_runtime(runtime)
         if not adopt:
@@ -391,31 +372,50 @@ class SessionManager:
         )
         self._pumps[worker.id] = asyncio.create_task(self._pump(worker.id))
 
+    def _worker_spec(
+        self,
+        worker: Worker,
+        prompt: str,
+        *,
+        runtime_id: UUID | None = None,
+        runtime_generation: int = 1,
+        resume: bool = False,
+    ) -> WorkerSpec:
+        return WorkerSpec(
+            worker_id=worker.id,
+            role=worker.role.value,
+            cwd=worker.cwd,
+            system_prompt_append=compose_worker_prompt(
+                worker.role,
+                self.config,
+                writable=worker.writable,
+                verbosity=self.verbosity.get(worker.id, Verbosity.CONCISE),
+                workflow_policy=self._workflow_policy(worker.workflow),
+            ),
+            initial_prompt=prompt,
+            model=worker.model,
+            writable=worker.writable,
+            resume_session_id=worker.session_id if resume else None,
+            max_helpers=self.config.subagents.max_concurrent_per_worker,
+            claude_executable=self.config.claude.executable,
+            env=dict(self.config.claude.env),
+            runtime_id=runtime_id,
+            runtime_generation=runtime_generation,
+        )
+
     def _new_runtime(self, worker: Worker, *, generation: int) -> RuntimeInstance:
+        spec = self._worker_spec(worker, "", runtime_generation=generation)
         return RuntimeInstance(
             agent_id=worker.id,
             agent_kind=RuntimeAgentKind.WORKER,
             generation=generation,
             backend=type(self.backend).__name__,
-            claude_session_id=worker.session_id,
-            launch_fingerprint=self._runtime_fingerprint(worker),
+            claude_session_id=None,
+            launch_fingerprint=self.backend.launch_fingerprint(spec),
         )
 
     def _runtime_fingerprint(self, worker: Worker) -> str:
-        return hashlib.sha256(
-            json.dumps(
-                {
-                    "cwd": str(worker.cwd),
-                    "model": worker.model,
-                    "writable": worker.writable,
-                    "setting_sources": self.config.setting_sources,
-                    "executable": self.config.claude.executable,
-                    "env": sorted(self.config.claude.env.items()),
-                    "prompt_policy_version": worker.prompt_policy_version,
-                },
-                sort_keys=True,
-            ).encode()
-        ).hexdigest()
+        return self.backend.launch_fingerprint(self._worker_spec(worker, ""))
 
     def _set_runtime_state(
         self, worker_id: UUID, state: RuntimeProcessState
@@ -449,17 +449,14 @@ class SessionManager:
             raise SessionManagerError(
                 f"Worker {worker.title!r} is {worker.status.value}; start a replacement instead."
             )
-        self._record(worker, "user", message)
-        self._resolve_attention(worker)
-        self._set_status(worker, WorkerStatus.WORKING, waiting_for=None)
         self._apply_invalidation(
             worker, self.store.get_job(worker.job_id) if worker.job_id else None
         )
         self._snapshot_before_change(worker)
-        self._set_runtime_state(worker.id, RuntimeProcessState.TURN_ACTIVE)
-        self._unpause_run_of(worker)
         try:
             await self.backend.send(worker_id, message)
+        except WorkerBusyError as exc:
+            raise SessionManagerError(str(exc)) from exc
         except Exception as exc:
             self._set_runtime_state(worker.id, RuntimeProcessState.WAITING)
             self._force_status(
@@ -468,6 +465,10 @@ class SessionManager:
             raise SessionManagerError(
                 f"Could not send to worker {worker.title!r}: {exc}"
             ) from exc
+        self._record(worker, "user", message)
+        self._resolve_attention(worker)
+        self._set_status(worker, WorkerStatus.WORKING, waiting_for=None)
+        self._unpause_run_of(worker)
 
     def _unpause_run_of(self, worker: Worker) -> None:
         """Answering the worker a run stopped on puts the run back in flight."""
@@ -1036,8 +1037,6 @@ class SessionManager:
         await self.backend.interrupt(worker_id)
         self._record(worker, "system", "[interrupted by the user]")
         self._resolve_attention(worker)
-        self._set_status(worker, WorkerStatus.IDLE, waiting_for=None)
-        self._set_runtime_state(worker.id, RuntimeProcessState.READY)
 
     async def stop_worker(self, worker_id: UUID) -> None:
         worker = self._require_worker(worker_id)
@@ -1054,24 +1053,21 @@ class SessionManager:
     async def attach(self, worker_id: UUID) -> Attachment:
         """Hand this worker's session back to the user as an ordinary Claude session.
 
-        A worker mid-turn is interrupted first, and until `detach` it is marked attached:
-        `send` refuses, so nothing Switchboard does appends to a session file the user's own
-        client is writing. Any composite run the worker belongs to pauses in a resumable
-        state -- what happens next is the user's to decide, not the run's, but deciding
-        "carry on" has to remain possible.
+        Entry switches ownership and attaches to the exact tmux process without interrupting
+        an active turn. Until `detach`, `send` refuses, so Switchboard cannot become a second
+        writer. Any composite run pauses in a resumable state while the user has control.
         """
         worker = self._require_worker(worker_id)
-        attachment = build_attachment(
-            cwd=worker.cwd,
-            session_id=worker.session_id,
-            executable=self.config.claude.executable,
-            note=self._attach_note(worker),
-        )
-        if worker.status is WorkerStatus.WORKING:
-            await self.interrupt_worker(worker_id)
         runtime = self.store.current_runtime(worker.id)
         if runtime is None:
             raise AttachError("This worker has no durable runtime instance.")
+        spec = self._worker_spec(
+            worker,
+            "",
+            runtime_id=runtime.id,
+            runtime_generation=runtime.generation,
+        )
+        attachment = self.backend.attachment(spec, self._attach_note(worker))
         self._snapshot_before_change(worker)
         runtime = self.store.current_runtime(worker.id) or runtime
         runtime.owner = RuntimeOwner.HUMAN
@@ -1089,7 +1085,7 @@ class SessionManager:
         )
         return attachment
 
-    def detach(self, worker_id: UUID) -> Worker:
+    def detach(self, worker_id: UUID, *, composer_cleared: bool = True) -> Worker:
         """The user has left the session. Switchboard may drive it again; the run stays paused.
 
         The run is deliberately not resumed here. The user has just been editing in that
@@ -1097,6 +1093,7 @@ class SessionManager:
         a judgement only they can make -- `resume_run` is how they say yes.
         """
         worker = self._require_worker(worker_id)
+        self.backend.release_human(worker_id, composer_cleared=composer_cleared)
         runtime = self.store.current_runtime(worker.id)
         if runtime is not None:
             runtime.owner = RuntimeOwner.MANAGER
@@ -1306,10 +1303,15 @@ class SessionManager:
                     runtime.claude_session_id = event.text
                     runtime.updated_at = now()
                     self.store.save_runtime(runtime)
+                state = event.data.get("process_state")
+                if state:
+                    self._set_runtime_state(worker.id, RuntimeProcessState(state))
             case "text":
+                self._set_runtime_state(worker.id, RuntimeProcessState.TURN_ACTIVE)
                 self._record(worker, "assistant", event.text)
                 self.emit(ev.WORKER_OUTPUT, worker_id=worker.id, job_id=worker.job_id)
             case "tool":
+                self._set_runtime_state(worker.id, RuntimeProcessState.TURN_ACTIVE)
                 self._record(worker, "tool", f"[{event.text}]")
             case "helper":
                 worker.active_helpers = int(event.data.get("active", 0))
@@ -1323,6 +1325,9 @@ class SessionManager:
                 self.emit(ev.WORKER_PERMISSION_REQUIRED, worker_id=worker.id, job_id=worker.job_id)
             case "blocked":
                 self._set_runtime_state(worker.id, RuntimeProcessState.WAITING)
+                if event.data.get("final_only") and event.text:
+                    self._record(worker, "assistant", event.text)
+                    self.emit(ev.WORKER_OUTPUT, worker_id=worker.id, job_id=worker.job_id)
                 self._finish_turn(worker, event.text)
                 reason = _last_question(event.text)
                 self._set_status(worker, WorkerStatus.BLOCKED, waiting_for=reason)
@@ -1339,8 +1344,12 @@ class SessionManager:
                 # treated as finished; the answer resumes it.
                 self._pause_run_of(worker, RunStatus.AWAITING_APPROVAL, reason)
             case "result":
+                if event.data.get("final_only") and event.text:
+                    self._record(worker, "assistant", event.text)
+                    self.emit(ev.WORKER_OUTPUT, worker_id=worker.id, job_id=worker.job_id)
                 self._finish_turn(worker, event.text)
                 self._set_runtime_state(worker.id, RuntimeProcessState.TURN_COMPLETE)
+                self._resolve_attention(worker)
                 if event.data.get("is_error"):
                     self._set_status(worker, WorkerStatus.FAILED, waiting_for="Turn failed.")
                     self.raise_attention(
@@ -1751,15 +1760,6 @@ class SessionManager:
                     )
                     notes.append(f"{worker.title}: worktree missing")
                     continue
-            if not worker.session_id:
-                self._force_status(
-                    worker,
-                    WorkerStatus.DISCONNECTED,
-                    "No session id was captured, so this session cannot be resumed. Start a "
-                    "replacement seeded from the stored job artifacts.",
-                )
-                notes.append(f"{worker.title}: no session id")
-                continue
             runtime = self.store.current_runtime(worker.id)
             if runtime is None:
                 # Databases created before runtime instances existed are reconstructable

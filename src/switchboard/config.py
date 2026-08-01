@@ -107,9 +107,6 @@ class Config(BaseModel):
     commits: CommitConfig = Field(default_factory=CommitConfig)
     models: ModelConfig = Field(default_factory=ModelConfig)
     workflows: WorkflowConfig = Field(default_factory=WorkflowConfig)
-    #: Whether SDK sessions load the user's and project's Claude settings.
-    #: Documented default: project instructions (CLAUDE.md) yes, user settings yes.
-    setting_sources: list[str] = Field(default_factory=lambda: ["user", "project"])
     #: The composite workflow a new job follows unless the job or repository says otherwise.
     default_profile: str = "complete-ticket"
     claude: ClaudeConfig = Field(default_factory=ClaudeConfig)

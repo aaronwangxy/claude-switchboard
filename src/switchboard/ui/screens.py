@@ -18,6 +18,7 @@ Layout::
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import subprocess
 from collections import deque
@@ -607,8 +608,8 @@ class SwitchboardApp(App[None]):
     async def action_attach(self) -> None:
         """Suspend Switchboard and hand the terminal to the selected worker's own session.
 
-        The worker is an ordinary Claude session, so this runs the same `claude --resume`
-        the user could have run themselves. Switchboard comes back when they exit it.
+        This enters the exact tmux-hosted native Claude process. The subprocess is awaited
+        off the UI event loop so Switchboard's control plane keeps processing hook events.
         """
         worker_id = self.sm.selected_worker_id
         if worker_id is None:
@@ -624,7 +625,9 @@ class SwitchboardApp(App[None]):
         try:
             with self.suspend():
                 try:
-                    subprocess.run(attachment.argv, cwd=attachment.cwd, check=False)
+                    await asyncio.to_thread(
+                        subprocess.run, attachment.argv, cwd=attachment.cwd, check=False
+                    )
                 except OSError as exc:  # a missing or unusable executable
                     print(f"Could not start Claude: {exc}")
         finally:
