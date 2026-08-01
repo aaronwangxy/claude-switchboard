@@ -1,7 +1,7 @@
 """Workflow discovery.
 
 Workflows are YAML. The built-ins ship inside the package and are loaded by exactly the
-same code as a workflow the user drops into `~/.csm/workflows` -- adding one requires no
+same code as a workflow the user drops into `~/.switchboard/workflows` -- adding one requires no
 change to CSM.
 
 Built-in *names* are reserved, though. A workflow's declarations are load-bearing:
@@ -13,8 +13,8 @@ clone, which would put that file inside the repository it is meant to constrain.
 
 Layout, either form:
 
-    ~/.csm/workflows/post-rebase-verify.yaml
-    ~/.csm/workflows/post-rebase-verify/workflow.yaml
+    ~/.switchboard/workflows/post-rebase-verify.yaml
+    ~/.switchboard/workflows/post-rebase-verify/workflow.yaml
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ log = logging.getLogger(__name__)
 BUILTIN_DIR = Path(__file__).parent / "builtin"
 
 #: Where a repository may keep workflows of its own.
-REPO_WORKFLOW_DIR = ".csm/workflows"
+REPO_WORKFLOW_DIR = ".switchboard/workflows"
 
 
 class WorkflowLoadError(ValueError):

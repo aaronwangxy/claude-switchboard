@@ -66,7 +66,7 @@ def test_create_worktree_makes_a_real_worktree_outside_the_source_repo(
     assert (worktree.path / "README.md").read_text() == "# demo\n"
 
     # a brand new branch, checked out in the new worktree
-    assert worktree.branch.startswith("csm/eng-1234-")
+    assert worktree.branch.startswith("sb/eng-1234-")
     assert runner.current_branch(worktree.path) == worktree.branch
     assert worktree.base_ref == "main"
     assert worktree.owner_worker_id == worker.id
@@ -109,7 +109,7 @@ def test_worktree_for_an_adhoc_worker_without_a_job(
     worktree = worktree_service.create_worktree(repository, None, worker, "main")
 
     assert "adhoc" in worktree.path.name
-    assert worktree.branch.startswith("csm/adhoc-")
+    assert worktree.branch.startswith("sb/adhoc-")
     assert worktree.path.exists()
 
 

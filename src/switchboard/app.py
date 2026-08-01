@@ -1,7 +1,7 @@
 """Application bootstrap: wire the services, then hand them to the UI.
 
 Nothing here renders anything, and nothing in the UI constructs a service. The backend is
-chosen once, here: `CSM_BACKEND=scripted` swaps the Agent SDK for the deterministic
+chosen once, here: `SB_BACKEND=scripted` swaps the Agent SDK for the deterministic
 in-process backend and the model manager for the rule-based one, so the whole UI can be
 demoed and tested offline.
 """
@@ -35,7 +35,7 @@ from switchboard.workflows.registry import get_workflow, workflow_names
 
 log = logging.getLogger(__name__)
 
-BACKEND_ENV = "CSM_BACKEND"
+BACKEND_ENV = "SB_BACKEND"
 
 
 @dataclass
@@ -109,7 +109,7 @@ def build_app(register: Sequence[str | Path] = (), services: Services | None = N
     services = services or build_services()
     notes = register_repositories(services.session_manager, register)
     if services.scripted:
-        notes.insert(0, "Scripted backend (CSM_BACKEND=scripted): no model is called.")
+        notes.insert(0, "Scripted backend (SB_BACKEND=scripted): no model is called.")
     known = services.session_manager.list_repositories()
     if not known:
         notes.append("No repository is registered yet. Start with: sb --register /path/to/repo")

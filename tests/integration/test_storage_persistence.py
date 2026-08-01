@@ -90,7 +90,7 @@ def test_every_entity_round_trips_across_a_reopen(store: Store, reopen, tmp_path
     worktree = Worktree(
         repository_id=repo.id,
         path=tmp_path / "worktrees" / "demo" / "eng-1234",
-        branch="csm/eng-1234-abc",
+        branch="sb/eng-1234-abc",
         base_ref="trunk",
         owner_worker_id=worker.id,
         created_at=at(5),

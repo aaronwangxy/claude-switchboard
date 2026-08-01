@@ -1,7 +1,7 @@
 """Workflows that travel with a repository.
 
 A team convention belongs to the repository, not to whichever machine happens to be
-running CSM, so registering a repository picks up its `.csm/workflows` directory.
+running CSM, so registering a repository picks up its `.switchboard/workflows` directory.
 """
 
 from __future__ import annotations

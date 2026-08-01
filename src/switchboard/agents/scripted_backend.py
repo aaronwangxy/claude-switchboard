@@ -1,6 +1,6 @@
 """A deterministic in-process backend.
 
-Used by the test suite and by `CSM_BACKEND=scripted` so the whole control plane --
+Used by the test suite and by `SB_BACKEND=scripted` so the whole control plane --
 routing, worktrees, contracts, attention, invalidation -- can be exercised without
 calling a model. It emits the same normalized events as the SDK backend.
 """

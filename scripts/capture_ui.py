@@ -2,7 +2,7 @@
 
 The captures are evidence, so they have to be reproducible rather than pasted. This
 drives the real application headlessly on the scripted backend against a throwaway
-`CSM_HOME` and a throwaway repository, so no real state is touched and no model is
+`SB_HOME` and a throwaway repository, so no real state is touched and no model is
 called.
 
     ./.venv/bin/python scripts/capture_ui.py
@@ -104,9 +104,9 @@ async def capture(repo: Path) -> None:
 def main() -> int:
     with tempfile.TemporaryDirectory(prefix="csm-capture-") as tmp:
         root = Path(tmp)
-        os.environ["CSM_HOME"] = str(root / "home")
-        os.environ["CSM_WORKFLOWS_DIR"] = str(root / "workflows")
-        os.environ["CSM_BACKEND"] = "scripted"
+        os.environ["SB_HOME"] = str(root / "home")
+        os.environ["SB_WORKFLOWS_DIR"] = str(root / "workflows")
+        os.environ["SB_BACKEND"] = "scripted"
         asyncio.run(capture(make_repo(root)))
     return 0
 

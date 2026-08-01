@@ -133,7 +133,7 @@ class WorktreeService:
         path = self.path_for(repository, job, worker)
         self.validate_path(path)  # never create a worktree outside the managed root
         path.parent.mkdir(parents=True, exist_ok=True)
-        branch = f"csm/{slug(job.external_ref or job.title) if job else 'adhoc'}-{str(worker.id)[:8]}"
+        branch = f"sb/{slug(job.external_ref or job.title) if job else 'adhoc'}-{str(worker.id)[:8]}"
         if path.exists():
             raise WorktreeSafetyError(f"Worktree path {path} already exists; refusing to reuse it.")
         run_git(repo_path, "worktree", "add", "-b", branch, str(path), base_ref)

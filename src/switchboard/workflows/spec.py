@@ -6,7 +6,7 @@ workflows are how the development ritual itself becomes configurable: `complete-
 is a composite of the same atomic workflows a user can invoke directly.
 
 Both kinds are the same type, loaded from the same YAML, whether they ship with CSM or
-live in `~/.csm/workflows`. There is deliberately no graph, no branching and no
+live in `~/.switchboard/workflows`. There is deliberately no graph, no branching and no
 expression language: a sequence, five named conditions, and a bounded repeat count.
 """
 

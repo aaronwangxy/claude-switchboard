@@ -1,7 +1,7 @@
 """User configuration and application paths.
 
-Defaults live here; `~/.config/claude-session-manager/config.yaml` overrides them.
-`CSM_HOME` relocates the entire data directory (used by tests and for isolated runs).
+Defaults live here; `~/.config/switchboard/config.yaml` overrides them.
+`SB_HOME` relocates the entire data directory (used by tests and for isolated runs).
 """
 
 from __future__ import annotations
@@ -12,9 +12,9 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, Field
 
-CONFIG_ENV = "CSM_CONFIG"
-HOME_ENV = "CSM_HOME"
-WORKFLOWS_ENV = "CSM_WORKFLOWS_DIR"
+CONFIG_ENV = "SB_CONFIG"
+HOME_ENV = "SB_HOME"
+WORKFLOWS_ENV = "SB_WORKFLOWS_DIR"
 
 
 class CommunicationConfig(BaseModel):
@@ -43,16 +43,16 @@ class CommitConfig(BaseModel):
 class ModelConfig(BaseModel):
     """Model IDs are configuration, not hardcoded product knowledge.
 
-    Defaults come from the environment (`CSM_STRONG_MODEL` / `CSM_FAST_MODEL`) and fall
+    Defaults come from the environment (`SB_STRONG_MODEL` / `SB_FAST_MODEL`) and fall
     back to the SDK default (``None`` -> whatever the Claude runtime is configured to use).
     """
 
-    manager: str | None = Field(default_factory=lambda: os.getenv("CSM_STRONG_MODEL"))
-    planner: str | None = Field(default_factory=lambda: os.getenv("CSM_STRONG_MODEL"))
-    implementer: str | None = Field(default_factory=lambda: os.getenv("CSM_FAST_MODEL"))
-    reviewer: str | None = Field(default_factory=lambda: os.getenv("CSM_STRONG_MODEL"))
-    verifier: str | None = Field(default_factory=lambda: os.getenv("CSM_FAST_MODEL"))
-    general: str | None = Field(default_factory=lambda: os.getenv("CSM_FAST_MODEL"))
+    manager: str | None = Field(default_factory=lambda: os.getenv("SB_STRONG_MODEL"))
+    planner: str | None = Field(default_factory=lambda: os.getenv("SB_STRONG_MODEL"))
+    implementer: str | None = Field(default_factory=lambda: os.getenv("SB_FAST_MODEL"))
+    reviewer: str | None = Field(default_factory=lambda: os.getenv("SB_STRONG_MODEL"))
+    verifier: str | None = Field(default_factory=lambda: os.getenv("SB_FAST_MODEL"))
+    general: str | None = Field(default_factory=lambda: os.getenv("SB_FAST_MODEL"))
 
 
 class RebaseWorkflowConfig(BaseModel):
@@ -123,11 +123,11 @@ def home_dir() -> Path:
     override = os.getenv(HOME_ENV)
     if override:
         return Path(override).expanduser()
-    return Path.home() / ".local" / "share" / "claude-session-manager"
+    return Path.home() / ".local" / "share" / "switchboard"
 
 
 def database_path() -> Path:
-    return home_dir() / "csm.db"
+    return home_dir() / "switchboard.db"
 
 
 def worktree_root() -> Path:
@@ -137,7 +137,7 @@ def worktree_root() -> Path:
 def user_workflows_dir() -> Path:
     """Where the user's own workflow definitions live.
 
-    `~/.csm/workflows` by default; relocated with the rest of CSM's state when `CSM_HOME`
+    `~/.switchboard/workflows` by default; relocated with the rest of CSM's state when `SB_HOME`
     is set, so an isolated run never reads or writes the real one.
     """
     override = os.getenv(WORKFLOWS_ENV)
@@ -146,14 +146,14 @@ def user_workflows_dir() -> Path:
     home = os.getenv(HOME_ENV)
     if home:
         return Path(home).expanduser() / "workflows"
-    return Path.home() / ".csm" / "workflows"
+    return Path.home() / ".switchboard" / "workflows"
 
 
 def config_path() -> Path:
     override = os.getenv(CONFIG_ENV)
     if override:
         return Path(override).expanduser()
-    return Path.home() / ".config" / "claude-session-manager" / "config.yaml"
+    return Path.home() / ".config" / "switchboard" / "config.yaml"
 
 
 def load_config() -> Config:

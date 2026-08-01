@@ -192,7 +192,7 @@ class SessionManager:
     def reload_workflows(self) -> list[str]:
         """Reload built-in, user, and repository-local workflows. Returns any problems.
 
-        A registered repository may carry its own workflows in `.csm/workflows`, so a
+        A registered repository may carry its own workflows in `.switchboard/workflows`, so a
         team convention travels with the repository rather than with this machine.
         """
         directories = [

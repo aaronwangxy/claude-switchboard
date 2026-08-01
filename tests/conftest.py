@@ -1,6 +1,6 @@
 """Shared fixtures.
 
-Everything is rooted in a per-test temporary `CSM_HOME`, and every git operation runs
+Everything is rooted in a per-test temporary `SB_HOME`, and every git operation runs
 against a real temporary repository -- git is never mocked.
 """
 
@@ -25,7 +25,7 @@ def isolated_workflows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Itera
     """Point the user workflow directory at a throwaway path for every test.
 
     Without this a test run would load whatever workflows the developer happens to have
-    in `~/.csm/workflows`.
+    in `~/.switchboard/workflows`.
     """
     directory = tmp_path / "user-workflows"
     monkeypatch.setenv(WORKFLOWS_ENV, str(directory))
@@ -39,7 +39,7 @@ def isolated_workflows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Itera
 
 @pytest.fixture
 def csm_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """A temporary CSM data directory, exported as `CSM_HOME` for the test."""
+    """A temporary CSM data directory, exported as `SB_HOME` for the test."""
     home = tmp_path / "csm-home"
     home.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv(HOME_ENV, str(home))
@@ -49,7 +49,7 @@ def csm_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 @pytest.fixture
 def store(csm_home: Path) -> Iterator[Store]:
     """A `Store` on a throwaway database inside `csm_home`."""
-    store = Store(csm_home / "csm.db")
+    store = Store(csm_home / "switchboard.db")
     try:
         yield store
     finally:

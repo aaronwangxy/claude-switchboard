@@ -248,7 +248,7 @@ async def test_transcript_survives_selection_and_restart(session_manager, git_re
     assert "first question" in texts and "follow-up question" in texts
 
     sm.store.close()
-    reopened = Store(csm_home / "csm.db")
+    reopened = Store(csm_home / "switchboard.db")
     restored = [m.text for m in reopened.transcript(worker.id)]
     assert restored == texts
     reopened.close()
