@@ -328,6 +328,30 @@ class SessionManager:
                 return worktree.path
         return None
 
+    def set_authoritative_worktree(self, job_id: UUID, worktree_id: UUID) -> Job:
+        """Explicitly choose the one job lineage inspected by every downstream gate."""
+        job = self.store.get_job(job_id)
+        worktree = self.store.get_worktree(worktree_id)
+        if job is None or worktree is None:
+            raise SessionManagerError("The job or worktree does not exist.")
+        worker = (
+            self.store.get_worker(worktree.owner_worker_id)
+            if worktree.owner_worker_id is not None
+            else None
+        )
+        if (
+            worktree.repository_id != job.repository_id
+            or worker is None
+            or worker.job_id != job.id
+            or not worker.writable
+        ):
+            raise SessionManagerError(
+                "The authoritative lineage must be a writable worktree owned by this job."
+            )
+        job.authoritative_worktree_id = worktree.id
+        job.updated_at = now()
+        return self.store.save_job(job)
+
     async def _start_backend(
         self, worker: Worker, prompt: str, resume: bool = False, adopt: bool = False
     ) -> None:
@@ -514,6 +538,15 @@ class SessionManager:
                 raise SessionManagerError(
                     f"{definition.name} mutates code but {worker.title!r} is read-only."
                 )
+            if (
+                definition.mutates_code
+                and job is not None
+                and job.authoritative_worktree_id is not None
+                and worker.worktree_id != job.authoritative_worktree_id
+            ):
+                raise SessionManagerError(
+                    f"{worker.title!r} does not own this job's authoritative change lineage."
+                )
             worker.workflow = definition.name
             self.store.save_worker(worker)
             prompt = self._render(definition, job, request)
@@ -562,6 +595,7 @@ class SessionManager:
         run.current_worker_id = worker.id
         run.current_step_completed = False
         run.completion_turn_id = None
+        run.human_intervened = False
         run.status = RunStatus.RUNNING
         run.updated_at = now()
         self.store.save_run(run)
@@ -659,6 +693,7 @@ class SessionManager:
             run.current_worker_id = None
             run.current_step_completed = False
             run.completion_turn_id = None
+            run.human_intervened = False
             run.step_index += 1
 
         while True:
@@ -716,6 +751,7 @@ class SessionManager:
                 run.current_worker_id = worker.id
                 run.current_step_completed = False
                 run.completion_turn_id = None
+                run.human_intervened = False
                 run.updated_at = now()
                 self.store.save_run(run)
             return run
@@ -807,7 +843,32 @@ class SessionManager:
             raise SessionManagerError(f"Run {run_id} does not exist.")
         if run.status in (RunStatus.COMPLETED, RunStatus.FAILED):
             raise SessionManagerError(f"That run already {run.status.value}.")
-        if run.step_index not in run.approved_steps:
+        grant_approval = (
+            run.status is RunStatus.AWAITING_APPROVAL and run.current_step_completed
+        )
+        if run.current_worker_id is not None and not run.current_step_completed:
+            worker = self.store.get_worker(run.current_worker_id)
+            runtime = self.store.current_runtime(run.current_worker_id)
+            if worker is None or runtime is None or runtime.owner is RuntimeOwner.HUMAN:
+                raise SessionManagerError(
+                    "The current step still needs conservative reconciliation before it can resume."
+                )
+            turns = self.store.list_native_turns(runtime.id)
+            if run.human_intervened or (turns and turns[-1].human_intervened):
+                # Explicit resume is the user's reconciliation decision. The tainted
+                # attempt never counts against the bound and its output never advances;
+                # rerun the same workflow from durable contracts on the canonical tree.
+                used = run.iterations.get(str(run.step_index), 0)
+                run.iterations[str(run.step_index)] = max(0, used - 1)
+                run.current_worker_id = None
+                run.completion_turn_id = None
+                run.human_intervened = False
+            else:
+                raise SessionManagerError(
+                    "The current step has no trusted completion. Wait for it to finish or "
+                    "intervene explicitly before resuming."
+                )
+        if grant_approval and run.step_index not in run.approved_steps:
             run.approved_steps = [*run.approved_steps, run.step_index]
         run.status = RunStatus.RUNNING
         self.store.save_run(run)
@@ -827,7 +888,11 @@ class SessionManager:
         if worker.job_id is None:
             return
         run = self.store.run_for_worker(worker.id)
-        if run is None or run.status is not RunStatus.RUNNING:
+        if (
+            run is None
+            or run.status is not RunStatus.RUNNING
+            or run.human_intervened
+        ):
             return
         if not self.backend.supports_composites:
             self._pause_run(
@@ -1131,6 +1196,11 @@ class SessionManager:
         runtime.updated_at = now()
         self.store.save_runtime(runtime)
         self._pause_run_of(worker, RunStatus.BLOCKED, "The user attached to this worker.")
+        run = self.store.run_for_worker(worker.id)
+        if run is not None:
+            run.human_intervened = True
+            run.updated_at = now()
+            self.store.save_run(run)
         self._record(worker, "system", "[the user attached to this session directly]")
         self._resolve_attention(worker)
         self.emit(
@@ -1830,15 +1900,7 @@ class SessionManager:
     async def recover(self) -> list[str]:
         """Adopt matching live runtimes, reconstruct absent ones, and reject stale ones."""
         notes: list[str] = []
-        if not self.backend.supports_composites:
-            for run in self.store.list_runs():
-                if run.status is RunStatus.RUNNING:
-                    self._pause_run(
-                        run,
-                        RunStatus.BLOCKED,
-                        "Composite workflow advancement is disabled for native workers.",
-                    )
-                    notes.append(f"{run.workflow}: composite run blocked for native workers")
+        recreated_workers: set[UUID] = set()
         for worker in self.store.list_workers():
             if worker.status in (WorkerStatus.STOPPED, WorkerStatus.DONE):
                 continue
@@ -1912,6 +1974,7 @@ class SessionManager:
                     self.store.save_runtime(replacement)
                     await self._start_backend(worker, prompt="", resume=True)
                     action = "recreated"
+                    recreated_workers.add(worker.id)
                     recovered_state = RuntimeProcessState.READY
                 if recovered_state is RuntimeProcessState.TURN_ACTIVE:
                     self._force_status(worker, WorkerStatus.WORKING, None)
@@ -1930,6 +1993,22 @@ class SessionManager:
                     "stored job artifacts.",
                 )
                 notes.append(f"{worker.title}: {exc}")
+        if self.backend.supports_composites:
+            for run in self.store.list_runs():
+                if run.status is not RunStatus.RUNNING:
+                    continue
+                if run.current_worker_id in recreated_workers and not run.current_step_completed:
+                    self._pause_run(
+                        run,
+                        RunStatus.BLOCKED,
+                        "The step runtime disappeared before a trusted completion; refusing "
+                        "to resend or advance automatically.",
+                    )
+                    notes.append(f"{run.workflow}: incomplete step requires reconciliation")
+                    continue
+                if run.current_worker_id is None or run.current_step_completed:
+                    await self.advance_run(run.id)
+                    notes.append(f"{run.workflow}: composite run reconciled")
         return notes
 
     # ------------------------------------------------------------------ router

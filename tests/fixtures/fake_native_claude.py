@@ -47,6 +47,31 @@ def record(payload: dict) -> None:
             stream.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
 
+def response_for(prompt: str) -> str:
+    if os.environ.get("FAKE_NATIVE_COMPOSITE") != "1":
+        return os.environ.get("FAKE_NATIVE_RESPONSE", "Native result")
+    if "Implement the approved plan" in prompt:
+        Path("native-change.txt").write_text("implemented\n")
+        subprocess.run(["git", "add", "native-change.txt"], check=True)
+        subprocess.run(
+            ["git", "commit", "-m", "feat: native composite change"],
+            check=True,
+            capture_output=True,
+        )
+        return "Implemented and committed the approved change."
+    if "Verify this change" in prompt:
+        return (
+            "Verified.\n```json\n"
+            '{"scope":"full","evidence":[{"criterion_id":"AC1","status":"passed",'
+            '"commands":[{"command":"test -f native-change.txt","exit_code":0,'
+            '"output_excerpt":"present"}],"observed_behavior":"change exists",'
+            '"artifacts":["native-change.txt"],"limitations":[]}]}\n```'
+        )
+    if "Review this change independently" in prompt:
+        return 'Review passed.\n```json\n{"verdict":"pass","findings":[]}\n```'
+    return os.environ.get("FAKE_NATIVE_RESPONSE", "Native result")
+
+
 def main() -> int:
     session_id = option("--session-id")
     command = hook_command()
@@ -100,7 +125,7 @@ def main() -> int:
                 )
             if "HOLD_TURN" in prompt:
                 time.sleep(0.5)
-            response = os.environ.get("FAKE_NATIVE_RESPONSE", "Native result")
+            response = response_for(prompt)
             if "STOP_FAILURE" in prompt:
                 emit(
                     command,

@@ -518,6 +518,14 @@ async def test_job_inspection_uses_the_explicit_authoritative_worktree(
     assert "intended.txt" in diff
     assert "wrong.txt" not in diff
 
+    sm.set_authoritative_worktree(job.id, other.worktree_id)
+    switched = sm.store.get_job(job.id)
+    assert sm._job_inspection_path(switched) == other.cwd
+    _, _, switched_commits, switched_diff = sm._review_inputs(switched)
+    assert "other lineage" in switched_commits
+    assert "wrong.txt" in switched_diff
+    assert "intended.txt" not in switched_diff
+
 
 async def test_send_failure_does_not_leave_the_runtime_working(
     session_manager, git_repo, backend

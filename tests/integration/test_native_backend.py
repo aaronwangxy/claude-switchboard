@@ -25,7 +25,6 @@ from switchboard.domain.enums import (
     WorkerRole,
     WorkerStatus,
 )
-from switchboard.domain.models import WorkflowRun
 from switchboard.runtime.hook_bridge import handle_hook
 from switchboard.runtime.hook_bridge import main as hook_main
 from switchboard.storage.store import Store
@@ -68,6 +67,7 @@ def native_services(store: Store, worktree_service, tmp_path: Path):
             executable=str(FAKE),
             env={
                 "FAKE_NATIVE_LOG": str(log),
+                "FAKE_NATIVE_COMPOSITE": "1",
                 "FAKE_NATIVE_RESPONSE": "Plan ready.\n```json\n"
                 + json.dumps(response)
                 + "\n```",
@@ -224,27 +224,125 @@ async def test_stop_failure_never_harvests_or_becomes_blocked(native_services, g
     assert manager.store.current_runtime(worker.id).process_state is RuntimeProcessState.READY
 
 
-async def test_native_backend_explicitly_gates_composite_runs(native_services, git_repo):
+async def test_native_composite_runs_end_to_end_through_real_tmux(native_services, git_repo):
     manager, _, _ = native_services
-    repo = manager.register_repository(git_repo("native-composite-gate"))
+    repo = manager.register_repository(git_repo("native-composite"))
     job = manager.create_job("composite", repo.id)
 
-    with pytest.raises(SessionManagerError, match="Composite workflows are not enabled"):
-        await manager.start_run("complete-ticket", job_id=job.id)
-
-    legacy_run = manager.store.save_run(
-        WorkflowRun(job_id=job.id, workflow="complete-ticket", status=RunStatus.RUNNING)
+    run = await manager.start_run("complete-ticket", job_id=job.id, request="native composite")
+    paused = await wait_for(
+        lambda: (
+            candidate
+            if (candidate := manager.store.get_run(run.id)).status is not RunStatus.RUNNING
+            else None
+        )
     )
-    notes = await manager.recover()
-    recovered = manager.store.get_run(legacy_run.id)
-    assert recovered.status is RunStatus.BLOCKED
-    assert any("composite run blocked" in note for note in notes)
+    assert paused.status is RunStatus.AWAITING_APPROVAL, paused.detail
+    manager.approve_plan(job.id)
+    completed = await wait_for(
+        lambda: (
+            candidate
+            if (candidate := manager.store.get_run(run.id)).status is RunStatus.COMPLETED
+            else None
+        ),
+        timeout=15,
+    )
 
-    worker = await manager.start_workflow("plan-feature", job_id=job.id, request="atomic only")
-    await wait_for(lambda: manager.store.get_worker(worker.id).status is WorkerStatus.IDLE)
-    still_blocked = manager.store.get_run(legacy_run.id)
-    assert still_blocked.status is RunStatus.BLOCKED
-    assert still_blocked.current_worker_id is None
+    stored_job = manager.store.get_job(job.id)
+    assert completed.iterations == {"0": 1, "1": 1, "2": 1, "3": 1, "7": 1}
+    assert stored_job.authoritative_worktree_id is not None
+    assert manager.store.latest_artifact(job.id, ArtifactType.VERIFICATION) is not None
+    assert manager.store.latest_artifact(job.id, ArtifactType.REVIEW) is not None
+    assert manager.ready_to_push(job.id).ready
+
+
+async def test_recovery_advances_a_durably_completed_native_step_once(
+    native_services, git_repo, monkeypatch
+):
+    manager, backend, _ = native_services
+    repo = manager.register_repository(git_repo("native-composite-recovery"))
+    job = manager.create_job("recover composite", repo.id)
+    monkeypatch.setattr(manager, "_schedule_run_advance", lambda worker: None)
+
+    run = await manager.start_run("complete-ticket", job_id=job.id)
+    completed_step = await wait_for(
+        lambda: (
+            candidate
+            if (candidate := manager.store.get_run(run.id)).current_step_completed
+            else None
+        )
+    )
+    worker_id = completed_step.current_worker_id
+    manager._pumps.pop(worker_id).cancel()
+    backend._sessions[worker_id].task.cancel()
+
+    restarted_backend = NativeClaudeBackend(
+        manager.store,
+        manager.config,
+        backend.runtime.state_dir.parent,
+        socket_path=backend.controller.socket_path,
+        tmux_executable=backend.controller.executable,
+    )
+    restarted = SessionManager(
+        manager.store, restarted_backend, manager.config, manager.worktrees
+    )
+    notes = await restarted.recover()
+
+    recovered = restarted.store.get_run(run.id)
+    assert recovered.status is RunStatus.AWAITING_APPROVAL
+    assert recovered.step_index == 0
+    assert recovered.iterations == {"0": 1}
+    assert any("composite run reconciled" in note for note in notes)
+
+
+async def test_human_intervention_taints_and_replays_the_same_native_step(
+    native_services, git_repo
+):
+    manager, _, _ = native_services
+    repo = manager.register_repository(git_repo("native-composite-human"))
+    job = manager.create_job("human composite", repo.id)
+    run = await manager.start_run(
+        "complete-ticket", job_id=job.id, request="HOLD_TURN"
+    )
+    active = await wait_for(lambda: manager.store.get_run(run.id).current_worker_id)
+    worker_id = active
+    runtime = manager.store.current_runtime(worker_id)
+    await wait_for(lambda: manager.store.open_native_turn(runtime.id))
+
+    await manager.attach(worker_id)
+    await asyncio.sleep(0.7)
+    paused = manager.store.get_run(run.id)
+    assert paused.status is RunStatus.BLOCKED
+    assert not paused.current_step_completed
+    assert manager.store.list_native_turns(runtime.id)[-1].human_intervened
+
+    manager.detach(worker_id, composer_cleared=True)
+    resumed = await manager.resume_run(run.id)
+    assert resumed.iterations == {"0": 1}
+    await wait_for(
+        lambda: manager.store.get_run(run.id).status is RunStatus.AWAITING_APPROVAL
+    )
+
+
+async def test_failed_native_composite_turn_never_advances(native_services, git_repo):
+    manager, _, _ = native_services
+    repo = manager.register_repository(git_repo("native-composite-failure"))
+    job = manager.create_job("failed composite", repo.id)
+
+    run = await manager.start_run(
+        "complete-ticket", job_id=job.id, request="STOP_FAILURE"
+    )
+    blocked = await wait_for(
+        lambda: (
+            candidate
+            if (candidate := manager.store.get_run(run.id)).status is RunStatus.BLOCKED
+            else None
+        )
+    )
+    assert blocked.step_index == 0
+    assert blocked.iterations == {"0": 1}
+    assert not blocked.current_step_completed
+    assert manager.store.latest_artifact(job.id, ArtifactType.IMPLEMENTATION_CONTRACT) is None
 
 
 async def test_hook_application_and_delivery_marker_are_one_transaction(

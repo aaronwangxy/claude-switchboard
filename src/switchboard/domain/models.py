@@ -224,6 +224,9 @@ class WorkflowRun(Base):
     #: have been applied durably. A worker assignment alone never means a step finished.
     current_step_completed: bool = False
     completion_turn_id: UUID | None = None
+    #: Human ownership or input touched the current step; its automatic completion is
+    #: untrusted until the user explicitly reconciles by resuming and replaying it.
+    human_intervened: bool = False
     #: Why the run is paused or how it ended, in one human-readable sentence.
     detail: str = ""
     head_at_start: str | None = None
