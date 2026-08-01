@@ -90,7 +90,7 @@ reach for.
 | Module | Responsibility |
 | --- | --- |
 | `domain/` | Pydantic models, enums (incl. the allowed worker-transition table and attention priority), the three contracts, event kinds |
-| `storage/` | SQLite schema (v1) and `Store` |
+| `storage/` | SQLite schema (v3) and `Store` |
 | `gitops/` | `runner` (argv-only git) and `WorktreeService` |
 | `workflows/` | `WORKFLOWS` registry and deterministic artifact freshness |
 | `agents/` | `WorkerBackend` protocol, SDK + scripted backends, manager, prompt composition, bounded snapshots |
@@ -123,9 +123,17 @@ survive attaching; `_attach_note` says so when the worker observes someone else'
 worktree. Reachable by `Ctrl+E`, the `attach_worker` tool, and the router.
 
 **Worker backend.** `agents/backend.py` defines `WorkerSpec`/`WorkerHandle`/`WorkerEvent`
-and the `WorkerBackend` protocol (start, send, stream, interrupt, stop, resume, health).
+and the `WorkerBackend` protocol (start, send, stream, interrupt, stop, resume, health,
+observe, adopt).
 `SdkWorkerBackend` runs one `ClaudeSDKClient` per worker; `ScriptedWorkerBackend` emits the
 same normalized events in-process. Orchestration never touches SDK types.
+
+**Runtime instances.** Each worker has a durable, generation-numbered `RuntimeInstance`.
+It records substrate-neutral process/turn state, manager-vs-human input ownership, Claude
+session identity, launch fingerprint, opaque future substrate identity, and the Git baseline
+for an active writable turn. Recovery observes the backend first: it adopts only an exact
+runtime-id/generation match, reconstructs an absent manager-owned runtime as a new generation,
+and refuses a live mismatch or an unobservable human-owned runtime.
 
 **Session lifecycle.** `create_worker` → allocate a worktree if writable → `backend.start`
 → an asyncio pump task consumes `backend.stream` → `_apply` normalizes each event into
@@ -145,6 +153,10 @@ queryable columns plus the validated
 model as JSON, so the domain models stay the single definition of shape. A model never
 writes the database: workers emit a fenced ```json block and `extract_json_block` plus
 Pydantic validation turn it into an artifact.
+
+Attachment ownership and writable-turn Git baselines are durable runtime state. Git lineage
+is reconciled on turn completion, detach, recovery, and before composite-run advancement;
+an interrupt completion arriving after human handover may not consume that baseline.
 
 **Status / events / attention.** Backend event → `_apply` → `_set_status` (guarded by
 `assert_worker_transition`) → `raise_attention` → `emit` persists an `Event` and notifies
