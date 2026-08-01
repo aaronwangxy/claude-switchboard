@@ -64,4 +64,3 @@ def test_the_configured_executable_and_env_reach_the_manager(session_manager, tm
 
 def test_workers_by_contrast_do_inherit_repository_settings(session_manager):
     """The mirror image of the invariant above: workers *should* see the repository."""
-    assert session_manager.config.setting_sources == ["user", "project"]

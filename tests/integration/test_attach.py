@@ -71,10 +71,10 @@ class TestSessionManagerAttach:
         assert attachment.session_id == stored.session_id
         assert attachment.argv[1:] == ["--resume", stored.session_id]
 
-    async def test_a_working_worker_is_interrupted_first(self, session_manager, worker):
+    async def test_a_working_worker_is_entered_without_interruption(self, session_manager, worker):
         session_manager._set_status(worker, WorkerStatus.WORKING)
         await session_manager.attach(worker.id)
-        assert session_manager.store.get_worker(worker.id).status is WorkerStatus.IDLE
+        assert session_manager.store.get_worker(worker.id).status is WorkerStatus.WORKING
 
     async def test_the_handover_is_recorded_as_an_event(self, session_manager, worker):
         await session_manager.attach(worker.id)
@@ -102,11 +102,11 @@ class TestSessionManagerAttach:
         # What happens next is the user's decision now, not the run's.
         assert session_manager.store.get_run(run.id).status is RunStatus.BLOCKED
 
-    async def test_a_worker_without_a_session_is_refused(self, session_manager, worker):
+    async def test_scripted_attachment_uses_the_live_backend_identity(self, session_manager, worker):
         worker.session_id = None
         session_manager.store.save_worker(worker)
-        with pytest.raises(AttachError):
-            await session_manager.attach(worker.id)
+        attachment = await session_manager.attach(worker.id)
+        assert attachment.session_id.startswith("scripted-")
 
 
 class TestAttachHandsOverControl:

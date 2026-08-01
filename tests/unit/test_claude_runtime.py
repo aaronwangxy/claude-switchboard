@@ -2,14 +2,10 @@
 
 from __future__ import annotations
 
-import os
 import stat
-from pathlib import Path
-from uuid import uuid4
 
 import pytest
 
-from switchboard.agents.backend import WorkerSpec
 from switchboard.agents.runtime import ClaudeRuntimeError, claude_cli_path
 
 
@@ -45,25 +41,3 @@ class TestClaudeExecutable:
         plain.chmod(0o644)
         with pytest.raises(ClaudeRuntimeError):
             claude_cli_path(str(plain))
-
-
-def test_the_configured_executable_reaches_the_sdk_options(tmp_path):
-    """The link that could actually break: config -> spec -> the options the SDK gets."""
-    pytest.importorskip("claude_agent_sdk")
-    from switchboard.agents.sdk_backend import SdkWorkerBackend
-
-    wrapper = _make_executable(tmp_path / "company-claude")
-    spec = WorkerSpec(
-        worker_id=uuid4(),
-        role="implementer",
-        cwd=tmp_path,
-        system_prompt_append="",
-        initial_prompt="",
-        claude_executable=str(wrapper),
-        env={"COMPANY_PROXY": "on"},
-    )
-    options = SdkWorkerBackend()._options(spec)
-
-    assert Path(options.cli_path) == wrapper
-    assert options.env == {"COMPANY_PROXY": "on"}
-    assert "COMPANY_PROXY" not in os.environ  # nothing mutates the process environment

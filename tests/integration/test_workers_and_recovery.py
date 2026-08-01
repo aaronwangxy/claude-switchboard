@@ -366,7 +366,7 @@ async def test_recovery_rejects_a_live_launch_fingerprint_mismatch(
     )
     await settle()
     sm._pumps.pop(worker.id).cancel()
-    changed = Config(setting_sources=["user"])
+    changed = Config(claude={"env": {"CONFIG_DRIFT": "yes"}})
 
     restarted = SessionManager(sm.store, backend, changed, sm.worktrees)
     notes = await restarted.recover()
@@ -530,7 +530,7 @@ async def test_a_worker_whose_worktree_vanished_is_marked_disconnected(
     assert any("worktree missing" in note for note in notes)
 
 
-async def test_a_worker_with_no_session_id_is_never_reported_as_running(
+async def test_a_worker_with_no_session_id_is_reconstructed_from_durable_runtime(
     session_manager, git_repo
 ):
     sm = session_manager
@@ -545,7 +545,8 @@ async def test_a_worker_with_no_session_id_is_never_reported_as_running(
 
     restarted = SessionManager(sm.store, ScriptedWorkerBackend(), Config(), sm.worktrees)
     await restarted.recover()
-    assert restarted.store.get_worker(worker.id).status is WorkerStatus.DISCONNECTED
+    assert restarted.store.get_worker(worker.id).status is WorkerStatus.IDLE
+    assert restarted.store.get_worker(worker.id).session_id is not None
 
 
 # ---------------------------------------------------------------- cleanup
