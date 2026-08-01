@@ -8,11 +8,13 @@ calling a model. It emits the same normalized events as the SDK backend.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from uuid import UUID, uuid4
 
+from switchboard.agents.attach import Attachment, build_attachment
 from switchboard.agents.backend import (
     BackendHealth,
     RuntimeObservation,
@@ -132,11 +134,33 @@ class ScriptedWorkerBackend:
     def role_of(self, spec: WorkerSpec) -> str:
         return spec.role
 
+    def launch_fingerprint(self, spec: WorkerSpec) -> str:
+        return hashlib.sha256(
+            json.dumps(
+                {
+                    "backend": "scripted-v1",
+                    "cwd": str(spec.cwd),
+                    "model": spec.model,
+                    "role": spec.role,
+                    "env": sorted(spec.env.items()),
+                    "writable": spec.writable,
+                },
+                sort_keys=True,
+            ).encode()
+        ).hexdigest()
+
     async def start(self, spec: WorkerSpec) -> WorkerHandle:
         session = _Session(spec=spec, session_id=spec.resume_session_id or f"scripted-{uuid4()}")
         self._sessions[spec.worker_id] = session
         self.started.append(spec)
-        await session.outbox.put(WorkerEvent(spec.worker_id, "session", session.session_id))
+        await session.outbox.put(
+            WorkerEvent(
+                spec.worker_id,
+                "session",
+                session.session_id,
+                {"process_state": "ready"},
+            )
+        )
         if spec.initial_prompt:
             await self._turn(session, spec.initial_prompt)
         return WorkerHandle(
@@ -205,6 +229,13 @@ class ScriptedWorkerBackend:
         if session is None:
             return BackendHealth(alive=False, detail="No live session for this worker.")
         return BackendHealth(alive=session.alive, detail="scripted")
+
+    def attachment(self, spec: WorkerSpec, note: str = "") -> Attachment:
+        session = self._require(spec.worker_id)
+        return build_attachment(cwd=spec.cwd, session_id=session.session_id, note=note)
+
+    def release_human(self, worker_id: UUID, *, composer_cleared: bool) -> None:
+        self._require(worker_id)
 
     def _require(self, worker_id: UUID) -> _Session:
         session = self._sessions.get(worker_id)

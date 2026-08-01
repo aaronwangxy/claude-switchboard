@@ -55,7 +55,7 @@ def runtime(store, *, fingerprint="native-test"):
     )
 
 
-def test_launch_respects_executable_settings_sources_environment_and_hook_overlay(
+def test_launch_respects_executable_environment_and_native_settings_discovery(
     store, tmp_path: Path
 ):
     wrapper = tmp_path / "company-claude"
@@ -67,7 +67,6 @@ def test_launch_respects_executable_settings_sources_environment_and_hook_overla
         supervisor,  # type: ignore[arg-type]
         Config(
             claude=ClaudeConfig(executable=str(wrapper), env={"COMPANY_PROXY": "configured"}),
-            setting_sources=["user", "project", "local"],
         ),
         tmp_path / "state",
     )
@@ -79,7 +78,7 @@ def test_launch_respects_executable_settings_sources_environment_and_hook_overla
     assert launch.executable == wrapper
     assert store.get_runtime(instance.id).claude_session_id == launch.expected_session_id
     assert launch.argv[0] == str(wrapper)
-    assert launch.argv[-2:] == ("--setting-sources", "user,project,local")
+    assert "--setting-sources" not in launch.argv
     assert supervisor.launches[0][2:] == (tmp_path, {"COMPANY_PROXY": "configured"})
     overlay = json.loads(launch.settings_overlay.read_text())
     assert set(overlay["hooks"]) == set(HOOK_EVENTS)

@@ -11,7 +11,7 @@ import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_meta (version INTEGER NOT NULL);
@@ -83,6 +83,11 @@ CREATE TABLE IF NOT EXISTS runtime_hook_events (
     turn_id TEXT,
     created_at TEXT NOT NULL,
     data TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS worker_hook_deliveries (
+    hook_event_id TEXT PRIMARY KEY,
+    delivered_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS events (

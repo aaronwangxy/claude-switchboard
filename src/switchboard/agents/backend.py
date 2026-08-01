@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Literal, Protocol
 from uuid import UUID
 
+from switchboard.agents.attach import Attachment
 from switchboard.domain.enums import RuntimeProcessState
 
 EventType = Literal[
@@ -23,6 +24,10 @@ EventType = Literal[
 ]
 
 
+class WorkerBusyError(RuntimeError):
+    """The exact runtime exists but its single managed input lane is occupied."""
+
+
 @dataclass
 class WorkerSpec:
     worker_id: UUID
@@ -32,7 +37,6 @@ class WorkerSpec:
     initial_prompt: str
     model: str | None = None
     writable: bool = False
-    setting_sources: list[str] = field(default_factory=lambda: ["user", "project"])
     resume_session_id: str | None = None
     max_helpers: int = 3
     #: The Claude executable to launch, or None for the runtime's own default.
@@ -79,11 +83,9 @@ class RuntimeObservation:
 
 
 class WorkerBackend(Protocol):
-    """Implemented by the Agent SDK backend and by the scripted test backend.
+    """Production native-Claude boundary, with a deterministic scripted implementation."""
 
-    A native `claude` CLI/PTY backend could be added behind this protocol later
-    without touching orchestration.
-    """
+    def launch_fingerprint(self, spec: WorkerSpec) -> str: ...
 
     async def start(self, spec: WorkerSpec) -> WorkerHandle: ...
 
@@ -102,3 +104,7 @@ class WorkerBackend(Protocol):
     async def adopt(self, spec: WorkerSpec) -> WorkerHandle: ...
 
     async def health(self, worker_id: UUID) -> BackendHealth: ...
+
+    def attachment(self, spec: WorkerSpec, note: str = "") -> Attachment: ...
+
+    def release_human(self, worker_id: UUID, *, composer_cleared: bool) -> None: ...

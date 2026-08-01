@@ -73,6 +73,8 @@ def handle_hook(store: Store, runtime_id: UUID, payload: dict[str, Any]) -> Runt
             turn.updated_at = now()
             store.save_native_turn(turn)
             runtime.process_state = RuntimeProcessState.WAITING
+    elif name in ("PreToolUse", "PostToolUse", "PostToolUseFailure"):
+        turn = store.active_native_turn(runtime_id, prompt_id)
     elif name in ("Stop", "StopFailure"):
         turn = store.active_native_turn(runtime_id, prompt_id)
         if turn is not None:
@@ -124,7 +126,10 @@ def acknowledge_turn(store: Store, runtime_id: UUID, turn_id: UUID) -> NativeTur
     if runtime is None:
         raise ValueError("Runtime does not exist.")
     latest = store.list_native_turns(runtime_id)
-    if runtime.process_state is not RuntimeProcessState.TURN_COMPLETE:
+    if runtime.process_state not in (
+        RuntimeProcessState.TURN_COMPLETE,
+        RuntimeProcessState.WAITING,
+    ):
         raise ValueError(
             f"Runtime is {runtime.process_state.value}; no completed turn is awaiting acknowledgement."
         )

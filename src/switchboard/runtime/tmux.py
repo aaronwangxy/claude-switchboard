@@ -253,6 +253,12 @@ class TmuxController:
                 raise TmuxError("A tmux client is viewing this runtime; interrupt is refused.")
             self._run(["send-keys", "-t", target.pane_id, "C-c"])
 
+    def terminate(self, binding: RuntimeBinding, target: TmuxTarget) -> None:
+        """Terminate only the exact generation-bound tmux session."""
+        with self._runtime_lock(binding):
+            self._require_exact(binding, target, allow_exited=True)
+            self._run(["kill-session", "-t", target.session_name])
+
     def view(self, binding: RuntimeBinding, target: TmuxTarget) -> TmuxView:
         self._require_exact(binding, target, allow_exited=False)
         base = (self.executable, "-S", str(self.socket_path))

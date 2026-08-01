@@ -1,8 +1,4 @@
-"""Experimental native Claude Code adapter over the tmux runtime substrate.
-
-This is intentionally not a WorkerBackend. It proves launch, hooks, provenance, result
-capture, interruption, entry, and adoption without changing production worker routing.
-"""
+"""Native Claude Code process adapter over the tmux runtime substrate."""
 
 from __future__ import annotations
 
@@ -55,7 +51,7 @@ class NativeClaudeLaunch:
     argv: tuple[str, ...]
 
 
-class NativeClaudePrototype:
+class NativeClaudeRuntime:
     def __init__(
         self,
         store: Store,
@@ -71,12 +67,24 @@ class NativeClaudePrototype:
         self.state_dir = state_dir
         self.python_executable = python_executable or sys.executable
 
-    def launch(self, runtime_id: UUID, *, cwd: Path) -> NativeClaudeLaunch:
+    def launch(
+        self,
+        runtime_id: UUID,
+        *,
+        cwd: Path,
+        model: str | None = None,
+        system_prompt_append: str = "",
+    ) -> NativeClaudeLaunch:
         executable = self._executable()
         runtime = self.store.get_runtime(runtime_id)
         if runtime is None:
             raise TmuxError("Runtime does not exist.")
-        expected_fingerprint = self.launch_fingerprint(cwd=cwd, executable=executable)
+        expected_fingerprint = self.launch_fingerprint(
+            cwd=cwd,
+            executable=executable,
+            model=model,
+            system_prompt_append=system_prompt_append,
+        )
         if runtime.launch_fingerprint != expected_fingerprint:
             raise TmuxError(
                 "Native Claude launch fingerprint does not match the durable runtime."
@@ -94,8 +102,8 @@ class NativeClaudePrototype:
             session_id,
             "--settings",
             str(settings),
-            "--setting-sources",
-            ",".join(self.config.setting_sources),
+            *(("--model", model) if model else ()),
+            *(("--append-system-prompt", system_prompt_append) if system_prompt_append else ()),
         )
         launched = self.supervisor.launch(
             runtime_id,
@@ -105,7 +113,14 @@ class NativeClaudePrototype:
         )
         return NativeClaudeLaunch(launched, session_id, executable, settings, argv)
 
-    def launch_fingerprint(self, *, cwd: Path, executable: Path | None = None) -> str:
+    def launch_fingerprint(
+        self,
+        *,
+        cwd: Path,
+        executable: Path | None = None,
+        model: str | None = None,
+        system_prompt_append: str = "",
+    ) -> str:
         """Hash every stable launch input that defines a reusable native process."""
         payload = {
             "adapter": "native-claude-prototype-v1",
@@ -115,17 +130,27 @@ class NativeClaudePrototype:
             "hook_database": str(self.store.path.resolve()),
             "hook_events": HOOK_EVENTS,
             "hook_python": self.python_executable,
+            "model": model,
             "state_dir": str(self.state_dir.resolve()),
-            "setting_sources": self.config.setting_sources,
+            "system_prompt_append": system_prompt_append,
         }
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
         return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
 
-    def adopt(self, runtime_id: UUID, *, cwd: Path) -> SupervisedRuntime:
+    def adopt(
+        self,
+        runtime_id: UUID,
+        *,
+        cwd: Path,
+        model: str | None = None,
+        system_prompt_append: str = "",
+    ) -> SupervisedRuntime:
         runtime = self.store.get_runtime(runtime_id)
         if runtime is None:
             raise TmuxError("Runtime does not exist.")
-        if runtime.launch_fingerprint != self.launch_fingerprint(cwd=cwd):
+        if runtime.launch_fingerprint != self.launch_fingerprint(
+            cwd=cwd, model=model, system_prompt_append=system_prompt_append
+        ):
             raise TmuxError(
                 "Native Claude launch fingerprint does not match this controller configuration."
             )
@@ -239,3 +264,7 @@ class NativeClaudePrototype:
         if not found:
             raise ClaudeRuntimeError("Claude executable was not found on PATH.")
         return Path(found)
+
+
+# Kept as a source-compatible name for Phase 3 callers; production uses the runtime name.
+NativeClaudePrototype = NativeClaudeRuntime

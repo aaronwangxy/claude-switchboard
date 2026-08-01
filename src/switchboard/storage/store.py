@@ -31,6 +31,7 @@ from switchboard.domain.models import (
     WorkflowExecution,
     WorkflowRun,
     Worktree,
+    now,
 )
 from switchboard.storage.database import connect
 
@@ -362,6 +363,24 @@ class Store:
             (str(runtime_id),),
         ).fetchall()
         return [_load(RuntimeHookEvent, row) for row in rows]
+
+    def pending_worker_hook_events(self, runtime_id: UUID) -> list[RuntimeHookEvent]:
+        rows = self.conn.execute(
+            "SELECT e.data FROM runtime_hook_events e "
+            "LEFT JOIN worker_hook_deliveries d ON d.hook_event_id=e.id "
+            "WHERE e.runtime_id=? AND d.hook_event_id IS NULL "
+            "ORDER BY e.created_at, e.rowid",
+            (str(runtime_id),),
+        ).fetchall()
+        return [_load(RuntimeHookEvent, row) for row in rows]
+
+    def mark_worker_hook_delivered(self, event_id: UUID) -> None:
+        self.conn.execute(
+            "INSERT OR IGNORE INTO worker_hook_deliveries (hook_event_id, delivered_at) "
+            "VALUES (?,?)",
+            (str(event_id), now().isoformat()),
+        )
+        self.conn.commit()
 
     # ------------------------------------------------------------------ events
 
