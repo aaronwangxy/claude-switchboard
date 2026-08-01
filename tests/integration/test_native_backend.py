@@ -240,6 +240,12 @@ async def test_native_backend_explicitly_gates_composite_runs(native_services, g
     assert recovered.status is RunStatus.BLOCKED
     assert any("composite run blocked" in note for note in notes)
 
+    worker = await manager.start_workflow("plan-feature", job_id=job.id, request="atomic only")
+    await wait_for(lambda: manager.store.get_worker(worker.id).status is WorkerStatus.IDLE)
+    still_blocked = manager.store.get_run(legacy_run.id)
+    assert still_blocked.status is RunStatus.BLOCKED
+    assert still_blocked.current_worker_id is None
+
 
 async def test_hook_application_and_delivery_marker_are_one_transaction(
     native_services, git_repo, monkeypatch

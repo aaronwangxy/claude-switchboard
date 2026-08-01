@@ -536,7 +536,7 @@ class SessionManager:
         Without this, invoking the step a paused run was about to run anyway would make
         the run start a second worker for it once the user resumed.
         """
-        if job is None:
+        if job is None or not self.backend.supports_composites:
             return
         run = self.store.active_run(job.id)
         if run is None or run.current_worker_id is not None:
