@@ -1,0 +1,21 @@
+name: implement-approved-plan
+description: Implement an approved plan as an atomic commit stack.
+role: implementer
+allowed_roles: [implementer]
+mutates_code: true
+requires: [implementation_contract]
+invalidates: [verification, smoke_verification, review]
+model_role: implementer
+stage: implementing
+prompt: |
+  Implement the approved plan in your working directory.
+
+  Original request:
+  {request}
+
+  Approved contracts and decisions:
+  {artifacts}
+
+  Work through the approved commit stack in order. Commit as you go. Run the relevant focused
+  checks before each commit. When you finish, report in one or two sentences: what changed,
+  the commits you created, verification status, and any difference from the approved stack.

@@ -25,7 +25,7 @@ from csm.core.session_manager import SessionManager, SessionManagerError
 from csm.domain.enums import WorkerRole
 from csm.routing import router
 from csm.routing.router import RouteError
-from csm.workflows.registry import WORKFLOWS
+from csm.workflows.registry import WorkflowError, get_workflow, workflow_names
 
 log = logging.getLogger(__name__)
 
@@ -190,13 +190,15 @@ class ModelManager:
         @tool(
             "start_workflow",
             "Run a reusable workflow on a job. Creates the worker the workflow needs, in the "
-            "right worktree, unless you target an existing one. workflow_name must be one of: "
-            f"{WORKFLOW_VALUES}.",
+            "right worktree, unless you target an existing one. workflow_name must be one of "
+            "the workflows listed in the snapshot.",
             {"workflow_name": str, "job_id": str, "target_worker_id": str, "request": str},
         )
         async def start_workflow(args: dict) -> dict:
-            if args.get("workflow_name") not in WORKFLOWS:
-                return err(f"{args.get('workflow_name')!r} is not a workflow. Use one of: {WORKFLOW_VALUES}.")
+            try:
+                get_workflow(args.get("workflow_name") or "")
+            except WorkflowError as exc:
+                return err(str(exc))
             try:
                 worker = await sm.start_workflow(
                     args["workflow_name"],
@@ -361,8 +363,12 @@ class ModelManager:
 
 
 ROLE_VALUES = ", ".join(r.value for r in WorkerRole)
-WORKFLOW_VALUES = ", ".join(sorted(WORKFLOWS))
 _ROLE_SET = {r.value for r in WorkerRole}
+
+
+def workflow_values() -> str:
+    """The live workflow list, so a user-defined workflow is offered like any other."""
+    return ", ".join(workflow_names())
 
 MANAGER_TOOL_NAMES = [
     "list_repositories",

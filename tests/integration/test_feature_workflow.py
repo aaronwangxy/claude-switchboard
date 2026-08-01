@@ -52,7 +52,7 @@ async def drive_to_review(sm, backend, repo) -> tuple:
 
     await sm.start_workflow("full-verify", job_id=job.id)
     await settle()
-    await sm.start_workflow("review-change", job_id=job.id)
+    await sm.start_workflow("independent-review", job_id=job.id)
     await settle()
     return manager, job, impl
 

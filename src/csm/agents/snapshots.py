@@ -14,7 +14,7 @@ from uuid import UUID
 from csm.domain.enums import JobStage, WorkerStatus
 from csm.domain.models import AttentionItem, Event, Job, Repository, Worker
 from csm.routing.router import RouteProposal
-from csm.workflows.registry import WORKFLOWS
+from csm.workflows.registry import WORKFLOWS, WorkflowDefinition
 
 MAX_EXCHANGES = 8
 MAX_WORKERS_IN_DETAIL = 8
@@ -61,6 +61,13 @@ def _worker_line(worker: Worker, job: Job | None) -> str:
     if worker.active_helpers:
         bits.append(f"helpers={worker.active_helpers}")
     return "- " + ", ".join(bits)
+
+
+def _workflow_line(definition: WorkflowDefinition) -> str:
+    """One routing line per workflow: the manager routes on these descriptions."""
+    kind = "composite" if definition.is_composite else definition.role.value
+    description = " ".join(definition.description.split())[:140]
+    return f"- {definition.name} ({kind}): {description}"
 
 
 def build_snapshot(data: SnapshotInput, route: RouteProposal | None = None) -> str:
@@ -115,7 +122,7 @@ def build_snapshot(data: SnapshotInput, route: RouteProposal | None = None) -> s
     ] or ["- (none)"]
 
     lines.append("\n## Available workflows")
-    lines.append("- " + ", ".join(sorted(WORKFLOWS)))
+    lines += [_workflow_line(WORKFLOWS[name]) for name in sorted(WORKFLOWS)] or ["- (none)"]
 
     lines.append("\n## Selection")
     lines.append(f"- selected_worker_id={data.selected_worker_id}")

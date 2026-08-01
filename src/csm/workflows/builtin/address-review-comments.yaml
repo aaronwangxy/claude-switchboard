@@ -1,0 +1,32 @@
+name: address-review-comments
+description: Classify and resolve each review comment, fixing valid findings.
+role: implementer
+allowed_roles: [implementer, review_comments]
+mutates_code: true
+produces: [comment_resolutions]
+invalidates: [verification, smoke_verification, review]
+context: [implementation_contract, behavior_contract, verification, review]
+model_role: implementer
+stage: fixing
+worker: existing
+prompt: |
+  Address these review comments in your working directory.
+
+  {request}
+
+  Job context:
+  {artifacts}
+
+  For each comment: inspect the claim and the relevant code, classify it, then fix valid
+  issues or give a concise evidence-based reason for no change. Commit fixes.
+
+  End your reply with exactly one fenced ```json block. The application parses that block
+  deterministically -- prose outside it is for the user, the block is the artifact.
+  Schema:
+  {
+    "resolutions": [{
+      "original_comment":"",
+      "classification":"valid|partially_valid|invalid|already_addressed|needs_human_decision",
+      "reasoning":"","action_taken":null,"commit":null,"verification_required":[]
+    }]
+  }

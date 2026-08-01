@@ -1,0 +1,19 @@
+name: restack-commits
+description: Reorder or squash commits without changing the tree.
+role: implementer
+allowed_roles: [implementer, rebase]
+mutates_code: true
+context: [implementation_contract]
+model_role: implementer
+stage: implementing
+worker: existing
+prompt: |
+  Reorganise the commit stack in your working directory without changing the working tree.
+
+  {request}
+
+  Approved commit stack:
+  {artifacts}
+
+  Reorder, squash, or reword commits only. The final tree must be byte-identical to the
+  current tree -- verify with `git rev-parse HEAD^{tree}` before and after. Never force-push.

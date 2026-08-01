@@ -17,7 +17,7 @@ from uuid import UUID
 from csm.agents.backend import WorkerBackend, WorkerEvent, WorkerSpec
 from csm.agents.prompts import PROMPT_POLICY_VERSION, compose_worker_prompt
 from csm.config import Config
-from csm.core.transitions import WORKFLOW_STAGE, assert_worker_transition
+from csm.core.transitions import assert_worker_transition
 from csm.domain import events as ev
 from csm.domain.contracts import (
     BehaviorContract,
@@ -64,13 +64,28 @@ from csm.workflows.freshness import (
     is_fresh,
     relineage,
 )
-from csm.workflows.registry import WorkflowDefinition, get_workflow, validate_for_role
+from csm.workflows.registry import (
+    WorkflowDefinition,
+    WorkflowError,
+    get_workflow,
+    render_template,
+    validate_for_role,
+)
 
 log = logging.getLogger(__name__)
 
 
 class SessionManagerError(RuntimeError):
     """An operation was refused because it would violate an application invariant."""
+
+
+#: Fallback for a worker started with a role but no workflow (a bare `create_worker`).
+ROLE_ARTIFACTS: dict[WorkerRole, frozenset[ArtifactType]] = {
+    WorkerRole.PLANNER: frozenset({ArtifactType.IMPLEMENTATION_CONTRACT}),
+    WorkerRole.VERIFIER: frozenset({ArtifactType.VERIFICATION}),
+    WorkerRole.REVIEWER: frozenset({ArtifactType.REVIEW}),
+    WorkerRole.REVIEW_COMMENTS: frozenset({ArtifactType.COMMENT_RESOLUTIONS}),
+}
 
 
 @dataclass
@@ -308,12 +323,10 @@ class SessionManager:
         self._pumps[worker.id] = asyncio.create_task(self._pump(worker.id))
 
     def _workflow_policy(self, workflow: str | None) -> str | None:
-        if not workflow:
+        definition = self._definition(workflow)
+        if definition is None:
             return None
-        try:
-            return f"Current workflow: {workflow}. {get_workflow(workflow).description}"
-        except Exception:
-            return None
+        return f"Current workflow: {definition.name}. {definition.description.strip()}"
 
     # --------------------------------------------------------------- messaging
 
@@ -339,26 +352,30 @@ class SessionManager:
     ) -> Worker:
         """Run a workflow on an existing worker, or create the worker it requires."""
         definition = get_workflow(workflow_name)
+        if definition.is_composite:
+            raise SessionManagerError(
+                f"{definition.name} is a composite workflow; run its steps instead."
+            )
         job = self.store.get_job(job_id) if job_id else None
         worker = self.store.get_worker(target_worker_id) if target_worker_id else None
         self._assert_prerequisites(definition, job)
 
         if worker is not None:
-            validate_for_role(workflow_name, worker.role)
+            validate_for_role(definition.name, worker.role)
             if definition.mutates_code and not worker.writable:
                 raise SessionManagerError(
-                    f"{workflow_name} mutates code but {worker.title!r} is read-only."
+                    f"{definition.name} mutates code but {worker.title!r} is read-only."
                 )
-            worker.workflow = workflow_name
+            worker.workflow = definition.name
             self.store.save_worker(worker)
             prompt = self._render(definition, job, request)
-            self._note_execution(job, worker, workflow_name)
+            self._note_execution(job, worker, definition.name)
             await self.send(worker.id, prompt)
-            self._advance_stage(job, workflow_name)
+            self._advance_stage(job, definition)
             return worker
 
         if job is None:
-            raise SessionManagerError(f"{workflow_name} needs a job or a target worker.")
+            raise SessionManagerError(f"{definition.name} needs a job or a target worker.")
         prompt = self._render(definition, job, request)
         worker = await self.create_worker(
             role=definition.default_role,
@@ -366,11 +383,11 @@ class SessionManager:
             prompt=prompt,
             job_id=job.id,
             writable=definition.mutates_code,
-            workflow=workflow_name,
+            workflow=definition.name,
         )
-        self._note_execution(job, worker, workflow_name)
+        self._note_execution(job, worker, definition.name)
         self._snapshot_before_change(worker)
-        self._advance_stage(job, workflow_name)
+        self._advance_stage(job, definition)
         return worker
 
     def _assert_prerequisites(self, definition: WorkflowDefinition, job: Job | None) -> None:
@@ -411,9 +428,10 @@ class SessionManager:
                         f"{contract.blocking_decisions()[0].question}"
                     )
 
-    def _advance_stage(self, job: Job | None, workflow_name: str) -> None:
-        if job is not None and workflow_name in WORKFLOW_STAGE:
-            self.update_job_stage(job, WORKFLOW_STAGE[workflow_name])
+    def _advance_stage(self, job: Job | None, definition: WorkflowDefinition) -> None:
+        """Each workflow declares the stage it moves its job to; unset means no change."""
+        if job is not None and definition.stage is not None:
+            self.update_job_stage(job, definition.stage)
 
     def _note_execution(self, job: Job | None, worker: Worker, workflow_name: str) -> None:
         self.store.add_workflow_execution(
@@ -426,41 +444,39 @@ class SessionManager:
         )
 
     def _render(self, definition: WorkflowDefinition, job: Job | None, request: str) -> str:
+        """Render a workflow's prompt template from stored state.
+
+        Every value here is derived from what the workflow declares, so a user-defined
+        workflow gets the same substitutions as a built-in one.
+        """
         rebase = self.config.workflows.rebase_stack
-        base_commit, head_commit, commits, diff = "", "", "", ""
-        if job is not None and definition.name in ("review-change", "rereview"):
-            base_commit, head_commit, commits, diff = self._review_inputs(job)
-        return definition.template.format(
-            request=request or (job.ticket_text if job else "") or (job.title if job else ""),
-            artifacts=self._artifact_block(job, definition),
-            plan_max_lines=self.config.workflows.plan_feature.max_plan_lines,
-            scope="smoke" if definition.name == "smoke-test" else "full",
-            base_ref=job.base_ref if job else "main",
-            preserve_merges=rebase.preserve_merges,
-            autosquash_fixups=rebase.autosquash_fixups,
-            never_force_push=rebase.never_force_push,
-            base_commit=base_commit,
-            head_commit=head_commit,
-            commits=commits,
-            diff=diff,
-        )
+        values: dict[str, object] = {
+            "request": request or (job.ticket_text if job else "") or (job.title if job else ""),
+            "artifacts": self._artifact_block(job, definition),
+            "plan_max_lines": self.config.workflows.plan_feature.max_plan_lines,
+            "scope": definition.scope,
+            "base_ref": job.base_ref if job else "main",
+            "preserve_merges": rebase.preserve_merges,
+            "autosquash_fixups": rebase.autosquash_fixups,
+            "never_force_push": rebase.never_force_push,
+            "base_commit": "",
+            "head_commit": "",
+            "commits": "",
+            "diff": "",
+        }
+        # A workflow that produces a review needs the commit range it is reviewing.
+        if job is not None and ArtifactType.REVIEW in definition.produces:
+            base, head, commits, diff = self._review_inputs(job)
+            values |= {
+                "base_commit": base, "head_commit": head, "commits": commits, "diff": diff
+            }
+        return render_template(definition.template, values)
 
     def _artifact_block(self, job: Job | None, definition: WorkflowDefinition) -> str:
-        """Only the structured artifacts this action needs -- never a planner transcript."""
+        """Only the structured artifacts this action declares -- never a planner transcript."""
         if job is None:
             return "(none)"
-        wanted: set[ArtifactType] = set(definition.required_artifacts)
-        if definition.name in ("review-change", "rereview"):
-            wanted |= {ArtifactType.BEHAVIOR_CONTRACT, ArtifactType.VERIFICATION}
-        if definition.name in ("smoke-test", "full-verify"):
-            wanted |= {ArtifactType.BEHAVIOR_CONTRACT}
-        if definition.name in ("finalize-change", "address-review-comments"):
-            wanted |= {
-                ArtifactType.IMPLEMENTATION_CONTRACT,
-                ArtifactType.BEHAVIOR_CONTRACT,
-                ArtifactType.VERIFICATION,
-                ArtifactType.REVIEW,
-            }
+        wanted = definition.prompt_context
         lines: list[str] = []
         for type_ in sorted(wanted, key=lambda t: t.value):
             artifact = self.store.latest_artifact(job.id, type_)
@@ -719,24 +735,49 @@ class SessionManager:
     # --------------------------------------------------------------- artifacts
 
     def _harvest_artifact(self, worker: Worker, job: Job, text: str) -> None:
+        """Turn a worker's fenced JSON block into the artifact its workflow declares.
+
+        Dispatch is on what the workflow says it *produces*, not on its name, so a
+        user-defined workflow that produces a verification is harvested like any other.
+        """
         block = extract_json_block(text)
         if block is None:
             return
         head = self._head(worker)
         tree = self._tree(worker)
-        workflow = worker.workflow or ""
+        produces = self._produced_artifacts(worker)
 
-        if workflow == "plan-feature" or worker.role == WorkerRole.PLANNER:
+        if ArtifactType.IMPLEMENTATION_CONTRACT in produces:
             self._store_plan(worker, job, block, head, tree)
-        elif workflow in ("full-verify", "smoke-test") or worker.role == WorkerRole.VERIFIER:
-            self._store_verification(worker, job, block, head, tree, workflow)
-        elif workflow in ("review-change", "rereview") or worker.role == WorkerRole.REVIEWER:
+        elif produces & {ArtifactType.VERIFICATION, ArtifactType.SMOKE_VERIFICATION}:
+            type_ = (
+                ArtifactType.SMOKE_VERIFICATION
+                if ArtifactType.SMOKE_VERIFICATION in produces
+                else ArtifactType.VERIFICATION
+            )
+            self._store_verification(worker, job, block, head, tree, type_)
+        elif ArtifactType.REVIEW in produces:
             self._store_review(worker, job, block, head, tree)
-        elif workflow == "address-review-comments":
+        elif ArtifactType.COMMENT_RESOLUTIONS in produces:
             report = CommentResolutionReport.model_validate(block)
             self._save_artifact(
                 job, ArtifactType.COMMENT_RESOLUTIONS, worker, report.model_dump(mode="json"), head, tree
             )
+
+    def _produced_artifacts(self, worker: Worker) -> frozenset[ArtifactType]:
+        """What this worker's turn may produce: its workflow's declaration, else its role."""
+        definition = self._definition(worker.workflow)
+        if definition is not None and definition.produces:
+            return definition.produces
+        return ROLE_ARTIFACTS.get(worker.role, frozenset())
+
+    def _definition(self, workflow: str | None) -> WorkflowDefinition | None:
+        if not workflow:
+            return None
+        try:
+            return get_workflow(workflow)
+        except WorkflowError:
+            return None
 
     def _store_plan(self, worker: Worker, job: Job, block: dict, head: str | None, tree: str | None) -> None:
         contract = ImplementationContract.model_validate(
@@ -758,15 +799,18 @@ class SessionManager:
             self.emit(ev.PLAN_REQUIRES_INPUT, job_id=job.id, worker_id=worker.id)
 
     def _store_verification(
-        self, worker: Worker, job: Job, block: dict, head: str | None, tree: str | None, workflow: str
+        self,
+        worker: Worker,
+        job: Job,
+        block: dict,
+        head: str | None,
+        tree: str | None,
+        type_: ArtifactType,
     ) -> None:
         report = VerificationReport.model_validate(block)
         report.tested_head = head or ""
         for evidence in report.evidence:
             evidence.tested_head = head or ""
-        type_ = (
-            ArtifactType.SMOKE_VERIFICATION if workflow == "smoke-test" else ArtifactType.VERIFICATION
-        )
         self._save_artifact(job, type_, worker, report.model_dump(mode="json"), head, tree)
         self._sync_criteria_status(job, report)
         if report.passed:
@@ -850,13 +894,10 @@ class SessionManager:
     # ------------------------------------------------------------ invalidation
 
     def _snapshot_before_change(self, worker: Worker) -> None:
-        if not worker.writable or not worker.workflow:
+        if not worker.writable:
             return
-        try:
-            definition = get_workflow(worker.workflow)
-        except Exception:
-            return
-        if not definition.mutates_code:
+        definition = self._definition(worker.workflow)
+        if definition is None or not definition.mutates_code:
             return
         head, tree = self._head(worker), self._tree(worker)
         if head and tree:
@@ -1088,7 +1129,7 @@ class SessionManager:
                 return f"Sent to {worker.title}. {proposal.reason}"
             case "start_workflow":
                 worker = await self.start_workflow(
-                    proposal.workflow or "answer-codebase-question",
+                    proposal.workflow or "ask-question",
                     job_id=proposal.job_id,
                     target_worker_id=proposal.worker_id,
                     request=proposal.message,
@@ -1097,7 +1138,7 @@ class SessionManager:
                 return f"Running {proposal.workflow} on {worker.title}."
             case "new_question_worker":
                 assert proposal.repository_id is not None
-                definition = get_workflow("answer-codebase-question")
+                definition = get_workflow("ask-question")
                 worker = await self.create_worker(
                     role=WorkerRole.QUESTION,
                     title=proposal.title or "Question",
@@ -1105,7 +1146,7 @@ class SessionManager:
                     job_id=proposal.job_id,
                     repository_id=proposal.repository_id,
                     writable=False,
-                    workflow="answer-codebase-question",
+                    workflow="ask-question",
                 )
                 self.selected_worker_id = worker.id
                 return f"Read-only question worker started (no worktree). {proposal.reason}"

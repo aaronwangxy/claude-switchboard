@@ -181,7 +181,7 @@ async def test_the_deterministic_manager_covers_the_same_operations(session_mana
     assert sm.store.list_workers(job.id)
 
     # A question while a job is selected reuses that job's worker, which has the context.
-    assert "answer-codebase-question" in await manager.handle("Is the cache shared?")
+    assert "ask-question" in await manager.handle("Is the cache shared?")
     await settle()
 
     # With nothing selected it becomes a standalone read-only question worker instead.

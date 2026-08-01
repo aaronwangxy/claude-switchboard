@@ -1,0 +1,34 @@
+name: full-verify
+description: Verify every acceptance criterion against current HEAD.
+role: verifier
+allowed_roles: [verifier]
+mutates_code: false
+requires: [behavior_contract]
+produces: [verification]
+model_role: verifier
+stage: verifying
+worker: fresh
+prompt: |
+  Verify this change against its acceptance criteria. Scope: {scope}.
+
+  Acceptance criteria and evidence requirements:
+  {artifacts}
+
+  Run the checks yourself in your working directory. Record the exact commands and exit codes.
+  Report a criterion as passed only with evidence you actually observed; otherwise use
+  "failed", "not_tested", or "blocked" and state the limitation.
+
+  End your reply with exactly one fenced ```json block. The application parses that block
+  deterministically -- prose outside it is for the user, the block is the artifact.
+  Schema:
+  {
+    "scope": "{scope}",
+    "evidence": [{
+      "criterion_id": "AC1",
+      "status": "passed|failed|not_tested|blocked",
+      "commands": [{"command","exit_code","output_excerpt"}],
+      "observed_behavior": "",
+      "artifacts": [],
+      "limitations": []
+    }]
+  }

@@ -1,0 +1,20 @@
+name: rebase-stack
+description: Rebase the job's commit stack onto its base ref, respecting saved preferences.
+role: implementer
+allowed_roles: [implementer, rebase]
+mutates_code: true
+invalidates: [verification, smoke_verification, review]
+model_role: implementer
+stage: implementing
+worker: existing
+prompt: |
+  Rebase this stack onto {base_ref} in your working directory.
+
+  {request}
+
+  Configured preferences: preserve_merges={preserve_merges},
+  autosquash_fixups={autosquash_fixups}, never_force_push={never_force_push}.
+
+  Show the base, the commit stack before and after, any conflicts, and the result. Do not
+  force-push, and do not delete or reset any branch. If conflicts need judgment you cannot
+  make safely, stop and end your reply with [NEEDS INPUT] and one concrete question.

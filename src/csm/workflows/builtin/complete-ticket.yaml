@@ -1,0 +1,23 @@
+name: complete-ticket
+description: >
+  Implement a software ticket or feature request end to end: contracts, implementation,
+  verification, fresh independent review, fixes, and re-verification until it is ready to
+  push.
+steps:
+  - workflow: plan-feature
+    approval: required
+  - workflow: implement-approved-plan
+  - workflow: full-verify
+    worker: fresh
+  - workflow: independent-review
+    worker: fresh
+  - workflow: address-review-comments
+    when: blocking-findings
+    max_iterations: 2
+  - workflow: full-verify
+    when: code-changed
+    worker: fresh
+  - workflow: independent-review
+    when: code-changed
+    worker: fresh
+  - workflow: finalize-change

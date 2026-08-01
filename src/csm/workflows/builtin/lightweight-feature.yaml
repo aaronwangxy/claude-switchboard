@@ -1,0 +1,11 @@
+name: lightweight-feature
+description: >
+  A shorter ritual for small, low-risk changes: plan only when a decision is needed,
+  implement, smoke test, finalize. No independent review step.
+steps:
+  - workflow: plan-feature
+    approval: only-if-decisions
+  - workflow: implement-approved-plan
+  - workflow: smoke-test
+    worker: fresh
+  - workflow: finalize-change

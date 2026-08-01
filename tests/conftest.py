@@ -13,10 +13,28 @@ from pathlib import Path
 import pytest
 
 from csm.agents.scripted_backend import ScriptedWorkerBackend
-from csm.config import HOME_ENV, Config
+from csm.config import HOME_ENV, WORKFLOWS_ENV, Config
 from csm.core.session_manager import SessionManager
 from csm.gitops.worktrees import WorktreeService
 from csm.storage.store import Store
+from csm.workflows.registry import reload_workflows
+
+
+@pytest.fixture(autouse=True)
+def isolated_workflows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
+    """Point the user workflow directory at a throwaway path for every test.
+
+    Without this a test run would load whatever workflows the developer happens to have
+    in `~/.csm/workflows`.
+    """
+    directory = tmp_path / "user-workflows"
+    monkeypatch.setenv(WORKFLOWS_ENV, str(directory))
+    reload_workflows()
+    try:
+        yield directory
+    finally:
+        monkeypatch.delenv(WORKFLOWS_ENV, raising=False)
+        reload_workflows()
 
 
 @pytest.fixture

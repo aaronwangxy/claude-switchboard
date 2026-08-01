@@ -118,7 +118,7 @@ def test_repository_named_in_the_ticket_resolves_the_ambiguity(repo, other_repo)
     [
         ("Rebase this stack.", "rebase-stack"),
         ("Run another smoke test.", "smoke-test"),
-        ("Rereview it.", "rereview"),
+        ("Rereview it.", "independent-review"),
         ("Verify only the auth flow again.", "full-verify"),
         ("Address these review comments: the cache is shared.", "address-review-comments"),
         ("Restack the commits.", "restack-commits"),
@@ -147,7 +147,7 @@ def test_rereview_always_starts_a_fresh_independent_reviewer(repo):
         selected_worker_id=impl.id,
     )
     route = resolve_route("Rereview it after the rebase.", state)
-    assert route.workflow == "rereview"
+    assert route.workflow == "independent-review"
     assert route.worker_id is None, "a rereview must not reuse the previous reviewer"
     assert route.role == WorkerRole.REVIEWER
     assert route.writable is False
@@ -190,7 +190,7 @@ def test_question_about_the_selected_job_reuses_its_contextual_worker(repo):
     )
     route = resolve_route("Why is this cache shared?", state)
     assert route.worker_id == impl.id
-    assert route.workflow == "answer-codebase-question"
+    assert route.workflow == "ask-question"
 
 
 # ------------------------------------------------------------------ new vs. old

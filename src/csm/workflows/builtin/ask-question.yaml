@@ -1,0 +1,13 @@
+name: ask-question
+description: Answer a question about the codebase read-only, without touching any files.
+role: question
+allowed_roles: [question, general, implementer, planner]
+mutates_code: false
+aliases: [answer-codebase-question]
+model_role: general
+prompt: |
+  Answer this question about the codebase in your working directory. You are read-only.
+
+  {request}
+
+  Answer directly first. Add explanation only where it changes the answer.

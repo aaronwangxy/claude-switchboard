@@ -136,13 +136,13 @@ def is_destructive(text: str) -> bool:
 WORKFLOW_PHRASES: list[tuple[tuple[str, ...], str]] = [
     (("address these review comments", "address the review comments", "address review comments",
       "review comments:", "here are the review comments"), "address-review-comments"),
-    (("rereview", "re-review", "review it again", "review again"), "rereview"),
+    (("rereview", "re-review", "review it again", "review again"), "independent-review"),
     (("restack",), "restack-commits"),
     (("rebase",), "rebase-stack"),
     (("smoke test", "smoke-test"), "smoke-test"),
     (("full verify", "full-verify", "verify everything", "verify"), "full-verify"),
     (("ready to push", "finalize", "finalise", "wrap up"), "finalize-change"),
-    (("review this", "review the change", "review it"), "review-change"),
+    (("review this", "review the change", "review it"), "independent-review"),
 ]
 
 
@@ -251,7 +251,7 @@ def resolve_route(text: str, state: RoutingState) -> RouteProposal:
                     reason="Question about the selected job; its existing worker has the context.",
                     worker_id=worker.id,
                     job_id=selected_job.id,
-                    workflow="answer-codebase-question",
+                    workflow="ask-question",
                     message=text,
                     priority=3,
                 )
@@ -271,7 +271,7 @@ def resolve_route(text: str, state: RoutingState) -> RouteProposal:
             job_id=selected_job.id if selected_job else None,
             role=WorkerRole.QUESTION,
             writable=False,
-            workflow="answer-codebase-question",
+            workflow="ask-question",
             title=extract_title(text, None),
             message=text,
             priority=4,
@@ -357,11 +357,22 @@ def _route_into_job(
             priority=priority,
         )
 
-    from csm.workflows.registry import get_workflow
+    from csm.workflows.registry import WorkerMode, get_workflow
 
     definition = get_workflow(workflow)
-    # Fresh-reviewer and verifier workflows always get a brand new independent worker.
-    if definition.default_role in (WorkerRole.REVIEWER, WorkerRole.VERIFIER):
+    if definition.is_composite:
+        return RouteProposal(
+            action="start_workflow",
+            reason=f"{workflow} is a composite workflow; it runs its own steps for this job.",
+            job_id=job.id,
+            repository_id=job.repository_id,
+            workflow=workflow,
+            message=text,
+            priority=priority,
+        )
+    # A workflow declaring `worker: fresh` always gets a brand new independent session,
+    # so an independent reviewer never inherits the previous one's context.
+    if definition.worker is WorkerMode.FRESH:
         return RouteProposal(
             action="start_workflow",
             reason=f"{workflow} runs on a fresh independent {definition.default_role.value}.",

@@ -1,0 +1,17 @@
+name: finalize-change
+description: Summarise branch, commits, evidence, and limitations for handoff.
+role: implementer
+allowed_roles: [implementer, general]
+mutates_code: false
+context: [implementation_contract, behavior_contract, verification, review]
+model_role: general
+stage: ready_to_push
+worker: existing
+prompt: |
+  Summarise this change for handoff.
+
+  Job context and stored evidence:
+  {artifacts}
+
+  Report the branch, the commit stack, working-tree status, a verification summary, a review
+  summary, and honest limitations. Do not push, merge, or delete anything.

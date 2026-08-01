@@ -1,0 +1,32 @@
+name: plan-feature
+description: Produce implementation, behavior, and evidence contracts for a request.
+role: planner
+allowed_roles: [planner]
+mutates_code: false
+produces: [implementation_contract, behavior_contract]
+model_role: planner
+stage: planning
+prompt: |
+  Plan this work for the repository in your working directory.
+
+  Request:
+  {request}
+
+  Produce a user-facing plan of at most {plan_max_lines} short lines, then the structured
+  contract. Ask for a human decision only where the answer changes the result; give concrete
+  options and a recommendation. If any decision blocks implementation, end your prose with
+  [NEEDS DECISION] and one concrete question.
+
+  End your reply with exactly one fenced ```json block. The application parses that block
+  deterministically -- prose outside it is for the user, the block is the artifact.
+  Schema:
+  {
+    "summary_lines": ["<=10 short lines"],
+    "decisions": [{"id","question","options":[],"recommendation","blocking":true}],
+    "commit_stack": [{"order":1,"message","purpose"}],
+    "risks": [],
+    "base_commit": "<git rev-parse HEAD>",
+    "criteria": [{"id":"AC1","behavior","verification_method","evidence_required":[]}]
+  }
+  "criteria" are the behavior contract: externally observable behavior, not implementation
+  activity. Include the deepest practical end-to-end or smoke test this environment permits.

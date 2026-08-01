@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 CONFIG_ENV = "CSM_CONFIG"
 HOME_ENV = "CSM_HOME"
+WORKFLOWS_ENV = "CSM_WORKFLOWS_DIR"
 
 
 class CommunicationConfig(BaseModel):
@@ -103,6 +104,21 @@ def database_path() -> Path:
 
 def worktree_root() -> Path:
     return home_dir() / "worktrees"
+
+
+def user_workflows_dir() -> Path:
+    """Where the user's own workflow definitions live.
+
+    `~/.csm/workflows` by default; relocated with the rest of CSM's state when `CSM_HOME`
+    is set, so an isolated run never reads or writes the real one.
+    """
+    override = os.getenv(WORKFLOWS_ENV)
+    if override:
+        return Path(override).expanduser()
+    home = os.getenv(HOME_ENV)
+    if home:
+        return Path(home).expanduser() / "workflows"
+    return Path.home() / ".csm" / "workflows"
 
 
 def config_path() -> Path:

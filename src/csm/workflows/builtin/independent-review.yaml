@@ -1,0 +1,42 @@
+name: independent-review
+description: Fresh independent review of the commit range against the contracts.
+role: reviewer
+allowed_roles: [reviewer]
+mutates_code: false
+requires: [implementation_contract]
+produces: [review]
+aliases: [review-change, rereview]
+context: [behavior_contract, verification]
+model_role: reviewer
+stage: reviewing
+worker: fresh
+prompt: |
+  Review this change independently. You are seeing it fresh.
+
+  Original request:
+  {request}
+
+  Approved contracts, decisions, and verification evidence:
+  {artifacts}
+
+  Commit range: {base_commit}..{head_commit}
+  Commits:
+  {commits}
+
+  Diff:
+  {diff}
+
+  Assess implementation correctness, whether the acceptance criteria were met, whether the
+  plan or criteria missed important behavior, and architecture, security, maintainability,
+  and commit quality. Verdict first, then only actionable findings ordered by severity.
+
+  End your reply with exactly one fenced ```json block. The application parses that block
+  deterministically -- prose outside it is for the user, the block is the artifact.
+  Schema:
+  {
+    "verdict": "pass|changes_requested",
+    "findings": [{
+      "id":"F1","severity":"blocking|important|minor|nit","category":"",
+      "description":"","evidence":"","recommended_action":""
+    }]
+  }
