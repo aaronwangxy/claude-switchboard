@@ -1,48 +1,43 @@
-csm — two workers, second selected
-==================================
+csm — two jobs in flight
+========================
 
  ⭘                                                             Claude Session Manager
-╭─────────────────────────────────────────────────────────────╮╭─────────────────────────────────────────────────────────────────────────────────────╮
-│ Manager                                                     ││ ENG-999 · Planner · Idle                                                            │
-│ persist and the gateway honours them. This is a second…     ││             "blocking": true                                                        │
-│ mgr  Started ENG-999 in a new job. Planning is in           ││           }                                                                         │
-│ progress.                                                   ││         ],                                                                          │
-│                                                             ││         "commit_stack": [                                                           │
-│ mgr  ENG-421 · planner is pinned.                           ││           {                                                                         │
-│                                                             ││             "order": 1,                                                             │
-│ mgr  ENG-421 · planner is unpinned.                      ▃▃ ││             "message": "feat: add preferences table",                               │
-│                                                             ││             "purpose": "schema"                                                     │
-│ mgr  Auto-advance is off.                                   ││           },                                                                        │
-│                                                             ││           {                                                                         │
-│ mgr  Auto-advance is on.                                    ││             "order": 2,                                                             │
-│                                                             ││             "message": "feat: persist preferences",                                 │
-│ mgr  ENG-421 · planner is snoozed for 30 minutes.           ││             "purpose": "write path"                                                 │
-│                                                             ││           }                                                                         │
-│                                                             ││         ],                                                                          │
-│▊▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▎││         "risks": [                                                                  │
-│▊  Message the manager — paste a ticket, ask a question,    ▎││           "Legacy rows may lack a preferences column."                              │
-│▊▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▎││         ],                                                                          │
-╰─────────────────────────────────────────────────────────────╯│         "base_commit": "",                                                          │
-╭─────────────────────────────────────────────────────────────╮│         "criteria": [                                                               │
-│ Workers (2)  ·  auto-advance on                             ││           {                                                                         │
-│ · ENG-421 planner  blocked  [NEEDS DECISION] Choose the lega││             "id": "AC1",                                                            │
-│ ✓ ENG-999 planner  idle  planner · planning · repo-alpha-gy8││             "behavior": "Saving preferences persists them across a restart.",       │
-│                                                             ││             "verification_method": "integration test",                              │
-│                                                             ││             "evidence_required": [                                                  │
-│                                                             ││               "pytest exit code",                                                   │
-│                                                             ││               "database read"                                                       │
-│                                                             ││             ]                                                                       │
-│                                                             ││           }                                                                         │
-│                                                             ││         ]                                                                           │
-│                                                             ││       }                                                                             │
-│                                                             ││       ```                                                                           │
-│                                                             ││       [NEEDS DECISION] Choose the legacy-write strategy.                            │
-│                                                             ││                                                                                     │
-│                                                             ││ sys   [interrupted by the user]                                                     │
-│                                                             ││                                                                                     │
-│                                                             ││                                                                                     │
-│                                                             ││▊▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▎▔▔▔▔▔▔▔▔▔▔▔▔▔│
-│                                                             ││▊  Reply to this worker                                                ▎  Interrupt  │
-│                         ▊                                   ││▊▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▎▁▁▁▁▁▁▁▁▁▁▁▁▁│
-╰─────────────────────────────────────────────────────────────╯╰─────────────────────────────────────────────────────────────────────────────────────╯
- ^n Manager  ^j Next worker  ^k Prev worker  ^space Next attention  ^p Pin  ^s Snooze  ^a Auto-advance  ^o Interrupt  esc Worker list  ? Help
+ Manager                                                      │ ENG-999 · planner · blocked · planning · default model
+ mgr  Registered repository repo-alpha                        │█ Reason: [NEEDS DECISION] Choose the legacy-write strategy.
+ (/private/var/folders/3l/s3t0j73x1bl1bvyxr7c53bf40000gn/T/   │█ Waiting for: [NEEDS DECISION] Choose the legacy-write strategy.
+ csm-capture-b0km2ir5/repo-alpha).                         ▅▅ │
+                                                              │           {
+ mgr  Nothing to recover. Nothing needs you. 0 worker(s)      │             "order": 1,
+ still working.                                               │             "message": "feat: add preferences table",
+                                                              │             "purpose": "schema"
+ mgr  Started ENG-421 on the complete-ticket workflow. Step   │           },
+ 1: plan-feature on ENG-421 · planner.                        │           {
+                                                              │             "order": 2,
+ mgr  Started ENG-999 on the complete-ticket workflow. Step   │             "message": "feat: persist preferences",
+ 1: plan-feature on ENG-999 · planner.                        │             "purpose": "write path"
+                                                              │           }
+                                                              │         ],
+                                                              │         "risks": [
+ Message the manager — paste a ticket, ask a question, give a │           "Legacy rows may lack a preferences column."
+                                                              │         ],
+──────────────────────────────────────────────────────────────│         "base_commit": "",
+ Workers (2) · 2 need you  ·  auto-advance on                 │         "criteria": [
+ ! ENG-421 planner  [NEEDS DECISION] Choose the legacy-write s│           {
+ ! ENG-999 planner  [NEEDS DECISION] Choose the legacy-write s│             "id": "AC1",
+                                                              │             "behavior": "Saving preferences persists them across a restart.",
+                                                              │             "verification_method": "integration test",
+                                                              │             "evidence_required": [                                                 ▆▆
+                                                              │               "pytest exit code",
+                                                              │               "database read"
+                                                              │             ]
+                                                              │           }
+                                                              │         ]
+                                                              │       }
+                                                              │       ```
+                                                              │       [NEEDS DECISION] Choose the legacy-write strategy.
+                                                              │
+                                                              │
+                                                              │                                                                          ▔▔▔▔▔▔▔▔▔▔▔▔▔
+                                                              │ Reply to this worker                                                       Interrupt
+                                                      ▎       │                                                                          ▁▁▁▁▁▁▁▁▁▁▁▁▁
+ ^a Auto-advance  ^e Enter session  ^k Prev worker  ^n Manager  ^j Next worker  ^space Next attention  ^p Pin  ^s Snooze  ^o Interrupt  esc Worker lis

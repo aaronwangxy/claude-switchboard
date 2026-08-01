@@ -1,48 +1,39 @@
-csm — help screen (key bindings)
-================================
+csm — help screen
+=================
 
- ⭘                                                             Claude Session Manager
-╭─────────────────────────────────────────────────────────────╮╭─────────────────────────────────────────────────────────────────────────────────────╮
-│ Manager                                                     ││ ENG-999 · Planner · Idle                                                            │
-│ persist and the gateway honours them. This is a second…     ││             "blocking": true                                                        │
-│ mgr  Started ENG-999 in a new j█▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀█                                │
-│ progress.                      █                                                                                  █                                │
-│                                █  Claude Session Manager                                                          █                                │
-│ mgr  ENG-421 · planner is pinne█                                                                                  █                                │
-│                                █    Ctrl+N       Focus the manager input                                          █                                │
-│ mgr  ENG-421 · planner is unpin█    Ctrl+J       Select the next worker                                           █,                               │
-│                                █    Ctrl+K       Select the previous worker                                       █                                │
-│ mgr  Auto-advance is off.      █    Ctrl+Space   Jump to the next attention item                                  █                                │
-│                                █    Ctrl+P       Pin / unpin the selected worker                                  █                                │
-│ mgr  Auto-advance is on.       █    Ctrl+S       Snooze the selected worker for 30 minutes                        █                                │
-│                                █    Ctrl+A       Toggle auto-advance                                              █                                │
-│ mgr  ENG-421 · planner is snooz█    Ctrl+O       Interrupt the selected worker                                    █                                │
-│                                █    Escape       Return focus to the worker list                                  █                                │
-│                                █    ?            Show this help                                                   █                                │
-│▊▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔█    Enter        Submit the focused input                                         █                                │
-│▊  Message the manager — paste a█    Ctrl+Q       Quit                                                             █."                              │
-│▊▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁█                                                                                  █                                │
-╰────────────────────────────────█  Panes                                                                           █                                │
-╭────────────────────────────────█    Manager (top left)   one input for everything. Paste a ticket, ask a          █                                │
-│ Workers (2)  ·  auto-advance on█  question,                                                                       █                                │
-│ · ENG-421 planner  blocked  [NE█                         or give an instruction; the manager routes it.           █                                │
-│ ✓ ENG-999 planner  idle  planne█    Workers (bottom left) ! needs you   ● working   ✓ idle or done                █ them across a restart.",       │
-│                                █    Worker (right)       attention banner, transcript, follow-up input,           █",                              │
-│                                █  Interrupt.                                                                      █                                │
-│                                █                                                                                  █                                │
-│                                █  Substituted keys                                                                █                                │
-│                                █    - Ctrl+O interrupts, not Ctrl+C: Textual reserves Ctrl+C for quit (and for▄▄  █                                │
-│                                █  copying a selection inside a screen), so it can never reach the application.    █                                │
-│                                █    - Ctrl+P pins the selected worker. Textual normally opens its command         █                                │
-│                                █  palette on Ctrl+P, so this application disables the command palette             █                                │
-│                                █  (ENABLE_COMMAND_PALETTE = False) to keep the documented binding.                █                                │
-│                                █    - Ctrl+A (auto-advance) and Ctrl+K (previous worker) are application          █egy.                            │
-│                                █  bindings with priority, so inside a text input they no longer mean 'go to       █                                │
-│                                █  line start' and 'delete to end of line'. Home/End and Ctrl+U still work.        █                                │
-│                                █                                                                                  █                                │
-│                                █▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄█                                │
-│                                                             ││▊▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▎▔▔▔▔▔▔▔▔▔▔▔▔▔│
-│                                                             ││▊  Reply to this worker                                                ▎  Interrupt  │
-│                         ▊                                   ││▊▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▎▁▁▁▁▁▁▁▁▁▁▁▁▁│
-╰─────────────────────────────────────────────────────────────╯╰─────────────────────────────────────────────────────────────────────────────────────╯
- ^n Manager  ^j Next worker  ^k Prev worker  ^space Next attention  ^p Pin  ^s Snooze  ^a Auto-advance  ^o Interrupt  esc Worker list  ? Help
+
+
+
+
+                                 ┌──────────────────────────────────────────────────────────────────────────────────┐
+                                 │                                                                                  │
+                                 │  Claude Session Manager                                                          │
+                                 │                                                                                  │
+                                 │    Ctrl+N       Focus the manager input                                          │
+                                 │    Ctrl+J       Select the next worker                                           │
+                                 │    Ctrl+K       Select the previous worker                                       │
+                                 │    Ctrl+Space   Jump to the next attention item                                  │
+                                 │    Ctrl+P       Pin / unpin the selected worker                                  │
+                                 │    Ctrl+S       Snooze the selected worker for 30 minutes                        │
+                                 │    Ctrl+A       Toggle auto-advance                                              │
+                                 │    Ctrl+O       Interrupt the selected worker                                    │
+                                 │    Ctrl+E       Enter the selected worker's session in this terminal             │
+                                 │    Escape       Return focus to the worker list                                  │
+                                 │    ?            Show this help                                                   │
+                                 │    Enter        Submit the focused input                                         │
+                                 │    Ctrl+Q       Quit                                                             │
+                                 │                                                                                  │
+                                 │  Panes                                                                           │
+                                 │    Manager (top left)   one input for everything. Paste a ticket, ask a          │
+                                 │  question,                                                                   ▆▆  │
+                                 │                         or give an instruction; the manager routes it.           │
+                                 │    Workers (bottom left) ! needs you   ● working   ✓ idle or done                │
+                                 │    Worker (right)       attention banner, transcript, follow-up input,           │
+                                 │  Interrupt.                                                                      │
+                                 │                                                                                  │
+                                 │  Substituted keys                                                                │
+                                 │    - Ctrl+O interrupts, not Ctrl+C: Textual reserves Ctrl+C for quit (and for    │
+                                 │  copying a selection inside a screen), so it can never reach the application.    │
+                                 │    - Ctrl+P pins the selected worker. Textual normally opens its command         │
+                                 │                                                                                  │
+                                 └──────────────────────────────────────────────────────────────────────────────────┘

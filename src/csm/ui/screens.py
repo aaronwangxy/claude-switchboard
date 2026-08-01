@@ -386,9 +386,15 @@ class CsmApp(App[None]):
             return
         job = self.sm.store.get_job(worker.job_id) if worker.job_id else None
         label = (job.external_ref if job and job.external_ref else None) or worker.title
-        header = f"{label} · {worker.role.value.title()} · {worker.status.value.title()}"
+        parts = [label, worker.role.value, worker.status.value]
+        if job is not None:
+            parts.append(job.stage.value)
+        parts.append(worker.model or "default model")
         if worker.pinned:
-            header += " · pinned"
+            parts.append("pinned")
+        if worker.active_helpers:
+            parts.append(f"{worker.active_helpers} helpers")
+        header = " · ".join(parts)
         item = next(
             (i for i in self.sm.list_attention_items() if i.worker_id == worker.id),
             None,
@@ -642,24 +648,17 @@ def _worker_row(worker: Worker, item: AttentionItem | None, job, repo) -> Text:
 
     row = Text()
     row.append(f"{marker} ", style=style or "dim")
+    if worker.pinned:
+        row.append("pin ", style="dim")
     if ref:
         row.append(f"{ref} ", style=style or "bold")
     row.append(title[:32], style=style)
-    row.append(f"  {worker.status.value}", style=style or "dim")
+    # Only the reason follows the title. Role, stage, repository, and model are true of
+    # the worker for its whole life and never tell the user to do anything, so they
+    # belong in the header of the pane that is only drawn when the worker is selected.
     reason = item.reason if item is not None else worker.waiting_for
     if reason:
         row.append("  " + _compact(reason, REASON_WIDTH), style="italic")
-    tail = [worker.role.value]
-    if job is not None:
-        tail.append(job.stage.value)
-    if repo is not None:
-        tail.append(repo.name)
-    tail.append(worker.model or "default model")
-    row.append("  " + " · ".join(tail), style="dim")
-    if worker.pinned:
-        row.append("  [pin]", style="bold yellow")
-    if worker.active_helpers > 0:
-        row.append(f"  {worker.active_helpers} helpers active", style="dim")
     return row
 
 

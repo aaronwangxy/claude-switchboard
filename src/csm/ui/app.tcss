@@ -1,7 +1,15 @@
-/* Three panes: manager and worker list on the left, the selected worker on the right. */
+/* Three panes: manager and worker list on the left, the selected worker on the right.
+ *
+ * Deliberately plain. This should read like a terminal that happens to have regions,
+ * not like a dashboard: the terminal's own background, one dim rule between panes, and
+ * colour reserved for the two things that are actually actionable -- who is speaking and
+ * what needs the user. Anything decorative competes with the transcript, which is the
+ * only content on screen worth reading closely.
+ */
 
 Screen {
     layers: base overlay;
+    background: $background;
 }
 
 #body {
@@ -11,28 +19,25 @@ Screen {
 #left-column {
     width: 42%;
     min-width: 40;
+    border-right: solid $panel;
 }
 
 #manager-pane {
     height: 1fr;
-    border: round $accent;
-    border-title-align: left;
+    border-bottom: solid $panel;
 }
 
 #worker-list-pane {
     height: 1fr;
-    border: round $accent;
 }
 
 #worker-pane {
     width: 1fr;
-    border: round $success;
 }
 
+/* A quiet label, not a header bar. */
 .pane-title {
-    background: $panel;
-    color: $text;
-    text-style: bold;
+    color: $text-muted;
     padding: 0 1;
     height: 1;
 }
@@ -45,16 +50,19 @@ Screen {
 #manager-input,
 #worker-input {
     height: 3;
-    border: tall $panel;
+    border: none;
+    background: $background;
+    padding: 1 1 0 1;
 }
 
 #worker-table {
     height: 1fr;
+    background: $background;
 }
 
+/* The one element allowed to shout, because it is the one that means "you". */
 #attention-banner {
-    background: $warning-darken-3;
-    color: $text;
+    color: $warning;
     border-left: thick $warning;
     padding: 0 1;
     height: auto;
@@ -87,7 +95,7 @@ HelpScreen {
     width: 84;
     max-width: 96%;
     height: 80%;
-    border: thick $accent;
+    border: solid $panel;
     background: $surface;
     padding: 1 2;
 }

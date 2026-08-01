@@ -2,47 +2,42 @@ csm — startup, no workers yet
 =============================
 
  ⭘                                                             Claude Session Manager
-╭─────────────────────────────────────────────────────────────╮╭─────────────────────────────────────────────────────────────────────────────────────╮
-│ Manager                                                     ││ No worker selected                                                                  │
-│ mgr  Scripted backend (CSM_BACKEND=scripted): no model is   ││ Select a worker on the left, or start one from the manager.                         │
-│ called.                                                     ││                                                                                     │
-│                                                             ││                                                                                     │
-│ mgr  Registered repository repo-alpha-gy8c6fyw              ││                                                                                     │
-│ (/private/var/folders/3l/s3t0j73x1bl1bvyxr7c53bf40000gn/T/r ││                                                                                     │
-│ epo-alpha-gy8c6fyw).                                        ││                                                                                     │
-│                                                             ││                                                                                     │
-│ mgr  Nothing to recover. Nothing needs you. 0 worker(s)     ││                                                                                     │
-│ still working.                                              ││                                                                                     │
-│                                                             ││                                                                                     │
-│                                                             ││                                                                                     │
-│                                                             ││                                                                                     │
-│                                                             ││                                                                                     │
-│                                                             ││                                                                                     │
-│                                                             ││                                                                                     │
-│▊▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▎││                                                                                     │
-│▊  Message the manager — paste a ticket, ask a question,    ▎││                                                                                     │
-│▊▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▎││                                                                                     │
-╰─────────────────────────────────────────────────────────────╯│                                                                                     │
-╭─────────────────────────────────────────────────────────────╮│                                                                                     │
-│ Workers (0)  ·  auto-advance on                             ││                                                                                     │
-│                                                             ││                                                                                     │
-│                                                             ││                                                                                     │
-│                                                             ││                                                                                     │
-│                                                             ││                                                                                     │
-│                                                             ││                                                                                     │
-│                                                             ││                                                                                     │
-│                                                             ││                                                                                     │
-│                                                             ││                                                                                     │
-│                                                             ││                                                                                     │
-│                                                             ││                                                                                     │
-│                                                             ││                                                                                     │
-│                                                             ││                                                                                     │
-│                                                             ││                                                                                     │
-│                                                             ││                                                                                     │
-│                                                             ││                                                                                     │
-│                                                             ││                                                                                     │
-│                                                             ││▊▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▎▔▔▔▔▔▔▔▔▔▔▔▔▔│
-│                                                             ││▊  Reply to this worker                                                ▎  Interrupt  │
-│                                                             ││▊▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▎▁▁▁▁▁▁▁▁▁▁▁▁▁│
-╰─────────────────────────────────────────────────────────────╯╰─────────────────────────────────────────────────────────────────────────────────────╯
- ^a Auto-advance  ^k Prev worker  ^n Manager  ^j Next worker  ^space Next attention  ^p Pin  ^s Snooze  ^o Interrupt  esc Worker list
+ Manager                                                      │ No worker selected
+ mgr  Scripted backend (CSM_BACKEND=scripted): no model is    │ Select a worker on the left, or start one from the manager.
+ called.                                                      │
+                                                              │
+ mgr  Registered repository repo-alpha                        │
+ (/private/var/folders/3l/s3t0j73x1bl1bvyxr7c53bf40000gn/T/cs │
+ m-capture-b0km2ir5/repo-alpha).                              │
+                                                              │
+ mgr  Nothing to recover. Nothing needs you. 0 worker(s)      │
+ still working.                                               │
+                                                              │
+                                                              │
+                                                              │
+                                                              │
+                                                              │
+                                                              │
+ Message the manager — paste a ticket, ask a question, give a │
+                                                              │
+──────────────────────────────────────────────────────────────│
+ Workers (0)  ·  auto-advance on                              │
+                                                              │
+                                                              │
+                                                              │
+                                                              │
+                                                              │
+                                                              │
+                                                              │
+                                                              │
+                                                              │
+                                                              │
+                                                              │
+                                                              │
+                                                              │
+                                                              │
+                                                              │
+                                                              │                                                                          ▔▔▔▔▔▔▔▔▔▔▔▔▔
+                                                              │ Reply to this worker                                                       Interrupt
+                                                              │                                                                          ▁▁▁▁▁▁▁▁▁▁▁▁▁
+ ^a Auto-advance  ^e Enter session  ^k Prev worker  ^n Manager  ^j Next worker  ^space Next attention  ^p Pin  ^s Snooze  ^o Interrupt  esc Worker lis

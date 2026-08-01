@@ -97,7 +97,7 @@ async def test_the_blocked_worker_renders_an_application_owned_banner(app):
 
         header = rendered_text(pilot, "#worker-header")
         banner = rendered_text(pilot, "#attention-banner")
-        assert "ENG-421" in header and "Planner" in header and "Blocked" in header
+        assert "ENG-421" in header and "planner" in header and "blocked" in header
         assert "Reason:" in banner and "Waiting for:" in banner
 
 
