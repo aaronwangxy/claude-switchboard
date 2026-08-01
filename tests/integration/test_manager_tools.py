@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import pytest
 
-from switchboard.agents.manager import DeterministicManager
+from switchboard.agents.manager import APPROVE_RE, CONFIRM_RE, DeterministicManager
 from switchboard.agents.manager_mcp import TOOL_SCHEMAS, ManagerAuthorizationError, ManagerTools
 from switchboard.domain.enums import RuntimeAgentKind, RuntimeOwner
 from switchboard.domain.models import RuntimeInstance
@@ -45,6 +45,13 @@ def test_manager_mcp_exposes_only_orchestration_semantics():
     assert not ({"bash", "read", "write", "edit", "create_worker"} & set(TOOL_SCHEMAS))
 
 
+def test_negated_language_never_grants_confirmation_or_approval():
+    assert CONFIRM_RE.search("yes confirm")
+    assert APPROVE_RE.search("approve the plan")
+    assert not CONFIRM_RE.search("this is not confirmed")
+    assert not APPROVE_RE.search("do not approve this")
+
+
 async def test_manager_can_route_first_class_workflow(manager_tools, git_repo):
     tools, _ = manager_tools
     repo = tools.sm.register_repository(git_repo("manager-route"))
@@ -70,12 +77,11 @@ async def test_stale_generation_loses_authority(manager_tools):
         await tools.call("inspect_state", {})
 
 
-async def test_human_ownership_closes_autonomous_tool_lane(manager_tools):
+async def test_human_owner_keeps_same_generation_mcp_authority(manager_tools):
     tools, runtime = manager_tools
     runtime.owner = RuntimeOwner.HUMAN
     tools.sm.store.save_runtime(runtime)
-    with pytest.raises(ManagerAuthorizationError):
-        await tools.call("status_summary", {})
+    assert await tools.call("status_summary", {})
 
 
 async def test_destructive_and_approval_tools_require_current_user_capability(manager_tools):

@@ -9,8 +9,13 @@ from switchboard.agents.snapshots import Exchange
 from switchboard.core.session_manager import SessionManager
 from switchboard.routing import router
 
-CONFIRM_RE = re.compile(r"\b(yes,?\s*confirm|confirmed|do it anyway|yes,? proceed)\b", re.I)
-APPROVE_RE = re.compile(r"\b(approve|approved|go ahead|looks good|lgtm)\b", re.I)
+CONFIRM_RE = re.compile(
+    r"^\s*(?:yes[, ]+)?(?:confirm(?:ed)?|proceed|do it anyway)\s*[.!]?\s*$", re.I
+)
+APPROVE_RE = re.compile(
+    r"^\s*(?:yes[, ]+)?(?:approve(?: the plan)?|approved|go ahead|looks good|lgtm)\s*[.!]?\s*$",
+    re.I,
+)
 
 
 class Manager(Protocol):

@@ -363,6 +363,11 @@ def test_preferences_round_trip(store: Store, reopen):
     assert reopen(store).get_preference("verbosity") == "concise"
 
 
+def test_get_or_create_preference_keeps_first_singleton_value(store: Store):
+    assert store.get_or_create_preference("manager.identity", "first") == "first"
+    assert store.get_or_create_preference("manager.identity", "second") == "first"
+
+
 def test_runtime_generations_and_ownership_round_trip(store: Store, reopen):
     agent_id = uuid4()
     first = RuntimeInstance(

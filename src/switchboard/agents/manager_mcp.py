@@ -17,7 +17,7 @@ from uuid import UUID
 from switchboard.agents.native_backend import NativeClaudeBackend
 from switchboard.config import Config, load_config, worktree_root
 from switchboard.core.session_manager import SessionManager
-from switchboard.domain.enums import RuntimeAgentKind, RuntimeOwner
+from switchboard.domain.enums import RuntimeAgentKind
 from switchboard.gitops.worktrees import WorktreeService
 from switchboard.storage.store import Store
 from switchboard.workflows.registry import get_workflow, workflow_names
@@ -138,7 +138,6 @@ class ManagerTools:
             or current.id != self.runtime_id
             or current.generation != self.generation
             or current.agent_kind is not RuntimeAgentKind.MANAGER
-            or current.owner is not RuntimeOwner.MANAGER
         ):
             raise ManagerAuthorizationError("This manager generation no longer has authority.")
 
@@ -158,9 +157,7 @@ class ManagerTools:
         if name == "inspect_state":
             return self._state()
         if name == "list_workflows":
-            return [
-                {"name": n, "composite": get_workflow(n).is_composite} for n in workflow_names()
-            ]
+            return [self._workflow(n) for n in workflow_names()]
         if name == "start_workflow":
             worker = await self.sm.start_workflow(
                 args["workflow_name"],
@@ -224,6 +221,8 @@ class ManagerTools:
                     "workflow": r.workflow,
                     "status": r.status.value,
                     "detail": r.detail[:300],
+                    "step_index": r.step_index,
+                    "approved_steps": r.approved_steps,
                 }
                 for r in runs
             ],
@@ -252,6 +251,36 @@ class ManagerTools:
                 }
                 for j in jobs
             ],
+            "contracts_evidence": [
+                {
+                    "job_id": str(j.id),
+                    "artifacts": [
+                        {
+                            "type": a.type.value,
+                            "stale": a.stale,
+                            "summary": json.dumps(a.body, default=str)[:500],
+                        }
+                        for a in self.sm.store.list_artifacts(j.id)[-4:]
+                    ],
+                }
+                for j in jobs
+            ],
+            "handoff": self.sm.store.get_preference(
+                f"manager.handoff.{self.runtime_id}", ""
+            ),
+        }
+
+    def _workflow(self, name: str) -> dict[str, Any]:
+        workflow = get_workflow(name)
+        return {
+            "name": name,
+            "description": workflow.description,
+            "composite": workflow.is_composite,
+            "role": workflow.default_role.value,
+            "requires": [item.value for item in workflow.requires],
+            "produces": [item.value for item in workflow.produces],
+            "mutates_code": workflow.mutates_code,
+            "steps": [step.workflow for step in workflow.steps],
         }
 
 
@@ -260,6 +289,9 @@ def _uuid(value: Any) -> UUID | None:
 
 
 async def _serve(tools: ManagerTools) -> None:
+    # The MCP process owns pumps for workers it creates. After manager rotation/crash the
+    # replacement adopts those same native workers before accepting another tool call.
+    await tools.sm.recover()
     loop = asyncio.get_running_loop()
     while line := await loop.run_in_executor(None, sys.stdin.readline):
         request = json.loads(line)

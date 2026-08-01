@@ -62,7 +62,9 @@ async def test_native_manager_is_persistent_adoptable_and_rotatable(native_servi
     )
     assert replacement.generation == first.generation + 1
     assert replacement.id != first.id
-    assert len(sm.store.get_preference("manager.handoff", "") or "") <= MAX_HANDOFF_CHARS
+    handoff = sm.store.get_preference(f"manager.handoff.{replacement.id}", "") or ""
+    assert 0 < len(handoff) <= MAX_HANDOFF_CHARS
+    assert sm.store.get_preference("manager.handoff", "") == ""
     assert sm.store.get_runtime(first.id).owner.value == "human"
 
 

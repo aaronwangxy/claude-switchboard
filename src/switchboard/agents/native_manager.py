@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import sys
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -26,6 +27,10 @@ MANAGER_ID_KEY = "manager.identity"
 MANAGER_HANDOFF_KEY = "manager.handoff"
 MANAGER_OBJECTIVE_KEY = "manager.current_objective"
 MAX_HANDOFF_CHARS = 4000
+FRESH_MANAGER_RE = re.compile(
+    r"^\s*(?:start|give me|use|rotate to|create)?\s*(?:a\s+)?fresh manager\s*[.!]?\s*$",
+    re.I,
+)
 
 
 class PersistentNativeManager(Manager):
@@ -39,10 +44,9 @@ class PersistentNativeManager(Manager):
         self.workspace = state_dir / "manager-workspace"
         self.workspace.mkdir(parents=True, exist_ok=True)
         self._assert_clean_workspace()
-        value = sm.store.get_preference(MANAGER_ID_KEY)
-        self.manager_id = UUID(value) if value else uuid4()
-        if value is None:
-            sm.store.set_preference(MANAGER_ID_KEY, str(self.manager_id))
+        self.manager_id = UUID(
+            sm.store.get_or_create_preference(MANAGER_ID_KEY, str(uuid4()))
+        )
         self._lock = asyncio.Lock()
 
     @property
@@ -57,7 +61,7 @@ class PersistentNativeManager(Manager):
                     current.id,
                     cwd=self.workspace,
                     model=self.sm.config.models.manager,
-                    system_prompt_append=self._prompt(),
+                    system_prompt_append=self._prompt(current),
                     extra_args=self._extra_args(current),
                 )
             except TmuxError:
@@ -69,6 +73,10 @@ class PersistentNativeManager(Manager):
 
     async def handle(self, text: str) -> str:
         async with self._lock:
+            if FRESH_MANAGER_RE.match(text):
+                objective = self.sm.store.get_preference(MANAGER_OBJECTIVE_KEY, "") or ""
+                replacement = await self._rotate_unlocked({"current_user_objective": objective})
+                return f"Started fresh Manager generation {replacement.generation}."
             runtime = await self.start_or_recover()
             if runtime.owner is RuntimeOwner.HUMAN:
                 return "Manager is currently owned by the human session; automated input is paused."
@@ -94,22 +102,27 @@ class PersistentNativeManager(Manager):
     async def rotate(self, handoff: dict[str, object] | None = None) -> RuntimeInstance:
         """Revoke the old generation before starting a fresh native Claude session."""
         async with self._lock:
-            if handoff:
-                bounded = {key: str(value)[:1000] for key, value in list(handoff.items())[:6]}
-                encoded = json.dumps(bounded, separators=(",", ":"))[:MAX_HANDOFF_CHARS]
-                self.sm.store.set_preference(MANAGER_HANDOFF_KEY, encoded)
-            old = self.current_runtime
-            if old is not None:
-                old.owner = RuntimeOwner.HUMAN  # revokes MCP authority before process teardown
-                old.process_state = RuntimeProcessState.EXITED
-                old.updated_at = now()
-                self.sm.store.save_runtime(old)
-                if old.substrate:
-                    try:
-                        self.backend.supervisor.terminate(old.id)
-                    except TmuxError:
-                        pass
-            return await self._new_generation(force=True)
+            return await self._rotate_unlocked(handoff)
+
+    async def _rotate_unlocked(
+        self, handoff: dict[str, object] | None = None
+    ) -> RuntimeInstance:
+        if handoff:
+            bounded = {key: str(value)[:1000] for key, value in list(handoff.items())[:6]}
+            encoded = json.dumps(bounded, separators=(",", ":"))[:MAX_HANDOFF_CHARS]
+            self.sm.store.set_preference(MANAGER_HANDOFF_KEY, encoded)
+        old = self.current_runtime
+        if old is not None:
+            old.owner = RuntimeOwner.HUMAN  # closes autonomous input before teardown
+            old.process_state = RuntimeProcessState.EXITED
+            old.updated_at = now()
+            self.sm.store.save_runtime(old)
+            if old.substrate:
+                try:
+                    self.backend.supervisor.terminate(old.id)
+                except TmuxError:
+                    pass
+        return await self._new_generation(force=True)
 
     async def enter(self) -> Attachment:
         runtime = await self.start_or_recover()
@@ -164,10 +177,13 @@ class PersistentNativeManager(Manager):
         if not created:
             return await self.start_or_recover()
         self._write_mcp_config(runtime)
+        pending_handoff = self.sm.store.get_preference(MANAGER_HANDOFF_KEY, "") or ""
+        self.sm.store.set_preference(f"manager.handoff.{runtime.id}", pending_handoff)
+        self.sm.store.set_preference(MANAGER_HANDOFF_KEY, "")
         runtime.launch_fingerprint = self.backend.runtime.launch_fingerprint(
             cwd=self.workspace,
             model=self.sm.config.models.manager,
-            system_prompt_append=self._prompt(),
+            system_prompt_append=self._prompt(runtime),
             extra_args=self._extra_args(runtime),
         )
         self.sm.store.save_runtime(runtime)
@@ -175,14 +191,14 @@ class PersistentNativeManager(Manager):
             runtime.id,
             cwd=self.workspace,
             model=self.sm.config.models.manager,
-            system_prompt_append=self._prompt(),
+            system_prompt_append=self._prompt(runtime),
             extra_args=self._extra_args(runtime),
         )
         await self.backend._wait_ready(runtime.id)
         return launched.runtime.runtime
 
-    def _prompt(self) -> str:
-        handoff = self.sm.store.get_preference(MANAGER_HANDOFF_KEY, "") or ""
+    def _prompt(self, runtime: RuntimeInstance) -> str:
+        handoff = self.sm.store.get_preference(f"manager.handoff.{runtime.id}", "") or ""
         suffix = (
             "\n\nThis is bounded handoff from the previous manager generation. Re-read "
             "authoritative state through Switchboard tools before acting:\n" + handoff

@@ -661,3 +661,16 @@ class Store:
     def get_preference(self, key: str, default: str | None = None) -> str | None:
         row = self.conn.execute("SELECT value FROM preferences WHERE key=?", (key,)).fetchone()
         return row["value"] if row else default
+
+    def get_or_create_preference(self, key: str, value: str) -> str:
+        """Atomically establish singleton identity shared by competing controllers."""
+        with self.transaction():
+            self.conn.execute(
+                "INSERT OR IGNORE INTO preferences (key, value) VALUES (?,?)", (key, value)
+            )
+            row = self.conn.execute(
+                "SELECT value FROM preferences WHERE key=?", (key,)
+            ).fetchone()
+        if row is None:
+            raise RuntimeError(f"Could not establish preference {key!r}.")
+        return str(row["value"])
