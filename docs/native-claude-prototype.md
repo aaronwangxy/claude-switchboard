@@ -91,7 +91,8 @@ paste/drop was not practical in the automated PTY and was not tested.
 - Define hook delivery retry/idempotency and SQLite contention behavior. Claude command hooks
   are subprocess callbacks, not a durable event transport.
 - Decide how a workflow reacts if a human claims ownership while a turn is running or leaves
-  unsubmitted text in the composer. tmux client count cannot prove human intent.
+  unsubmitted text in the composer. tmux client count cannot prove human intent; the prototype
+  now requires explicit confirmation that the composer is empty before manager handback.
 - Add transcript/result recovery for the narrow crash window after Claude writes its
   transcript but before the command hook commits the event. Terminal bytes must not fill that
   gap.

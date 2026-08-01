@@ -205,7 +205,11 @@ class NativeClaudePrototype:
         self.supervisor.set_owner(runtime_id, RuntimeOwner.HUMAN)
         return self.supervisor.view(runtime_id)
 
-    def release_human(self, runtime_id: UUID) -> None:
+    def release_human(self, runtime_id: UUID, *, composer_cleared: bool) -> None:
+        if not composer_cleared:
+            raise TmuxError(
+                "Human handback requires explicit confirmation that Claude's composer is empty."
+            )
         self.supervisor.set_owner(runtime_id, RuntimeOwner.MANAGER)
 
     def _write_settings(self, runtime_id: UUID) -> Path:

@@ -196,3 +196,14 @@ def test_adoption_validates_hook_configuration_and_interrupt_only_records_reques
     assert interrupted.status is NativeTurnStatus.INTERRUPT_REQUESTED
     assert prototype.completed(turn.id) is None
     assert store.get_runtime(instance.id).process_state is RuntimeProcessState.TURN_ACTIVE
+
+
+def test_human_handback_requires_explicit_empty_composer_confirmation(store, tmp_path: Path):
+    supervisor = RecordingSupervisor()
+    prototype = NativeClaudePrototype(
+        store, supervisor, Config(), tmp_path / "state"  # type: ignore[arg-type]
+    )
+    instance = runtime(store)
+
+    with pytest.raises(TmuxError, match="composer is empty"):
+        prototype.release_human(instance.id, composer_cleared=False)
