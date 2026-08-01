@@ -55,7 +55,15 @@ from csm.gitops.worktrees import CleanupDecision, WorktreeSafetyError, WorktreeS
 from csm.routing import router
 from csm.routing.router import RouteError, RouteProposal, RoutingState
 from csm.storage.store import Store
-from csm.workflows.freshness import BEHAVIORAL_ARTIFACTS, CodeChange, GitSnapshot, classify_change
+from csm.workflows.freshness import (
+    BEHAVIORAL_ARTIFACTS,
+    CodeChange,
+    GitSnapshot,
+    artifacts_invalidated_by,
+    classify_change,
+    is_fresh,
+    relineage,
+)
 from csm.workflows.registry import WorkflowDefinition, get_workflow, validate_for_role
 
 log = logging.getLogger(__name__)
@@ -865,14 +873,13 @@ class SessionManager:
         change = classify_change(before, GitSnapshot(head, tree))
         if change is CodeChange.NONE:
             return
-        if change is CodeChange.PURE_RESTACK:
+        if not artifacts_invalidated_by(change):
             # Same tree: behavioral evidence still holds, only lineage moves forward.
             for artifact in self.store.list_artifacts(job.id):
                 if artifact.type in BEHAVIORAL_ARTIFACTS and not artifact.stale:
-                    artifact.head_commit = head
-                    self.store.save_artifact(artifact)
+                    self.store.save_artifact(relineage(artifact, head, tree))
             return
-        targets = set(definition.invalidates) | set(BEHAVIORAL_ARTIFACTS)
+        targets = set(definition.invalidates) | artifacts_invalidated_by(change)
         invalidated = 0
         for artifact in self.store.list_artifacts(job.id):
             if artifact.type in targets and not artifact.stale:
@@ -934,13 +941,13 @@ class SessionManager:
         verification = self.store.latest_artifact(job_id, ArtifactType.VERIFICATION)
         if verification is None:
             blockers.append("No verification evidence.")
-        elif verification.stale or (head and verification.head_commit != head):
+        elif verification.stale or (head and not is_fresh(verification, head)):
             blockers.append("Verification does not apply to current HEAD.")
 
         review = self.store.latest_artifact(job_id, ArtifactType.REVIEW)
         if review is None:
             blockers.append("No independent review.")
-        elif review.stale or (head and review.head_commit != head):
+        elif review.stale or (head and not is_fresh(review, head)):
             blockers.append("Review does not apply to current HEAD.")
         else:
             parsed = ReviewReport.model_validate(review.body)

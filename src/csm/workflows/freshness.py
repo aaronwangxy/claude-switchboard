@@ -17,7 +17,16 @@ BEHAVIORAL_ARTIFACTS = frozenset(
 
 
 class CodeChange(str, Enum):
-    """How the worktree changed, as observed from Git."""
+    """How the worktree changed, as observed from Git.
+
+    Only NONE, PURE_RESTACK, and IMPLEMENTATION_EDIT are reachable from production
+    today: classify_change() distinguishes changes by head/tree hash alone, and no
+    caller passes had_conflicts=True. The remaining members are classified by
+    artifacts_invalidated_by() and covered by unit tests, but nothing currently
+    produces them -- a rebase that changes the tree is reported as an
+    IMPLEMENTATION_EDIT, which invalidates a superset, the conservative direction.
+    See MVP_EVIDENCE.md limitation 5.
+    """
 
     IMPLEMENTATION_EDIT = "implementation_edit"
     REVIEW_COMMENTS = "review_comments"
