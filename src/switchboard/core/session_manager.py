@@ -374,13 +374,15 @@ class SessionManager:
         if handle.session_id:
             worker.session_id = handle.session_id
             runtime.claude_session_id = handle.session_id
+            self.store.save_worker(worker)
         if not adopt:
             runtime.process_state = (
                 RuntimeProcessState.TURN_ACTIVE if prompt else RuntimeProcessState.READY
             )
         runtime.updated_at = now()
         self.store.save_runtime(runtime)
-        self._set_status(worker, WorkerStatus.WORKING)
+        if not adopt:
+            self._set_status(worker, WorkerStatus.WORKING)
         self.emit(
             ev.WORKER_RESUMED if resume else ev.WORKER_STARTED,
             worker_id=worker.id,
@@ -408,7 +410,7 @@ class SessionManager:
                     "writable": worker.writable,
                     "setting_sources": self.config.setting_sources,
                     "executable": self.config.claude.executable,
-                    "env_keys": sorted(self.config.claude.env),
+                    "env": sorted(self.config.claude.env.items()),
                     "prompt_policy_version": worker.prompt_policy_version,
                 },
                 sort_keys=True,
@@ -456,7 +458,16 @@ class SessionManager:
         self._snapshot_before_change(worker)
         self._set_runtime_state(worker.id, RuntimeProcessState.TURN_ACTIVE)
         self._unpause_run_of(worker)
-        await self.backend.send(worker_id, message)
+        try:
+            await self.backend.send(worker_id, message)
+        except Exception as exc:
+            self._set_runtime_state(worker.id, RuntimeProcessState.WAITING)
+            self._force_status(
+                worker, WorkerStatus.DISCONNECTED, f"Could not deliver input: {exc}"
+            )
+            raise SessionManagerError(
+                f"Could not send to worker {worker.title!r}: {exc}"
+            ) from exc
 
     def _unpause_run_of(self, worker: Worker) -> None:
         """Answering the worker a run stopped on puts the run back in flight."""
@@ -483,6 +494,8 @@ class SessionManager:
             )
         job = self.store.get_job(job_id) if job_id else None
         worker = self.store.get_worker(target_worker_id) if target_worker_id else None
+        if job is not None:
+            self._reconcile_job_git(job)
         self._assert_prerequisites(definition, job)
 
         if worker is not None:
@@ -1540,7 +1553,11 @@ class SessionManager:
         head, tree = self._head(worker), self._tree(worker)
         if head and tree:
             runtime = self.store.current_runtime(worker.id)
-            if runtime is not None:
+            if (
+                runtime is not None
+                and runtime.git_head_before_turn is None
+                and runtime.git_tree_before_turn is None
+            ):
                 runtime.git_head_before_turn = head
                 runtime.git_tree_before_turn = tree
                 runtime.updated_at = now()
@@ -1734,8 +1751,6 @@ class SessionManager:
                     )
                     notes.append(f"{worker.title}: worktree missing")
                     continue
-            job = self.store.get_job(worker.job_id) if worker.job_id else None
-            self._apply_invalidation(worker, job, force=True)
             if not worker.session_id:
                 self._force_status(
                     worker,
@@ -1769,13 +1784,19 @@ class SessionManager:
                         )
                         notes.append(f"{worker.title}: stale runtime rejected")
                         continue
+                    job = self.store.get_job(worker.job_id) if worker.job_id else None
+                    if runtime.owner is not RuntimeOwner.HUMAN:
+                        self._apply_invalidation(worker, job, force=True)
                     if observed.process_state is not None:
                         runtime.process_state = observed.process_state
                         runtime.updated_at = now()
                         self.store.save_runtime(runtime)
                     await self._start_backend(worker, prompt="", adopt=True)
                     action = "adopted"
+                    recovered_state = observed.process_state or runtime.process_state
                 else:
+                    job = self.store.get_job(worker.job_id) if worker.job_id else None
+                    self._apply_invalidation(worker, job, force=True)
                     if runtime.owner is RuntimeOwner.HUMAN:
                         runtime.process_state = RuntimeProcessState.ABSENT
                         runtime.updated_at = now()
@@ -1798,7 +1819,15 @@ class SessionManager:
                     self.store.save_runtime(replacement)
                     await self._start_backend(worker, prompt="", resume=True)
                     action = "recreated"
-                self._force_status(worker, WorkerStatus.IDLE, None)
+                    recovered_state = RuntimeProcessState.READY
+                if recovered_state is RuntimeProcessState.TURN_ACTIVE:
+                    self._force_status(worker, WorkerStatus.WORKING, None)
+                elif recovered_state is RuntimeProcessState.WAITING:
+                    self._force_status(
+                        worker, WorkerStatus.BLOCKED, worker.waiting_for or "Runtime is waiting."
+                    )
+                else:
+                    self._force_status(worker, WorkerStatus.IDLE, None)
                 notes.append(f"{worker.title}: {action}")
             except Exception as exc:
                 self._force_status(

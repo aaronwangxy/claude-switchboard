@@ -6,6 +6,7 @@ import asyncio
 
 import pytest
 
+from switchboard.agents.backend import RuntimeObservation
 from switchboard.agents.scripted_backend import ScriptedWorkerBackend
 from switchboard.config import Config
 from switchboard.core.session_manager import SessionManager
@@ -306,6 +307,34 @@ async def test_recovery_adopts_an_exact_live_runtime(session_manager, git_repo, 
     assert len(restarted.store.list_runtimes(worker.id)) == 1
 
 
+async def test_recovery_preserves_the_observed_live_turn_state(
+    session_manager, git_repo, backend
+):
+    sm = session_manager
+    repo = sm.register_repository(git_repo("active-adopt"), "active-adopt")
+    worker = await sm.create_worker(
+        role=WorkerRole.GENERAL, title="w", prompt="hi", repository_id=repo.id
+    )
+    await settle()
+    sm._pumps.pop(worker.id).cancel()
+    runtime = sm.store.current_runtime(worker.id)
+
+    async def active_observation(worker_id):
+        return RuntimeObservation(
+            exists=True,
+            runtime_id=runtime.id,
+            generation=runtime.generation,
+            process_state=RuntimeProcessState.TURN_ACTIVE,
+        )
+
+    backend.observe = active_observation
+    restarted = SessionManager(sm.store, backend, Config(), sm.worktrees)
+    await restarted.recover()
+
+    assert restarted.store.current_runtime(worker.id).process_state is RuntimeProcessState.TURN_ACTIVE
+    assert restarted.store.get_worker(worker.id).status is WorkerStatus.WORKING
+
+
 async def test_recovery_rejects_a_live_generation_mismatch(
     session_manager, git_repo, backend
 ):
@@ -415,6 +444,66 @@ async def test_a_new_turn_reconciles_an_unfinished_baseline_before_replacing_it(
     assert artifact.stale
     runtime = sm.store.current_runtime(worker.id)
     assert runtime.git_head_before_turn == runner.head_commit(worker.cwd)
+
+
+async def test_direct_workflow_start_reconciles_every_writable_worker_for_the_job(
+    session_manager, git_repo
+):
+    sm = session_manager
+    repo = sm.register_repository(git_repo("direct-workflow"), "direct-workflow")
+    job = sm.create_job("Direct", repo.id)
+    writer = await sm.create_worker(
+        role=WorkerRole.IMPLEMENTER,
+        title="writer",
+        prompt="",
+        job_id=job.id,
+        writable=True,
+    )
+    observer = await sm.create_worker(
+        role=WorkerRole.QUESTION,
+        title="observer",
+        prompt="",
+        job_id=job.id,
+        writable=False,
+    )
+    sm.store.save_artifact(
+        Artifact(
+            job_id=job.id,
+            worker_id=writer.id,
+            type=ArtifactType.REVIEW,
+            head_commit=runner.head_commit(writer.cwd),
+            tree_hash=runner.tree_hash(writer.cwd),
+            body={"verdict": "pass", "findings": []},
+        )
+    )
+    sm._snapshot_before_change(writer)
+    commit_file(writer.cwd, "direct.txt", "changed\n", "direct change")
+
+    await sm.start_workflow(
+        "ask-question", job_id=job.id, target_worker_id=observer.id, request="inspect"
+    )
+
+    assert sm.store.latest_artifact(job.id, ArtifactType.REVIEW).stale
+
+
+async def test_send_failure_does_not_leave_the_runtime_working(
+    session_manager, git_repo, backend
+):
+    sm = session_manager
+    repo = sm.register_repository(git_repo("send-failure"), "send-failure")
+    worker = await sm.create_worker(
+        role=WorkerRole.GENERAL, title="w", prompt="", repository_id=repo.id
+    )
+
+    async def fail_send(worker_id, message):
+        raise RuntimeError("input channel closed")
+
+    backend.send = fail_send
+    with pytest.raises(Exception, match="input channel closed"):
+        await sm.send(worker.id, "continue")
+
+    assert sm.store.get_worker(worker.id).status is WorkerStatus.DISCONNECTED
+    assert sm.store.current_runtime(worker.id).process_state is RuntimeProcessState.WAITING
 
 
 async def test_a_worker_whose_worktree_vanished_is_marked_disconnected(

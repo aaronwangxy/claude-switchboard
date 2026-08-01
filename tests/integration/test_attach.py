@@ -146,6 +146,35 @@ class TestAttachHandsOverControl:
         assert restarted.store.get_worker(worker.id).status is WorkerStatus.DISCONNECTED
         assert len(restarted.store.list_runtimes(worker.id)) == 1
 
+    async def test_recovery_does_not_consume_a_live_human_owned_git_baseline(
+        self, session_manager, worker, backend
+    ):
+        session_manager.store.save_artifact(
+            Artifact(
+                job_id=worker.job_id,
+                worker_id=worker.id,
+                type=ArtifactType.REVIEW,
+                head_commit=runner.head_commit(worker.cwd),
+                tree_hash=runner.tree_hash(worker.cwd),
+                body={"verdict": "pass", "findings": []},
+            )
+        )
+        await session_manager.attach(worker.id)
+        for _ in range(5):
+            await asyncio.sleep(0)
+        commit_file(worker.cwd, "first.txt", "first\n", "first human edit")
+        session_manager._pumps.pop(worker.id).cancel()
+
+        restarted = SessionManager(
+            session_manager.store, backend, Config(), session_manager.worktrees
+        )
+        await restarted.recover()
+        assert restarted.store.current_runtime(worker.id).git_head_before_turn is not None
+
+        commit_file(worker.cwd, "second.txt", "second\n", "second human edit")
+        restarted.detach(worker.id)
+        assert restarted.store.latest_artifact(worker.job_id, ArtifactType.REVIEW).stale
+
     async def test_leaving_gives_control_back(self, session_manager, worker):
         await session_manager.attach(worker.id)
         session_manager.detach(worker.id)
@@ -218,6 +247,35 @@ class TestAttachHandsOverControl:
         )
         assert artifact.stale
         assert "implementation_edit" in artifact.stale_reason
+
+    async def test_attach_preserves_the_baseline_from_the_active_turn(
+        self, session_manager, worker
+    ):
+        original_head = runner.head_commit(worker.cwd)
+        session_manager.store.save_artifact(
+            Artifact(
+                job_id=worker.job_id,
+                worker_id=worker.id,
+                type=ArtifactType.REVIEW,
+                head_commit=original_head,
+                tree_hash=runner.tree_hash(worker.cwd),
+                body={"verdict": "pass", "findings": []},
+            )
+        )
+        session_manager._snapshot_before_change(worker)
+        commit_file(worker.cwd, "agent.txt", "agent\n", "agent edit")
+
+        await session_manager.attach(worker.id)
+        assert (
+            session_manager.store.current_runtime(worker.id).git_head_before_turn
+            == original_head
+        )
+        commit_file(worker.cwd, "human.txt", "human\n", "human edit")
+        session_manager.detach(worker.id)
+
+        assert session_manager.store.latest_artifact(
+            worker.job_id, ArtifactType.REVIEW
+        ).stale
 
 
 class TestAttachRouting:

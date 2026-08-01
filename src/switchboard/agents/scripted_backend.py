@@ -222,6 +222,8 @@ class ScriptedWorkerBackend:
         if "[NEEDS INPUT]" in upper or "[NEEDS DECISION]" in upper:
             await session.outbox.put(WorkerEvent(wid, "blocked", text))
         elif "[FAILED]" in upper:
+            session.alive = False
             await session.outbox.put(WorkerEvent(wid, "failed", text))
+            await session.outbox.put(None)
         else:
             await session.outbox.put(WorkerEvent(wid, "result", text))
