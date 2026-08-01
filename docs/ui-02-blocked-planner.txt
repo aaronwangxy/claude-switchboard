@@ -1,0 +1,48 @@
+csm — blocked planner with attention banner
+===========================================
+
+ ⭘                                                             Claude Session Manager
+╭─────────────────────────────────────────────────────────────╮╭─────────────────────────────────────────────────────────────────────────────────────╮
+│ Manager                                                     ││ ENG-421 · Planner · Blocked                                                         │
+│                                                             ││█ Reason: [NEEDS DECISION] Choose the legacy-write strategy.                         │
+│ mgr  Registered repository repo-alpha-2n6ys6f3           ▃▃ ││█ Waiting for: [NEEDS DECISION] Choose the legacy-write strategy.                    │
+│ (/private/var/folders/3l/s3t0j73x1bl1bvyxr7c53bf40000gn/T   ││                                                                                     │
+│ /repo-alpha-2n6ys6f3).                                      ││           }                                                                         │
+│                                                             ││         ],                                                                          │
+│ mgr  Nothing to recover. Nothing needs you. 0 worker(s)     ││         "commit_stack": [                                                           │
+│ still working.                                              ││           {                                                                         │
+│                                                             ││             "order": 1,                                                             │
+│ you  ENG-421 Notification preferences Users need            ││             "message": "feat: add preferences table",                               │
+│ per-channel notification preferences that persist.          ││             "purpose": "schema"                                                     │
+│ Acceptance: preferences survive a restart and the           ││           },                                                                        │
+│ dispatcher hon…                                             ││           {                                                                         │
+│ mgr  Started ENG-421 in a new job. Planning is in           ││             "order": 2,                                                             │
+│ progress.                                                   ││             "message": "feat: persist preferences",                                 │
+│                                                          ▇▇ ││             "purpose": "write path"                                                 │
+│▊▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▎││           }                                                                         │
+│▊  Message the manager — paste a ticket, ask a question,    ▎││         ],                                                                          │
+│▊▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▎││         "risks": [                                                                  │
+╰─────────────────────────────────────────────────────────────╯│           "Legacy rows may lack a preferences column."                              │
+╭─────────────────────────────────────────────────────────────╮│         ],                                                                          │
+│ Workers (1) · 1 need you  ·  auto-advance on                ││         "base_commit": "",                                                          │
+│ ! ENG-421 planner  blocked  [NEEDS DECISION] Choose the lega││         "criteria": [                                                               │
+│                                                             ││           {                                                                         │
+│                                                             ││             "id": "AC1",                                                            │
+│                                                             ││             "behavior": "Saving preferences persists them across a restart.",    ▇▇ │
+│                                                             ││             "verification_method": "integration test",                              │
+│                                                             ││             "evidence_required": [                                                  │
+│                                                             ││               "pytest exit code",                                                   │
+│                                                             ││               "database read"                                                       │
+│                                                             ││             ]                                                                       │
+│                                                             ││           }                                                                         │
+│                                                             ││         ]                                                                           │
+│                                                             ││       }                                                                             │
+│                                                             ││       ```                                                                           │
+│                                                             ││       [NEEDS DECISION] Choose the legacy-write strategy.                            │
+│                                                             ││                                                                                     │
+│                                                             ││                                                                                     │
+│                                                             ││▊▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▎▔▔▔▔▔▔▔▔▔▔▔▔▔│
+│                                                             ││▊  Reply to this worker                                                ▎  Interrupt  │
+│                                                             ││▊▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▎▁▁▁▁▁▁▁▁▁▁▁▁▁│
+╰─────────────────────────────────────────────────────────────╯╰─────────────────────────────────────────────────────────────────────────────────────╯
+ ^a Auto-advance  ^k Prev worker  ^n Manager  ^j Next worker  ^space Next attention  ^p Pin  ^s Snooze  ^o Interrupt  esc Worker list

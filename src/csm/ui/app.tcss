@@ -1,0 +1,93 @@
+/* Three panes: manager and worker list on the left, the selected worker on the right. */
+
+Screen {
+    layers: base overlay;
+}
+
+#body {
+    height: 1fr;
+}
+
+#left-column {
+    width: 42%;
+    min-width: 40;
+}
+
+#manager-pane {
+    height: 1fr;
+    border: round $accent;
+    border-title-align: left;
+}
+
+#worker-list-pane {
+    height: 1fr;
+    border: round $accent;
+}
+
+#worker-pane {
+    width: 1fr;
+    border: round $success;
+}
+
+.pane-title {
+    background: $panel;
+    color: $text;
+    text-style: bold;
+    padding: 0 1;
+    height: 1;
+}
+
+#manager-scroll {
+    height: 1fr;
+    padding: 0 1;
+}
+
+#manager-input,
+#worker-input {
+    height: 3;
+    border: tall $panel;
+}
+
+#worker-table {
+    height: 1fr;
+}
+
+#attention-banner {
+    background: $warning-darken-3;
+    color: $text;
+    border-left: thick $warning;
+    padding: 0 1;
+    height: auto;
+    margin: 0 0 1 0;
+}
+
+#transcript-scroll {
+    height: 1fr;
+    padding: 0 1;
+}
+
+#worker-controls {
+    height: 3;
+}
+
+#worker-controls #worker-input {
+    width: 1fr;
+}
+
+#interrupt-button {
+    width: 13;
+    min-width: 13;
+}
+
+HelpScreen {
+    align: center middle;
+}
+
+#help-body {
+    width: 84;
+    max-width: 96%;
+    height: 80%;
+    border: thick $accent;
+    background: $surface;
+    padding: 1 2;
+}

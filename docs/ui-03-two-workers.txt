@@ -1,0 +1,48 @@
+csm — two workers, second selected
+==================================
+
+ ⭘                                                             Claude Session Manager
+╭─────────────────────────────────────────────────────────────╮╭─────────────────────────────────────────────────────────────────────────────────────╮
+│ Manager                                                     ││ ENG-999 · Planner · Idle                                                            │
+│ persist and the gateway honours them. This is a second…     ││█ Reason: [NEEDS DECISION] Choose the legacy-write strategy.                         │
+│ mgr  Started ENG-999 in a new job. Planning is in           ││█ Waiting for: [NEEDS DECISION] Choose the legacy-write strategy.                    │
+│ progress.                                                   ││                                                                                     │
+│                                                             ││           }                                                                         │
+│ mgr  ENG-421 · planner is pinned.                           ││         ],                                                                          │
+│                                                             ││         "commit_stack": [                                                           │
+│ mgr  ENG-421 · planner is unpinned.                      ▃▃ ││           {                                                                         │
+│                                                             ││             "order": 1,                                                             │
+│ mgr  Auto-advance is off.                                   ││             "message": "feat: add preferences table",                               │
+│                                                             ││             "purpose": "schema"                                                     │
+│ mgr  Auto-advance is on.                                    ││           },                                                                        │
+│                                                             ││           {                                                                         │
+│ mgr  ENG-421 · planner is snoozed for 30 minutes.           ││             "order": 2,                                                             │
+│                                                             ││             "message": "feat: persist preferences",                                 │
+│                                                             ││             "purpose": "write path"                                                 │
+│▊▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▎││           }                                                                         │
+│▊  Message the manager — paste a ticket, ask a question,    ▎││         ],                                                                          │
+│▊▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▎││         "risks": [                                                                  │
+╰─────────────────────────────────────────────────────────────╯│           "Legacy rows may lack a preferences column."                              │
+╭─────────────────────────────────────────────────────────────╮│         ],                                                                          │
+│ Workers (2) · 1 need you  ·  auto-advance on                ││         "base_commit": "",                                                          │
+│ ! ENG-999 planner  idle  [NEEDS DECISION] Choose the legacy-││         "criteria": [                                                               │
+│ · ENG-421 planner  blocked  [NEEDS DECISION] Choose the lega││           {                                                                         │
+│                                                             ││             "id": "AC1",                                                            │
+│                                                             ││             "behavior": "Saving preferences persists them across a restart.",    ▇▇ │
+│                                                             ││             "verification_method": "integration test",                              │
+│                                                             ││             "evidence_required": [                                                  │
+│                                                             ││               "pytest exit code",                                                   │
+│                                                             ││               "database read"                                                       │
+│                                                             ││             ]                                                                       │
+│                                                             ││           }                                                                         │
+│                                                             ││         ]                                                                           │
+│                                                             ││       }                                                                             │
+│                                                             ││       ```                                                                           │
+│                                                             ││       [NEEDS DECISION] Choose the legacy-write strategy.                            │
+│                                                             ││                                                                                     │
+│                                                             ││                                                                                     │
+│                                                             ││▊▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▎▔▔▔▔▔▔▔▔▔▔▔▔▔│
+│                                                             ││▊  Reply to this worker                                                ▎  Interrupt  │
+│                         ▊                                   ││▊▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▎▁▁▁▁▁▁▁▁▁▁▁▁▁│
+╰─────────────────────────────────────────────────────────────╯╰─────────────────────────────────────────────────────────────────────────────────────╯
+ ^n Manager  ^j Next worker  ^k Prev worker  ^space Next attention  ^p Pin  ^s Snooze  ^a Auto-advance  ^o Interrupt  esc Worker list  ? Help
