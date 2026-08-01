@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from csm.domain.enums import AttentionKind, WorkerRole, WorkerStatus
-from csm.domain.models import AttentionItem, Worker
-from csm.routing.attention import is_snoozed, next_actionable, prioritize
+from switchboard.domain.enums import AttentionKind, WorkerRole, WorkerStatus
+from switchboard.domain.models import AttentionItem, Worker
+from switchboard.routing.attention import is_snoozed, next_actionable, prioritize
 
 NOW = datetime(2026, 7, 31, 12, 0, tzinfo=UTC)
 

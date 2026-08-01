@@ -8,8 +8,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
-from csm.domain.enums import ArtifactType
-from csm.domain.models import Artifact
+from switchboard.domain.enums import ArtifactType
+from switchboard.domain.models import Artifact
 
 BEHAVIORAL_ARTIFACTS = frozenset(
     {ArtifactType.VERIFICATION, ArtifactType.SMOKE_VERIFICATION, ArtifactType.REVIEW}

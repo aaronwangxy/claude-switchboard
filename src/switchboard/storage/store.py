@@ -9,8 +9,8 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-from csm.domain.enums import TERMINAL_RUN_STATUSES, ArtifactType, JobStage, WorkerStatus
-from csm.domain.models import (
+from switchboard.domain.enums import TERMINAL_RUN_STATUSES, ArtifactType, JobStage, WorkerStatus
+from switchboard.domain.models import (
     Artifact,
     AttentionItem,
     Decision,
@@ -23,7 +23,7 @@ from csm.domain.models import (
     WorkflowRun,
     Worktree,
 )
-from csm.storage.database import connect
+from switchboard.storage.database import connect
 
 M = TypeVar("M", bound=BaseModel)
 

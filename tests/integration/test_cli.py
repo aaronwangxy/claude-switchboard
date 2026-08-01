@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from csm.app import main, parse_args
+from switchboard.app import main, parse_args
 
 
 class TestArguments:

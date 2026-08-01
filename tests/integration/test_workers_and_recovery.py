@@ -6,13 +6,13 @@ import asyncio
 
 import pytest
 
-from csm.agents.scripted_backend import ScriptedWorkerBackend
-from csm.config import Config
-from csm.core.session_manager import SessionManager
-from csm.domain.enums import AttentionKind, WorkerRole, WorkerStatus
-from csm.gitops import runner
-from csm.routing.attention import next_actionable
-from csm.storage.store import Store
+from switchboard.agents.scripted_backend import ScriptedWorkerBackend
+from switchboard.config import Config
+from switchboard.core.session_manager import SessionManager
+from switchboard.domain.enums import AttentionKind, WorkerRole, WorkerStatus
+from switchboard.gitops import runner
+from switchboard.routing.attention import next_actionable
+from switchboard.storage.store import Store
 from tests.conftest import commit_file
 
 

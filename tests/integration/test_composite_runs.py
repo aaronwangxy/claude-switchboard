@@ -6,10 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from csm.agents.manager import DeterministicManager
-from csm.core.session_manager import SessionManagerError
-from csm.domain.enums import ArtifactType, JobStage, RunStatus, WorkerRole
-from csm.workflows.registry import WorkflowError, reload_workflows
+from switchboard.agents.manager import DeterministicManager
+from switchboard.core.session_manager import SessionManagerError
+from switchboard.domain.enums import ArtifactType, JobStage, RunStatus, WorkerRole
+from switchboard.workflows.registry import WorkflowError, reload_workflows
 from tests.conftest import TICKET
 from tests.integration.test_feature_workflow import committing_responder, settle
 

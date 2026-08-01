@@ -7,9 +7,9 @@ from uuid import uuid4
 
 import pytest
 
-from csm.domain.enums import JobStage, WorkerRole, WorkerStatus
-from csm.domain.models import Job, Repository, Worker
-from csm.routing.router import (
+from switchboard.domain.enums import JobStage, WorkerRole, WorkerStatus
+from switchboard.domain.models import Job, Repository, Worker
+from switchboard.routing.router import (
     RouteError,
     RoutingState,
     extract_ticket_ref,

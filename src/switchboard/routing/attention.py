@@ -5,8 +5,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID
 
-from csm.domain.enums import ATTENTION_PRIORITY, AttentionKind
-from csm.domain.models import AttentionItem, Worker
+from switchboard.domain.enums import ATTENTION_PRIORITY, AttentionKind
+from switchboard.domain.models import AttentionItem, Worker
 
 
 def is_snoozed(worker: Worker, at: datetime | None = None) -> bool:

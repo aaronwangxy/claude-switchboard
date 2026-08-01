@@ -19,8 +19,14 @@ from claude_agent_sdk import (
     ToolUseBlock,
 )
 
-from csm.agents.backend import BackendHealth, EventType, WorkerEvent, WorkerHandle, WorkerSpec
-from csm.agents.runtime import claude_cli_path
+from switchboard.agents.backend import (
+    BackendHealth,
+    EventType,
+    WorkerEvent,
+    WorkerHandle,
+    WorkerSpec,
+)
+from switchboard.agents.runtime import claude_cli_path
 
 log = logging.getLogger(__name__)
 

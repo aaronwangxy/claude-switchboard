@@ -59,7 +59,7 @@ def screen_text(app) -> str:
     """The rendered screen as plain text, right-trimmed line by line.
 
     Textual exports SVG, not text, so this reaches for the compositor. Private API: if a
-    Textual upgrade breaks it, the fix is here and nothing in `csm` is affected.
+    Textual upgrade breaks it, the fix is here and nothing in `switchboard` is affected.
     """
     strips = app.screen._compositor.render_strips()
     return "\n".join(strip.text.rstrip() for strip in strips).rstrip()
@@ -72,12 +72,12 @@ def write(name: str, title: str, screen: str) -> None:
 
 
 async def capture(repo: Path) -> None:
-    from csm.app import build_app
+    from switchboard.app import build_app
 
     app = build_app(register=[repo])
     async with app.run_test(size=(150, 40)) as pilot:
         await settle(pilot)
-        write("ui-01-startup.txt", "csm — startup, no workers yet", screen_text(pilot.app))
+        write("ui-01-startup.txt", "sb — startup, no workers yet", screen_text(pilot.app))
 
         await pilot.app._manager_turn(TICKET)
         await settle(pilot)
@@ -87,18 +87,18 @@ async def capture(repo: Path) -> None:
         await settle(pilot)
         write(
             "ui-02-blocked-planner.txt",
-            "csm — blocked planner with attention banner",
+            "sb — blocked planner with attention banner",
             screen_text(pilot.app),
         )
 
         await pilot.app._manager_turn(SECOND_TICKET)
         await settle(pilot)
-        write("ui-03-two-workers.txt", "csm — two jobs in flight", screen_text(pilot.app))
+        write("ui-03-two-workers.txt", "sb — two jobs in flight", screen_text(pilot.app))
 
         pilot.app.query_one("#worker-table").focus()
         await pilot.press("question_mark")
         await settle(pilot, ticks=4)
-        write("ui-04-help.txt", "csm — help screen", screen_text(pilot.app))
+        write("ui-04-help.txt", "sb — help screen", screen_text(pilot.app))
 
 
 def main() -> int:

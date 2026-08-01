@@ -6,9 +6,9 @@ import asyncio
 
 import pytest
 
-from csm.agents.manager import DeterministicManager
-from csm.domain.enums import ArtifactType, JobStage, WorkerRole, WorkerStatus
-from csm.gitops import runner
+from switchboard.agents.manager import DeterministicManager
+from switchboard.domain.enums import ArtifactType, JobStage, WorkerRole, WorkerStatus
+from switchboard.gitops import runner
 from tests.conftest import TICKET, commit_file
 
 

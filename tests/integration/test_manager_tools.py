@@ -7,8 +7,8 @@ import json
 
 import pytest
 
-from csm.agents.manager import MANAGER_TOOL_NAMES, DeterministicManager, ModelManager
-from csm.domain.enums import WorkerRole, WorkerStatus
+from switchboard.agents.manager import MANAGER_TOOL_NAMES, DeterministicManager, ModelManager
+from switchboard.domain.enums import WorkerRole, WorkerStatus
 from tests.conftest import TICKET
 
 

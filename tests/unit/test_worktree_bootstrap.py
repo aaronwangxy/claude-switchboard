@@ -6,7 +6,7 @@ copied. Copying is opt-in per file because these files are where credentials liv
 
 from __future__ import annotations
 
-from csm.gitops.worktrees import WorktreeService
+from switchboard.gitops.worktrees import WorktreeService
 
 
 class TestWorktreeBootstrap:

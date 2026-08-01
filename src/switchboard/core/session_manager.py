@@ -17,14 +17,14 @@ from uuid import UUID
 import yaml
 from pydantic import ValidationError
 
-from csm.agents.attach import AttachError, Attachment, build_attachment
-from csm.agents.backend import WorkerBackend, WorkerEvent, WorkerSpec
-from csm.agents.prompts import PROMPT_POLICY_VERSION, compose_worker_prompt
-from csm.config import Config, user_workflows_dir
-from csm.core.runs import condition_holds, has_blocking_decisions
-from csm.core.transitions import assert_worker_transition
-from csm.domain import events as ev
-from csm.domain.contracts import (
+from switchboard.agents.attach import AttachError, Attachment, build_attachment
+from switchboard.agents.backend import WorkerBackend, WorkerEvent, WorkerSpec
+from switchboard.agents.prompts import PROMPT_POLICY_VERSION, compose_worker_prompt
+from switchboard.config import Config, user_workflows_dir
+from switchboard.core.runs import condition_holds, has_blocking_decisions
+from switchboard.core.transitions import assert_worker_transition
+from switchboard.domain import events as ev
+from switchboard.domain.contracts import (
     BehaviorContract,
     CommentResolutionReport,
     ImplementationContract,
@@ -34,7 +34,7 @@ from csm.domain.contracts import (
     WorkflowProposals,
     extract_json_block,
 )
-from csm.domain.enums import (
+from switchboard.domain.enums import (
     READ_ONLY_ROLES,
     ArtifactType,
     AttentionKind,
@@ -44,7 +44,7 @@ from csm.domain.enums import (
     WorkerRole,
     WorkerStatus,
 )
-from csm.domain.models import (
+from switchboard.domain.models import (
     Artifact,
     AttentionItem,
     Decision,
@@ -58,13 +58,13 @@ from csm.domain.models import (
     Worktree,
     now,
 )
-from csm.gitops import runner
-from csm.gitops.runner import GitError
-from csm.gitops.worktrees import CleanupDecision, WorktreeSafetyError, WorktreeService, slug
-from csm.routing import router
-from csm.routing.router import RouteError, RouteProposal, RoutingState
-from csm.storage.store import Store
-from csm.workflows.freshness import (
+from switchboard.gitops import runner
+from switchboard.gitops.runner import GitError
+from switchboard.gitops.worktrees import CleanupDecision, WorktreeSafetyError, WorktreeService, slug
+from switchboard.routing import router
+from switchboard.routing.router import RouteError, RouteProposal, RoutingState
+from switchboard.storage.store import Store
+from switchboard.workflows.freshness import (
     BEHAVIORAL_ARTIFACTS,
     CodeChange,
     GitSnapshot,
@@ -73,7 +73,7 @@ from csm.workflows.freshness import (
     is_fresh,
     relineage,
 )
-from csm.workflows.registry import (
+from switchboard.workflows.registry import (
     REPO_WORKFLOW_DIR,
     Approval,
     WorkerMode,
@@ -1099,7 +1099,7 @@ class SessionManager:
     # --------------------------------------------------------------- attention
 
     def list_attention_items(self) -> list[AttentionItem]:
-        from csm.routing.attention import prioritize
+        from switchboard.routing.attention import prioritize
 
         workers = {w.id: w for w in self.store.list_workers()}
         return prioritize(self.store.list_attention_items(), workers)

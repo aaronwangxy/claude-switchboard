@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "claude-session-manager"
+name = "claude-switchboard"
 version = "0.1.0"
-description = "A one-window control plane for multiple independent Claude coding sessions."
+description = "One board for many Claude Code sessions: route the work, gate it on contracts and evidence, step into any line."
 requires-python = ">=3.12"
 dependencies = [
     "claude-agent-sdk>=0.1.0",
@@ -24,10 +24,10 @@ dev = [
 ]
 
 [project.scripts]
-csm = "csm.__main__:main"
+sb = "switchboard.__main__:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/csm"]
+packages = ["src/switchboard"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -45,6 +45,6 @@ ignore = ["E501", "B008", "UP042", "UP047"]
 
 [tool.mypy]
 python_version = "3.12"
-files = ["src/csm"]
+files = ["src/switchboard"]
 ignore_missing_imports = true
 warn_unused_ignores = false

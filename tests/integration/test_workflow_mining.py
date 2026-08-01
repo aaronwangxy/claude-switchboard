@@ -11,11 +11,11 @@ import json
 import pytest
 import yaml
 
-from csm.core.session_manager import SessionManagerError
-from csm.domain import events as ev
-from csm.domain.enums import ArtifactType, WorkerRole
-from csm.domain.models import WorkflowExecution
-from csm.workflows.registry import get_workflow, workflow_names
+from switchboard.core.session_manager import SessionManagerError
+from switchboard.domain import events as ev
+from switchboard.domain.enums import ArtifactType, WorkerRole
+from switchboard.domain.models import WorkflowExecution
+from switchboard.workflows.registry import get_workflow, workflow_names
 
 PROPOSAL = {
     "proposals": [

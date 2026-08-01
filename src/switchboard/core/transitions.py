@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from csm.domain.enums import ALLOWED_WORKER_TRANSITIONS, WorkerStatus
+from switchboard.domain.enums import ALLOWED_WORKER_TRANSITIONS, WorkerStatus
 
 
 class TransitionError(ValueError):

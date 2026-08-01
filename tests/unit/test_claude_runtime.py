@@ -9,8 +9,8 @@ from uuid import uuid4
 
 import pytest
 
-from csm.agents.backend import WorkerSpec
-from csm.agents.runtime import ClaudeRuntimeError, claude_cli_path
+from switchboard.agents.backend import WorkerSpec
+from switchboard.agents.runtime import ClaudeRuntimeError, claude_cli_path
 
 
 def _make_executable(path):
@@ -50,7 +50,7 @@ class TestClaudeExecutable:
 def test_the_configured_executable_reaches_the_sdk_options(tmp_path):
     """The link that could actually break: config -> spec -> the options the SDK gets."""
     pytest.importorskip("claude_agent_sdk")
-    from csm.agents.sdk_backend import SdkWorkerBackend
+    from switchboard.agents.sdk_backend import SdkWorkerBackend
 
     wrapper = _make_executable(tmp_path / "company-claude")
     spec = WorkerSpec(

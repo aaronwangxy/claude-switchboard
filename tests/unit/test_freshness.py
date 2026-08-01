@@ -6,9 +6,9 @@ from uuid import uuid4
 
 import pytest
 
-from csm.domain.enums import ArtifactType
-from csm.domain.models import Artifact
-from csm.workflows.freshness import (
+from switchboard.domain.enums import ArtifactType
+from switchboard.domain.models import Artifact
+from switchboard.workflows.freshness import (
     BEHAVIORAL_ARTIFACTS,
     CodeChange,
     GitSnapshot,

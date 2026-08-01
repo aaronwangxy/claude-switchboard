@@ -8,9 +8,9 @@ from uuid import uuid4
 
 import pytest
 
-from csm.domain.enums import WorkerRole
-from csm.domain.models import Job, Repository, Worker
-from csm.gitops.worktrees import WorktreeSafetyError, WorktreeService, slug
+from switchboard.domain.enums import WorkerRole
+from switchboard.domain.models import Job, Repository, Worker
+from switchboard.gitops.worktrees import WorktreeSafetyError, WorktreeService, slug
 
 
 def make_repository(path: Path, name: str = "demo") -> Repository:

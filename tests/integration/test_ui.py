@@ -8,11 +8,11 @@ from pathlib import Path
 import pytest
 from textual.widgets import Button, Input, Static
 
-from csm.agents.manager import DeterministicManager
-from csm.app import Services
-from csm.config import Config
-from csm.domain.enums import WorkerStatus
-from csm.ui.screens import CsmApp
+from switchboard.agents.manager import DeterministicManager
+from switchboard.app import Services
+from switchboard.config import Config
+from switchboard.domain.enums import WorkerStatus
+from switchboard.ui.screens import SwitchboardApp
 from tests.conftest import TICKET
 
 SECOND_TICKET = """ENG-999 Rewrite the billing exporter
@@ -23,7 +23,7 @@ rewrite so memory stays flat. Acceptance: exports finish under ten minutes.
 
 
 @pytest.fixture
-def app(session_manager, backend, git_repo, worktree_service, store) -> CsmApp:
+def app(session_manager, backend, git_repo, worktree_service, store) -> SwitchboardApp:
     repo_path = git_repo("alpha")
     session_manager.register_repository(repo_path, "alpha")
     services = Services(
@@ -35,7 +35,7 @@ def app(session_manager, backend, git_repo, worktree_service, store) -> CsmApp:
         manager=DeterministicManager(session_manager),
         scripted=True,
     )
-    application = CsmApp(
+    application = SwitchboardApp(
         services.session_manager, services.manager, startup_notes=["scripted backend"]
     )
     application.services = services  # type: ignore[attr-defined]

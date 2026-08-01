@@ -34,14 +34,14 @@ from textual.css.query import NoMatches
 from textual.screen import Screen
 from textual.widgets import Button, DataTable, Footer, Header, Input, Static
 
-from csm.core.session_manager import SessionManager
-from csm.domain.enums import RunStatus, WorkerStatus
-from csm.domain.models import AttentionItem, Event, Worker
-from csm.routing.attention import next_actionable, prioritize
-from csm.ui.help import HelpScreen
+from switchboard.core.session_manager import SessionManager
+from switchboard.domain.enums import RunStatus, WorkerStatus
+from switchboard.domain.models import AttentionItem, Event, Worker
+from switchboard.routing.attention import next_actionable, prioritize
+from switchboard.ui.help import HelpScreen
 
 if TYPE_CHECKING:  # imported for typing only, so the UI stays free of agent internals
-    from csm.agents.manager import Manager
+    from switchboard.agents.manager import Manager
 
 log = logging.getLogger(__name__)
 
@@ -231,7 +231,7 @@ class MainScreen(Screen):
 # ----------------------------------------------------------------------------- app
 
 
-class CsmApp(App[None]):
+class SwitchboardApp(App[None]):
     """The application shell. All behaviour is delegated to the session manager."""
 
     CSS_PATH = "app.tcss"

@@ -17,7 +17,7 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from csm.domain.enums import ArtifactType, JobStage, WorkerRole
+from switchboard.domain.enums import ArtifactType, JobStage, WorkerRole
 
 #: Only `{name}` tokens we actually supply are substituted; every other brace -- notably
 #: the JSON schema braces in prompt templates -- is left alone. This is why workflow
@@ -104,7 +104,7 @@ class WorkflowDefinition(BaseModel):
     worker: WorkerMode = WorkerMode.AUTO
     prompt: str = ""
     steps: tuple[WorkflowStep, ...] = ()
-    #: Set by the loader: where this definition came from, for `csm workflows`.
+    #: Set by the loader: where this definition came from, for `sb workflows`.
     source: str = "builtin"
 
     @model_validator(mode="after")

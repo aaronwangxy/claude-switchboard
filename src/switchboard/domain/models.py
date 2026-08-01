@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from csm.domain.enums import (
+from switchboard.domain.enums import (
     ArtifactType,
     AttentionKind,
     JobStage,

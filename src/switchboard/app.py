@@ -16,9 +16,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from csm.agents.backend import WorkerBackend
-from csm.agents.manager import DeterministicManager, Manager, ModelManager
-from csm.config import (
+from switchboard.agents.backend import WorkerBackend
+from switchboard.agents.manager import DeterministicManager, Manager, ModelManager
+from switchboard.config import (
     Config,
     config_path,
     database_path,
@@ -27,11 +27,11 @@ from csm.config import (
     user_workflows_dir,
     worktree_root,
 )
-from csm.core.session_manager import SessionManager, SessionManagerError
-from csm.gitops.worktrees import WorktreeService
-from csm.storage.store import Store
-from csm.ui.screens import CsmApp
-from csm.workflows.registry import get_workflow, workflow_names
+from switchboard.core.session_manager import SessionManager, SessionManagerError
+from switchboard.gitops.worktrees import WorktreeService
+from switchboard.storage.store import Store
+from switchboard.ui.screens import SwitchboardApp
+from switchboard.workflows.registry import get_workflow, workflow_names
 
 log = logging.getLogger(__name__)
 
@@ -65,11 +65,11 @@ def build_services() -> Services:
     scripted = use_scripted_backend()
     backend: WorkerBackend
     if scripted:
-        from csm.agents.scripted_backend import ScriptedWorkerBackend
+        from switchboard.agents.scripted_backend import ScriptedWorkerBackend
 
         backend = ScriptedWorkerBackend()
     else:
-        from csm.agents.sdk_backend import SdkWorkerBackend
+        from switchboard.agents.sdk_backend import SdkWorkerBackend
 
         backend = SdkWorkerBackend()
     worktrees = WorktreeService(worktree_root(), config.worktree_bootstrap.files)
@@ -104,7 +104,7 @@ def register_repositories(
     return notes
 
 
-def build_app(register: Sequence[str | Path] = (), services: Services | None = None) -> CsmApp:
+def build_app(register: Sequence[str | Path] = (), services: Services | None = None) -> SwitchboardApp:
     """Build the Textual app with its services already wired."""
     services = services or build_services()
     notes = register_repositories(services.session_manager, register)
@@ -112,8 +112,8 @@ def build_app(register: Sequence[str | Path] = (), services: Services | None = N
         notes.insert(0, "Scripted backend (CSM_BACKEND=scripted): no model is called.")
     known = services.session_manager.list_repositories()
     if not known:
-        notes.append("No repository is registered yet. Start with: csm --register /path/to/repo")
-    app = CsmApp(services.session_manager, services.manager, startup_notes=notes)
+        notes.append("No repository is registered yet. Start with: sb --register /path/to/repo")
+    app = SwitchboardApp(services.session_manager, services.manager, startup_notes=notes)
     app.services = services  # type: ignore[attr-defined]
     return app
 
@@ -121,13 +121,13 @@ def build_app(register: Sequence[str | Path] = (), services: Services | None = N
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """Parse the command line.
 
-    `csm` and `csm claude` both open the interface: the bare form is what anyone types
+    `sb` and `sb claude` both open the interface: the bare form is what anyone types
     by reflex, and the named one is what a shell alias or a future Homebrew formula can
     point at without ambiguity. The remaining commands answer questions about the
     installation without starting it, which is what makes them worth having at all.
     """
     parser = argparse.ArgumentParser(
-        prog="csm",
+        prog="sb",
         description="A one-window control plane for multiple independent Claude sessions.",
     )
     parser.add_argument(
@@ -191,7 +191,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.log_file:
         logging.basicConfig(filename=args.log_file, level=logging.INFO)
     else:
-        logging.getLogger("csm").addHandler(logging.NullHandler())
+        logging.getLogger("switchboard").addHandler(logging.NullHandler())
     if args.command == "workflows":
         return list_workflows()
     if args.command == "config":

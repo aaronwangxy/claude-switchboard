@@ -12,12 +12,12 @@ from pathlib import Path
 
 import pytest
 
-from csm.agents.scripted_backend import ScriptedWorkerBackend
-from csm.config import HOME_ENV, WORKFLOWS_ENV, Config
-from csm.core.session_manager import SessionManager
-from csm.gitops.worktrees import WorktreeService
-from csm.storage.store import Store
-from csm.workflows.registry import reload_workflows
+from switchboard.agents.scripted_backend import ScriptedWorkerBackend
+from switchboard.config import HOME_ENV, WORKFLOWS_ENV, Config
+from switchboard.core.session_manager import SessionManager
+from switchboard.gitops.worktrees import WorktreeService
+from switchboard.storage.store import Store
+from switchboard.workflows.registry import reload_workflows
 
 
 @pytest.fixture(autouse=True)

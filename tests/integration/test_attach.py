@@ -9,11 +9,11 @@ from __future__ import annotations
 
 import pytest
 
-from csm.agents.attach import AttachError, build_attachment
-from csm.core.session_manager import SessionManagerError
-from csm.domain import events as ev
-from csm.domain.enums import RunStatus, WorkerRole, WorkerStatus
-from csm.routing import router
+from switchboard.agents.attach import AttachError, build_attachment
+from switchboard.core.session_manager import SessionManagerError
+from switchboard.domain import events as ev
+from switchboard.domain.enums import RunStatus, WorkerRole, WorkerStatus
+from switchboard.routing import router
 
 
 class TestAttachmentCommand:

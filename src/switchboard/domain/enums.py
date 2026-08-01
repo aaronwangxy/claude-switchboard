@@ -20,7 +20,7 @@ TERMINAL_WORKER_STATUSES = frozenset(
     {WorkerStatus.DONE, WorkerStatus.FAILED, WorkerStatus.STOPPED, WorkerStatus.DISCONNECTED}
 )
 
-#: Only these transitions are permitted. Enforced in `csm.core.transitions`.
+#: Only these transitions are permitted. Enforced in `switchboard.core.transitions`.
 ALLOWED_WORKER_TRANSITIONS: dict[WorkerStatus, frozenset[WorkerStatus]] = {
     WorkerStatus.STARTING: frozenset(
         {WorkerStatus.WORKING, WorkerStatus.FAILED, WorkerStatus.STOPPED, WorkerStatus.IDLE}

@@ -19,15 +19,15 @@ import re
 from typing import Any, Protocol
 from uuid import UUID
 
-from csm.agents.attach import AttachError
-from csm.agents.prompts import compose_manager_prompt
-from csm.agents.runtime import claude_cli_path
-from csm.agents.snapshots import Exchange, SnapshotInput, build_snapshot
-from csm.core.session_manager import SessionManager, SessionManagerError
-from csm.domain.enums import WorkerRole
-from csm.routing import router
-from csm.routing.router import RouteError
-from csm.workflows.registry import WorkflowError, get_workflow, workflow_names
+from switchboard.agents.attach import AttachError
+from switchboard.agents.prompts import compose_manager_prompt
+from switchboard.agents.runtime import claude_cli_path
+from switchboard.agents.snapshots import Exchange, SnapshotInput, build_snapshot
+from switchboard.core.session_manager import SessionManager, SessionManagerError
+from switchboard.domain.enums import WorkerRole
+from switchboard.routing import router
+from switchboard.routing.router import RouteError
+from switchboard.workflows.registry import WorkflowError, get_workflow, workflow_names
 
 log = logging.getLogger(__name__)
 
@@ -91,8 +91,8 @@ class ModelManager:
                 "preset": "claude_code",
                 "append": compose_manager_prompt(),
             },
-            mcp_servers={"csm": self._tools()},
-            allowed_tools=[f"mcp__csm__{name}" for name in MANAGER_TOOL_NAMES],
+            mcp_servers={"switchboard": self._tools()},
+            allowed_tools=[f"mcp__switchboard__{name}" for name in MANAGER_TOOL_NAMES],
             disallowed_tools=["Bash", "Edit", "Write", "Read", "Glob", "Grep", "Task"],
             permission_mode="bypassPermissions",
             max_turns=12,
@@ -390,7 +390,7 @@ class ModelManager:
         # correct, never as an exception that kills the turn.
         guarded = [dataclasses.replace(t, handler=_guard(t.handler, err)) for t in registered]
         self.tool_objects = {t.name: t for t in guarded}
-        return create_sdk_mcp_server(name="csm", version="1.0.0", tools=guarded)
+        return create_sdk_mcp_server(name="switchboard", version="1.0.0", tools=guarded)
 
     # ------------------------------------------------------------------ handle
 

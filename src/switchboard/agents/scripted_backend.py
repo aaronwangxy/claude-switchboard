@@ -13,7 +13,7 @@ from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from uuid import UUID, uuid4
 
-from csm.agents.backend import BackendHealth, WorkerEvent, WorkerHandle, WorkerSpec
+from switchboard.agents.backend import BackendHealth, WorkerEvent, WorkerHandle, WorkerSpec
 
 Responder = Callable[[WorkerSpec, str], list[WorkerEvent]]
 

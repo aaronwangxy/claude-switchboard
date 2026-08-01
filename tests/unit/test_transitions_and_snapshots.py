@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from csm.agents.snapshots import (
+from switchboard.agents.snapshots import (
     MAX_EVENTS,
     MAX_EXCHANGES,
     MAX_WORKERS_IN_DETAIL,
@@ -15,9 +15,9 @@ from csm.agents.snapshots import (
     SnapshotInput,
     build_snapshot,
 )
-from csm.core.transitions import TransitionError, assert_worker_transition
-from csm.domain.enums import AttentionKind, JobStage, WorkerRole, WorkerStatus
-from csm.domain.models import AttentionItem, Event, Job, Repository, Worker
+from switchboard.core.transitions import TransitionError, assert_worker_transition
+from switchboard.domain.enums import AttentionKind, JobStage, WorkerRole, WorkerStatus
+from switchboard.domain.models import AttentionItem, Event, Job, Repository, Worker
 
 NOW = datetime(2026, 7, 31, 12, 0, tzinfo=UTC)
 

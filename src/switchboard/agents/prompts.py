@@ -7,8 +7,8 @@ chatbot prompt: concision must change presentation, not reasoning or tool qualit
 
 from __future__ import annotations
 
-from csm.config import Config
-from csm.domain.enums import Verbosity, WorkerRole
+from switchboard.config import Config
+from switchboard.domain.enums import Verbosity, WorkerRole
 
 #: Bump when the composed policy text changes; persisted with each session so older
 #: sessions can be identified and refreshed.

@@ -10,10 +10,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from uuid import UUID
 
-from csm.config import worktree_root
-from csm.domain.models import Job, Repository, Worker, Worktree
-from csm.gitops import runner
-from csm.gitops.runner import GitError, run_git
+from switchboard.config import worktree_root
+from switchboard.domain.models import Job, Repository, Worker, Worktree
+from switchboard.gitops import runner
+from switchboard.gitops.runner import GitError, run_git
 
 log = logging.getLogger(__name__)
 

@@ -7,13 +7,13 @@ resumed tomorrow evaluates its next step exactly as it would have today.
 
 from __future__ import annotations
 
-from csm.config import Config
-from csm.domain.contracts import ImplementationContract, ReviewReport, VerificationReport
-from csm.domain.enums import ArtifactType
-from csm.domain.models import Job, WorkflowRun
-from csm.storage.store import Store
-from csm.workflows.freshness import is_fresh
-from csm.workflows.spec import StepCondition, WorkflowDefinition
+from switchboard.config import Config
+from switchboard.domain.contracts import ImplementationContract, ReviewReport, VerificationReport
+from switchboard.domain.enums import ArtifactType
+from switchboard.domain.models import Job, WorkflowRun
+from switchboard.storage.store import Store
+from switchboard.workflows.freshness import is_fresh
+from switchboard.workflows.spec import StepCondition, WorkflowDefinition
 
 
 def _current(store: Store, job: Job, type_: ArtifactType, head: str | None):

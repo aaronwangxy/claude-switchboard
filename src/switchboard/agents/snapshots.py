@@ -11,10 +11,10 @@ from collections import Counter
 from dataclasses import dataclass, field
 from uuid import UUID
 
-from csm.domain.enums import JobStage, WorkerStatus
-from csm.domain.models import AttentionItem, Event, Job, Repository, Worker
-from csm.routing.router import RouteProposal
-from csm.workflows.registry import WORKFLOWS, WorkflowDefinition
+from switchboard.domain.enums import JobStage, WorkerStatus
+from switchboard.domain.models import AttentionItem, Event, Job, Repository, Worker
+from switchboard.routing.router import RouteProposal
+from switchboard.workflows.registry import WORKFLOWS, WorkflowDefinition
 
 MAX_EXCHANGES = 8
 MAX_WORKERS_IN_DETAIL = 8

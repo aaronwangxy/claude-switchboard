@@ -8,14 +8,14 @@ from uuid import uuid4
 
 import pytest
 
-from csm.domain.enums import (
+from switchboard.domain.enums import (
     ArtifactType,
     AttentionKind,
     JobStage,
     WorkerRole,
     WorkerStatus,
 )
-from csm.domain.models import (
+from switchboard.domain.models import (
     Artifact,
     AttentionItem,
     Decision,
@@ -27,7 +27,7 @@ from csm.domain.models import (
     WorkflowExecution,
     Worktree,
 )
-from csm.storage.store import Store
+from switchboard.storage.store import Store
 
 T0 = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
 

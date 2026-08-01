@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from csm.agents.prompts import (
+from switchboard.agents.prompts import (
     CONCISION_POLICY,
     MANAGER_POLICY,
     PROMPT_POLICY_VERSION,
@@ -12,9 +12,9 @@ from csm.agents.prompts import (
     compose_manager_prompt,
     compose_worker_prompt,
 )
-from csm.agents.sdk_backend import READ_ONLY_TOOLS, WRITE_TOOLS, SdkWorkerBackend
-from csm.config import Config
-from csm.domain.enums import Verbosity, WorkerRole
+from switchboard.agents.sdk_backend import READ_ONLY_TOOLS, WRITE_TOOLS, SdkWorkerBackend
+from switchboard.config import Config
+from switchboard.domain.enums import Verbosity, WorkerRole
 
 
 @pytest.fixture
@@ -128,7 +128,7 @@ def _spec(writable: bool):
     from pathlib import Path
     from uuid import uuid4
 
-    from csm.agents.backend import WorkerSpec
+    from switchboard.agents.backend import WorkerSpec
 
     role = WorkerRole.IMPLEMENTER if writable else WorkerRole.REVIEWER
     return WorkerSpec(

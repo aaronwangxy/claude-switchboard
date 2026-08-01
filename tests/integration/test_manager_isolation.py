@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from csm.agents.manager import MANAGER_TOOL_NAMES, ModelManager
-from csm.config import Config
+from switchboard.agents.manager import MANAGER_TOOL_NAMES, ModelManager
+from switchboard.config import Config
 
 pytest.importorskip("claude_agent_sdk")
 
@@ -38,8 +38,8 @@ def test_the_manager_runs_in_the_csm_data_directory(options, session_manager):
 def test_the_manager_has_no_file_shell_or_subagent_tools(options):
     for denied in ("Bash", "Edit", "Write", "Read", "Glob", "Grep", "Task"):
         assert denied in options.disallowed_tools
-    assert all(name.startswith("mcp__csm__") for name in options.allowed_tools)
-    assert set(options.allowed_tools) == {f"mcp__csm__{name}" for name in MANAGER_TOOL_NAMES}
+    assert all(name.startswith("mcp__switchboard__") for name in options.allowed_tools)
+    assert set(options.allowed_tools) == {f"mcp__switchboard__{name}" for name in MANAGER_TOOL_NAMES}
 
 
 def test_the_manager_turn_is_bounded(options):

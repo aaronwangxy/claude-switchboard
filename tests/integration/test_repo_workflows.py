@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from csm.core.session_manager import SessionManager
-from csm.workflows.registry import REPO_WORKFLOW_DIR, get_workflow, workflow_names
+from switchboard.core.session_manager import SessionManager
+from switchboard.workflows.registry import REPO_WORKFLOW_DIR, get_workflow, workflow_names
 
 SPEC = """
 name: house-review

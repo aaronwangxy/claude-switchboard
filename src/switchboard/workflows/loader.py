@@ -26,7 +26,7 @@ from pathlib import Path
 import yaml
 from pydantic import ValidationError
 
-from csm.workflows.spec import WorkflowDefinition
+from switchboard.workflows.spec import WorkflowDefinition
 
 log = logging.getLogger(__name__)
 
@@ -106,7 +106,7 @@ def load_all(extra_dirs: Iterable[Path] = ()) -> tuple[dict[str, WorkflowDefinit
     they still override by name, which is how a repository states a convention its
     contributors should get over the user's own version of the same idea.
     """
-    from csm.config import user_workflows_dir
+    from switchboard.config import user_workflows_dir
 
     definitions: dict[str, WorkflowDefinition] = {}
     problems: list[str] = []

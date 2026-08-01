@@ -8,10 +8,10 @@ from pathlib import Path
 
 import pytest
 
-from csm.domain.enums import WorkerRole
-from csm.domain.models import Job, Repository, Worker, Worktree
-from csm.gitops import runner
-from csm.gitops.worktrees import WorktreeSafetyError, WorktreeService
+from switchboard.domain.enums import WorkerRole
+from switchboard.domain.models import Job, Repository, Worker, Worktree
+from switchboard.gitops import runner
+from switchboard.gitops.worktrees import WorktreeSafetyError, WorktreeService
 
 
 def git(cwd: Path, *args: str) -> str:
@@ -269,9 +269,9 @@ def test_creating_a_worktree_bootstraps_the_configured_files(
     csm_home, git_repo, session_manager
 ):
     """The wiring, not just the policy: a real worktree gets the real file."""
-    from csm.domain.enums import WorkerRole
-    from csm.domain.models import Worker
-    from csm.gitops.worktrees import WorktreeService
+    from switchboard.domain.enums import WorkerRole
+    from switchboard.domain.models import Worker
+    from switchboard.gitops.worktrees import WorktreeService
 
     repo_path = git_repo("bootstrapped")
     (repo_path / "CLAUDE.local.md").write_text("# local rules\n")

@@ -10,9 +10,9 @@ from __future__ import annotations
 from collections.abc import Iterable
 from pathlib import Path
 
-from csm.domain.enums import WorkerRole
-from csm.workflows.loader import REPO_WORKFLOW_DIR, builtin_names, load_all
-from csm.workflows.spec import (
+from switchboard.domain.enums import WorkerRole
+from switchboard.workflows.loader import REPO_WORKFLOW_DIR, builtin_names, load_all
+from switchboard.workflows.spec import (
     Approval,
     StepCondition,
     WorkerMode,

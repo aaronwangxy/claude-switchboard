@@ -1,10 +1,10 @@
-"""`python -m csm` launches the session manager."""
+"""`python -m switchboard` launches the session manager."""
 
 from __future__ import annotations
 
 import sys
 
-from csm.app import main
+from switchboard.app import main
 
 
 def run() -> int:

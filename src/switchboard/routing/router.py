@@ -12,8 +12,8 @@ from dataclasses import dataclass, field
 from typing import Literal
 from uuid import UUID
 
-from csm.domain.enums import JobStage, WorkerRole, WorkerStatus
-from csm.domain.models import Job, Repository, Worker
+from switchboard.domain.enums import JobStage, WorkerRole, WorkerStatus
+from switchboard.domain.models import Job, Repository, Worker
 
 TICKET_RE = re.compile(r"\b([A-Z][A-Z0-9]{1,9}-\d{1,6})\b")
 QUESTION_START = (
@@ -486,7 +486,7 @@ def _route_into_job(
             priority=priority,
         )
 
-    from csm.workflows.registry import WorkerMode, get_workflow
+    from switchboard.workflows.registry import WorkerMode, get_workflow
 
     definition = get_workflow(workflow)
     if definition.is_composite:
@@ -539,7 +539,7 @@ def _route_into_job(
 
 def validate(proposal: RouteProposal, state: RoutingState) -> RouteProposal:
     """Reject a route -- including one a model proposed -- that violates an invariant."""
-    from csm.workflows.registry import WorkflowError, validate_for_role
+    from switchboard.workflows.registry import WorkflowError, validate_for_role
 
     if proposal.worker_id is not None:
         worker = state.worker(proposal.worker_id)

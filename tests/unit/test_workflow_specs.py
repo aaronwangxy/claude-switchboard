@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from csm.domain.enums import ArtifactType, WorkerRole
-from csm.workflows import loader
-from csm.workflows.registry import (
+from switchboard.domain.enums import ArtifactType, WorkerRole
+from switchboard.workflows import loader
+from switchboard.workflows.registry import (
     WORKFLOWS,
     WorkflowError,
     get_workflow,
@@ -17,7 +17,7 @@ from csm.workflows.registry import (
     render_template,
     validate_for_role,
 )
-from csm.workflows.spec import Approval, StepCondition, WorkerMode, WorkflowDefinition
+from switchboard.workflows.spec import Approval, StepCondition, WorkerMode, WorkflowDefinition
 
 #: Every workflow the goal requires CSM to ship.
 REQUIRED_BUILTINS = [
