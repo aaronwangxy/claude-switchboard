@@ -6,7 +6,9 @@ the schema stays small while the domain models remain the single definition of s
 
 from __future__ import annotations
 
+import json
 import sqlite3
+from datetime import UTC, datetime
 from pathlib import Path
 
 SCHEMA_VERSION = 5
@@ -152,9 +154,6 @@ CREATE TABLE IF NOT EXISTS preferences (
 CREATE INDEX IF NOT EXISTS idx_workers_job ON workers(job_id);
 CREATE INDEX IF NOT EXISTS idx_runtime_agent ON runtime_instances(agent_id, generation);
 CREATE INDEX IF NOT EXISTS idx_native_turn_runtime ON native_turns(runtime_id, updated_at);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_native_turn_one_open
-ON native_turns(runtime_id)
-WHERE status IN ('pending', 'active', 'waiting_permission', 'interrupt_requested');
 CREATE INDEX IF NOT EXISTS idx_hook_event_runtime ON runtime_hook_events(runtime_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_transcript_worker ON transcript(worker_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at);
@@ -182,8 +181,42 @@ def migrate(conn: sqlite3.Connection) -> None:
     """
     conn.executescript(SCHEMA)
     row = conn.execute("SELECT version FROM schema_meta").fetchone()
+    if row is not None and row["version"] < 5:
+        _reconcile_open_native_turns(conn)
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_native_turn_one_open "
+        "ON native_turns(runtime_id) "
+        "WHERE status IN ('pending','active','waiting_permission','interrupt_requested')"
+    )
     if row is None:
         conn.execute("INSERT INTO schema_meta (version) VALUES (?)", (SCHEMA_VERSION,))
     elif row["version"] != SCHEMA_VERSION:
         conn.execute("UPDATE schema_meta SET version = ?", (SCHEMA_VERSION,))
     conn.commit()
+
+
+def _reconcile_open_native_turns(conn: sqlite3.Connection) -> None:
+    """Preserve but fail older conflicting turns before enforcing the v5 input lane."""
+    open_statuses = ("pending", "active", "waiting_permission", "interrupt_requested")
+    placeholders = ",".join("?" for _ in open_statuses)
+    duplicates = conn.execute(
+        f"SELECT runtime_id FROM native_turns WHERE status IN ({placeholders}) "
+        "GROUP BY runtime_id HAVING COUNT(*) > 1",
+        open_statuses,
+    ).fetchall()
+    timestamp = datetime.now(UTC).isoformat()
+    for duplicate in duplicates:
+        rows = conn.execute(
+            f"SELECT id, data FROM native_turns WHERE runtime_id=? "
+            f"AND status IN ({placeholders}) ORDER BY updated_at DESC, rowid DESC",
+            (duplicate["runtime_id"], *open_statuses),
+        ).fetchall()
+        for stale in rows[1:]:
+            data = json.loads(stale["data"])
+            data["status"] = "failed"
+            data["error"] = "Superseded while migrating duplicate open native turns to v5."
+            data["updated_at"] = timestamp
+            conn.execute(
+                "UPDATE native_turns SET status='failed', updated_at=?, data=? WHERE id=?",
+                (timestamp, json.dumps(data, separators=(",", ":")), stale["id"]),
+            )
