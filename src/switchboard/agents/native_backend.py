@@ -232,6 +232,8 @@ class NativeClaudeBackend:
     async def _watch(self, worker_id: UUID) -> None:
         session = self._require(worker_id)
         runtime_id = self._runtime_id(session.spec)
+        loop = asyncio.get_running_loop()
+        next_observation = loop.time()
         try:
             while session.alive:
                 pending = self.store.pending_worker_hook_events(runtime_id)
@@ -244,6 +246,17 @@ class NativeClaudeBackend:
                     else:
                         session.inflight.add(hook.id)
                         await session.outbox.put((event, hook.id))
+                if loop.time() >= next_observation:
+                    observed = self.supervisor.observe(runtime_id)
+                    if observed.observation.status is not TmuxRuntimeStatus.ALIVE:
+                        session.alive = False
+                        detail = observed.observation.detail or observed.observation.status.value
+                        await session.outbox.put(
+                            (WorkerEvent(worker_id, "failed", f"Native runtime {detail}."), None)
+                        )
+                        await session.outbox.put((None, None))
+                        return
+                    next_observation = loop.time() + 0.5
                 await asyncio.sleep(0.05)
         except asyncio.CancelledError:
             raise

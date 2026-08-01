@@ -1347,9 +1347,9 @@ class SessionManager:
                 if event.data.get("final_only") and event.text:
                     self._record(worker, "assistant", event.text)
                     self.emit(ev.WORKER_OUTPUT, worker_id=worker.id, job_id=worker.job_id)
+                self._resolve_attention(worker)
                 self._finish_turn(worker, event.text)
                 self._set_runtime_state(worker.id, RuntimeProcessState.TURN_COMPLETE)
-                self._resolve_attention(worker)
                 if event.data.get("is_error"):
                     self._set_status(worker, WorkerStatus.FAILED, waiting_for="Turn failed.")
                     self.raise_attention(
