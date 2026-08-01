@@ -12,7 +12,9 @@ from pathlib import Path
 
 import pytest
 
-from csm.config import HOME_ENV
+from csm.agents.scripted_backend import ScriptedWorkerBackend
+from csm.config import HOME_ENV, Config
+from csm.core.session_manager import SessionManager
 from csm.gitops.worktrees import WorktreeService
 from csm.storage.store import Store
 
@@ -67,3 +69,33 @@ def git_repo(tmp_path: Path) -> Callable[[str], Path]:
 def worktree_service(csm_home: Path) -> WorktreeService:
     """A `WorktreeService` whose managed root lives under `csm_home`."""
     return WorktreeService(root=csm_home / "worktrees")
+
+
+@pytest.fixture
+def backend() -> ScriptedWorkerBackend:
+    """The deterministic backend, so tests exercise the real orchestration path."""
+    return ScriptedWorkerBackend()
+
+
+@pytest.fixture
+def session_manager(
+    store: Store, backend: ScriptedWorkerBackend, worktree_service: WorktreeService
+) -> SessionManager:
+    return SessionManager(store, backend, Config(), worktree_service)
+
+
+def commit_file(cwd: Path, name: str, content: str, message: str) -> str:
+    """Write, stage, and commit a file in `cwd`; returns the new HEAD."""
+    (cwd / name).write_text(content)
+    _git(cwd, "add", "-A")
+    _git(cwd, "-c", "user.email=csm-tests@example.com", "-c", "user.name=CSM Tests",
+         "commit", "--quiet", "-m", message)
+    return _git(cwd, "rev-parse", "HEAD").strip()
+
+
+TICKET = """ENG-421 Notification preferences
+
+Users need per-channel notification preferences that persist across restarts.
+The dispatcher must honour them for every outbound channel.
+Acceptance: preferences survive a restart and the dispatcher reads them.
+"""
