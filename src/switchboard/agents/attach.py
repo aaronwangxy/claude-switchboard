@@ -1,13 +1,7 @@
-"""Entering a worker as an ordinary Claude session.
+"""A backend-neutral description of entering a worker's existing process.
 
-A Switchboard worker is not a special kind of agent. It is a normal Claude Code session
-that Switchboard happened to start, and the runtime persists it under `~/.claude/projects/`
-exactly like any session started by hand. So attaching needs no protocol and no bridge: it is
-`claude --resume <session id>` run in the worker's working directory, which is what the
-user would have typed if they had opened that worktree themselves.
-
-Building the command here rather than in the UI keeps the one thing that can go wrong --
-attaching to a session Switchboard is still driving -- decided in one place.
+Production native workers provide a tmux attachment to the exact live process. The legacy
+command builder remains only for the deterministic scripted backend's attachment tests.
 """
 
 from __future__ import annotations
@@ -39,7 +33,7 @@ class Attachment:
 def build_attachment(
     *, cwd: Path, session_id: str | None, executable: str | None = None, note: str = ""
 ) -> Attachment:
-    """The command that resumes this worker's session in its own directory.
+    """Build the scripted backend's synthetic resume command.
 
     Note what this does *not* reproduce: the resumed session is an ordinary interactive
     Claude, so the tool policy Switchboard gave the worker -- read-only, in particular --

@@ -71,13 +71,13 @@ ask the manager to "let me into the payments change". That runs exactly what you
 have typed:
 
 ```bash
-cd <worktree> && claude --resume <session id>
+tmux -S <switchboard socket> attach-session -t <runtime session>
 ```
 
-Switchboard interrupts the worker, refuses to send to it while you are there, and pauses any
-workflow run it belongs to. When you exit, the run stays paused until you say "resume the
-run" — you have just been editing by hand, so whether the ritual should carry on is
-yours to decide.
+Switchboard does not interrupt an active turn when you enter. It refuses to send while you are
+there and pauses any workflow run the worker belongs to. Clear any unsubmitted composer text
+before handing control back. The run stays paused until you say "resume the run"—you may have
+edited by hand, so whether the ritual should carry on is yours to decide.
 
 ```
 +------------------------------+----------------------------------------+

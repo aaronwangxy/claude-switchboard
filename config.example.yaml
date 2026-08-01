@@ -41,7 +41,3 @@ workflows:
     max_plan_lines: 10
   review-change:
     blocking_severities: [blocking, important]
-
-# Which Claude settings each session loads. "project" picks up the repository's
-# CLAUDE.md; "user" picks up your personal settings. Set to [] for hermetic runs.
-setting_sources: [user, project]

@@ -202,10 +202,9 @@ never configurable from a workflow.
 per job. It produces `WORKFLOW_PROPOSALS`, which are inert; only `accept_proposal` writes
 a proposal out, as an ordinary user workflow file.
 
-**Claude settings inheritance.** `config.setting_sources` (default `["user", "project"]`)
-is passed to each worker SDK session, so workers pick up my user settings and the *target*
-repository's `CLAUDE.md` and skills. The manager session uses `setting_sources=[]` and only
-its MCP tools.
+**Claude settings inheritance.** Native workers use Claude's normal discovery, including
+user, managed/company, project, and project-local settings plus the *target* repository's
+`CLAUDE.md` and skills. The manager session uses `setting_sources=[]` and only its MCP tools.
 
 ## Safety invariants
 
