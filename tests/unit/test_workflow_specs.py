@@ -158,11 +158,14 @@ def test_a_workflow_directory_with_workflow_yaml_is_discovered(isolated_workflow
     assert get_workflow("my-flow").description == "x"
 
 
-def test_a_user_workflow_overrides_a_builtin_of_the_same_name(isolated_workflows: Path):
+def test_a_user_workflow_may_not_redefine_a_builtin(isolated_workflows: Path):
+    """Built-in names are reserved -- see `loader.load_all` for why."""
     _write(isolated_workflows, "ask-question.yaml", "name: ask-question\nprompt: 'mine {request}'\n")
-    reload_workflows()
-    assert get_workflow("ask-question").source == "user"
-    assert get_workflow("ask-question").prompt.strip() == "mine {request}"
+    problems = reload_workflows()
+
+    assert get_workflow("ask-question").source == "builtin"
+    assert get_workflow("ask-question").prompt.strip() != "mine {request}"
+    assert any("built-in" in problem for problem in problems)
 
 
 def test_a_broken_user_workflow_is_reported_and_skipped(isolated_workflows: Path):

@@ -15,6 +15,7 @@ from pathlib import Path
 from uuid import UUID
 
 import yaml
+from pydantic import ValidationError
 
 from csm.agents.attach import AttachError, Attachment, build_attachment
 from csm.agents.backend import WorkerBackend, WorkerEvent, WorkerSpec
@@ -79,6 +80,7 @@ from csm.workflows.registry import (
     WorkflowDefinition,
     WorkflowError,
     WorkflowStep,
+    builtin_names,
     get_workflow,
     reload_workflows,
     render_template,
@@ -132,6 +134,8 @@ class SessionManager:
         self.verbosity: dict[UUID, Verbosity] = {}
         self._pumps: dict[UUID, asyncio.Task] = {}
         self._pending_change: dict[UUID, GitSnapshot] = {}
+        #: Workers whose session the user is currently driving themselves.
+        self._attached: set[UUID] = set()
         self._listeners: list[Callable[[Event], None]] = []
         #: Strong references to in-flight run advances, so they are not garbage collected.
         self._background: set[asyncio.Task] = set()
@@ -365,6 +369,13 @@ class SessionManager:
 
     async def send(self, worker_id: UUID, message: str) -> None:
         worker = self._require_worker(worker_id)
+        if worker_id in self._attached:
+            # The user's own client is writing this session. A second writer would
+            # interleave turns in one session file.
+            raise SessionManagerError(
+                f"You are attached to {worker.title!r}. Talk to it in that session, or "
+                "leave it before sending from here."
+            )
         if worker.status in (WorkerStatus.STOPPED, WorkerStatus.DISCONNECTED):
             raise SessionManagerError(
                 f"Worker {worker.title!r} is {worker.status.value}; start a replacement instead."
@@ -830,8 +841,9 @@ class SessionManager:
         """CSM's own record of what was run, grouped by job and ordered in time.
 
         This is the whole input to mining. It is structured state rather than any
-        transcript, so it stays small, contains no repository content, and can be read
-        by a worker that has no access to the repositories it describes.
+        transcript, so it stays small and contains no repository content -- but it does
+        span every registered repository, so a miner running in one worktree sees the
+        job titles and decisions of the others.
         """
         executions = self.store.recent_workflow_executions(limit)
         if not executions:
@@ -866,33 +878,57 @@ class SessionManager:
         The written file is the same YAML a user would have hand-authored, in the same
         directory, with no marker distinguishing it -- an accepted proposal is a workflow,
         not a second-class kind of one. Only this method makes a proposal take effect.
+
+        Everything a model chose is validated here before anything is written. A proposal
+        comes from free text: its step conditions, its worker mode, and its name are all
+        fields a model can paraphrase. Writing first and discovering at load time that the
+        file is invalid would tell the user their workflow exists when it does not.
         """
         proposal = next((p for p in self.list_proposals(job_id) if p.name == name), None)
         if proposal is None:
             raise SessionManagerError(f"No proposal named {name!r} on this job.")
+        if not proposal.steps:
+            raise SessionManagerError(f"Proposal {name!r} has no steps.")
         unknown = [s.workflow for s in proposal.steps if s.workflow not in workflow_names()]
         if unknown:
             raise SessionManagerError(
                 f"Proposal {name!r} names workflows that do not exist: {', '.join(unknown)}."
             )
-        if not proposal.steps:
-            raise SessionManagerError(f"Proposal {name!r} has no steps.")
+        composite = [s.workflow for s in proposal.steps if get_workflow(s.workflow).is_composite]
+        if composite:
+            raise SessionManagerError(
+                f"Proposal {name!r} uses composite workflows as steps, which cannot nest: "
+                f"{', '.join(composite)}."
+            )
+        if proposal.name in builtin_names():
+            raise SessionManagerError(
+                f"{proposal.name!r} is a built-in workflow and cannot be redefined."
+            )
+        document = {
+            "name": proposal.name,
+            "description": proposal.description,
+            "worker": proposal.worker,
+            "steps": [{"workflow": s.workflow, "when": s.when} for s in proposal.steps],
+        }
+        try:
+            WorkflowDefinition.model_validate(document)
+        except ValidationError as exc:
+            raise SessionManagerError(
+                f"Proposal {name!r} is not a valid workflow: {exc.errors()[0]['msg']}"
+            ) from exc
+
         directory = user_workflows_dir()
         directory.mkdir(parents=True, exist_ok=True)
         path = directory / f"{slug(proposal.name)}.yaml"
         if path.exists():
             raise SessionManagerError(f"{path} already exists; edit or remove it first.")
-        path.write_text(
-            yaml.safe_dump(
-                {
-                    "name": proposal.name,
-                    "description": proposal.description,
-                    "steps": [{"workflow": s.workflow, "when": s.when} for s in proposal.steps],
-                },
-                sort_keys=False,
+        path.write_text(yaml.safe_dump(document, sort_keys=False))
+        problems = self.reload_workflows()
+        if proposal.name not in workflow_names():  # pragma: no cover - validated above
+            path.unlink(missing_ok=True)
+            raise SessionManagerError(
+                f"Proposal {name!r} did not load as a workflow: {'; '.join(problems)}"
             )
-        )
-        self.reload_workflows()
         self.emit(
             ev.WORKFLOW_PROPOSAL_ACCEPTED,
             job_id=job_id,
@@ -931,20 +967,22 @@ class SessionManager:
     async def attach(self, worker_id: UUID) -> Attachment:
         """Hand this worker's session back to the user as an ordinary Claude session.
 
-        A worker mid-turn is interrupted first. Two clients driving one session would
-        interleave turns, and the user taking direct control is exactly the moment CSM
-        should stop steering; interruption leaves the worker alive and resumable either
-        way. Any composite run the worker belongs to pauses for the same reason: what
-        happens next is now the user's to decide, not the run's.
+        A worker mid-turn is interrupted first, and until `detach` it is marked attached:
+        `send` refuses, so nothing CSM does appends to a session file the user's own
+        client is writing. Any composite run the worker belongs to pauses in a resumable
+        state -- what happens next is the user's to decide, not the run's, but deciding
+        "carry on" has to remain possible.
         """
         worker = self._require_worker(worker_id)
         attachment = build_attachment(
             cwd=worker.cwd,
             session_id=worker.session_id,
             executable=self.config.claude.executable,
+            note=self._attach_note(worker),
         )
         if worker.status is WorkerStatus.WORKING:
             await self.interrupt_worker(worker_id)
+        self._attached.add(worker.id)
         self._pause_run_of(worker, RunStatus.BLOCKED, "The user attached to this worker.")
         self._record(worker, "system", "[the user attached to this session directly]")
         self._resolve_attention(worker)
@@ -956,6 +994,49 @@ class SessionManager:
             payload={"session_id": attachment.session_id, "cwd": str(attachment.cwd)},
         )
         return attachment
+
+    def detach(self, worker_id: UUID) -> Worker:
+        """The user has left the session. CSM may drive it again; the run stays paused.
+
+        The run is deliberately not resumed here. The user has just been editing in that
+        worktree by hand, so whether the ritual should carry on from where it stopped is
+        a judgement only they can make -- `resume_run` is how they say yes.
+        """
+        worker = self._require_worker(worker_id)
+        self._attached.discard(worker.id)
+        self._record(worker, "system", "[the user left this session]")
+        return worker
+
+    def is_attached(self, worker_id: UUID) -> bool:
+        return worker_id in self._attached
+
+    def _attach_note(self, worker: Worker) -> str:
+        """What the user should know before taking this session over, if anything.
+
+        Attaching starts an ordinary interactive Claude, which has none of the tool
+        restrictions CSM gave the worker. That is the user's prerogative -- but a
+        read-only worker usually sits in *another* worker's worktree, so it is worth
+        saying that the session they are about to drive can write there.
+        """
+        if worker.writable or worker.worktree_id is not None:
+            return ""
+        owner = next(
+            (
+                other
+                for other in self.store.list_workers(worker.job_id)
+                if other.writable and other.cwd == worker.cwd and other.id != worker.id
+            ),
+            None,
+        )
+        if owner is None:
+            return (
+                f"This worker is read-only, but {worker.cwd} is the repository itself. "
+                "An interactive session there is not restricted."
+            )
+        return (
+            f"This worker is read-only and observes {owner.title}'s worktree. An "
+            "interactive session there can write to it, and that worker still owns it."
+        )
 
     # ----------------------------------------------------------------- cleanup
 
@@ -1597,6 +1678,13 @@ class SessionManager:
                     f"{worker.title} is yours. Press Ctrl+E to enter it here, or run:\n"
                     f"{attachment.shell_hint}"
                 )
+            case "resume_run":
+                assert proposal.job_id is not None
+                run = self.store.active_run(proposal.job_id)
+                if run is None:
+                    return "That job has no paused workflow run."
+                resumed = await self.resume_run(run.id)
+                return self._run_reply(resumed)
             case "start_workflow":
                 name = proposal.workflow or "ask-question"
                 if get_workflow(name).is_composite:

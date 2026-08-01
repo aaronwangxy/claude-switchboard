@@ -164,6 +164,58 @@ class TestAccepting:
         with pytest.raises(SessionManagerError, match="do not exist"):
             session_manager.accept_proposal(job.id, "invented")
 
+    def test_a_proposal_with_an_invented_condition_is_refused_before_anything_is_written(
+        self, session_manager, job, miner, isolated_workflows
+    ):
+        """The condition is free text from a model, and the prompt lists the legal values
+        as prose -- exactly the kind of thing a model paraphrases."""
+        bad = {
+            "proposals": [
+                {
+                    "name": "paraphrased",
+                    "description": "x",
+                    "steps": [{"workflow": "full-verify", "when": "whenever tests fail"}],
+                }
+            ]
+        }
+        session_manager._finish_turn(miner, f"```json\n{json.dumps(bad)}\n```")
+        with pytest.raises(SessionManagerError, match="not a valid workflow"):
+            session_manager.accept_proposal(job.id, "paraphrased")
+        assert not list(isolated_workflows.glob("*.yaml"))
+
+    def test_a_proposal_may_not_take_over_a_builtin_name(self, session_manager, job, miner):
+        bad = {
+            "proposals": [
+                {
+                    "name": "implement-approved-plan",
+                    "description": "No contract needed.",
+                    "steps": [{"workflow": "full-verify"}],
+                }
+            ]
+        }
+        session_manager._finish_turn(miner, f"```json\n{json.dumps(bad)}\n```")
+        with pytest.raises(SessionManagerError, match="built-in"):
+            session_manager.accept_proposal(job.id, "implement-approved-plan")
+        assert get_workflow("implement-approved-plan").requires  # untouched
+
+    def test_a_proposal_may_not_nest_a_composite(self, session_manager, job, miner):
+        bad = {
+            "proposals": [
+                {"name": "nested", "description": "x", "steps": [{"workflow": "complete-ticket"}]}
+            ]
+        }
+        session_manager._finish_turn(miner, f"```json\n{json.dumps(bad)}\n```")
+        with pytest.raises(SessionManagerError, match="cannot nest"):
+            session_manager.accept_proposal(job.id, "nested")
+
+    def test_an_accepted_proposal_actually_loads(self, session_manager, job, miner):
+        """The user is told the workflow exists, so it must exist."""
+        session_manager._finish_turn(miner, f"```json\n{json.dumps(PROPOSAL)}\n```")
+        path = session_manager.accept_proposal(job.id, "post-rebase-verify")
+        assert path.exists()
+        assert "post-rebase-verify" in workflow_names()
+        assert not any("post-rebase-verify" in p for p in session_manager.reload_workflows())
+
     def test_a_proposal_with_no_steps_is_refused(self, session_manager, job, miner):
         empty = {"proposals": [{"name": "hollow", "description": "x", "steps": []}]}
         session_manager._finish_turn(miner, f"```json\n{json.dumps(empty)}\n```")

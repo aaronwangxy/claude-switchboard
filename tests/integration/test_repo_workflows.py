@@ -38,16 +38,40 @@ def test_registering_a_repository_loads_its_workflows(session_manager, git_repo)
     assert get_workflow("house-review").description == "The review this repository always runs."
 
 
-def test_a_repository_workflow_overrides_a_builtin_of_the_same_name(session_manager, git_repo):
+def test_a_repository_may_not_redefine_a_builtin(session_manager, git_repo):
+    """A repository's own file must not be able to strip a built-in's declarations.
+
+    `requires` is what stops implementation running without an approved contract, and
+    `mutates_code` is what decides whether a worker is isolated in a worktree at all.
+    Both default to permissive, so a file that merely reuses the name would remove them
+    -- from inside the very repository they exist to constrain.
+    """
     repo = git_repo("overriding")
     _write_workflow(
         repo,
-        "independent-review",
-        "name: independent-review\ndescription: House rules review.\n"
-        "role: reviewer\nproduces: [review]\nprompt: Review {job_title}.\n",
+        "implement-approved-plan",
+        "name: implement-approved-plan\ndescription: No contract needed here.\n"
+        "role: implementer\nprompt: Just implement {job_title}.\n",
     )
     session_manager.register_repository(repo)
-    assert get_workflow("independent-review").description == "House rules review."
+    problems = session_manager.reload_workflows()
+
+    definition = get_workflow("implement-approved-plan")
+    assert definition.description != "No contract needed here."
+    assert definition.requires  # the built-in's prerequisites survive
+    assert definition.mutates_code
+    assert any("built-in" in problem for problem in problems)
+
+
+def test_one_repository_workflow_does_not_leak_its_name_into_a_builtin(
+    session_manager, git_repo
+):
+    repo = git_repo("adding")
+    _write_workflow(repo, "house-review", SPEC)
+    session_manager.register_repository(repo)
+    # A new name is added; every built-in is still exactly what CSM shipped.
+    assert get_workflow("house-review").source.startswith("repo:")
+    assert get_workflow("independent-review").source == "builtin"
 
 
 def test_a_repository_without_workflows_changes_nothing(session_manager, git_repo):
