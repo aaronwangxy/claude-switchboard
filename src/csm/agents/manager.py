@@ -118,7 +118,7 @@ class ModelManager:
 
         @tool("inspect_worker", "Inspect one worker's state and recent output.", {"worker_id": str})
         async def inspect_worker(args: dict) -> dict:
-            worker = sm.store.get_worker(_uuid(args["worker_id"]))
+            worker = sm.store.get_worker(_require_uuid(args["worker_id"]))
             if worker is None:
                 return err("No such worker.")
             tail = sm.store.transcript(worker.id)[-4:]
@@ -143,7 +143,7 @@ class ModelManager:
             try:
                 job = sm.create_job(
                     title=args["title"],
-                    repository_id=_uuid(args["repository_id"]),
+                    repository_id=_require_uuid(args["repository_id"]),
                     external_ref=args.get("external_ref") or None,
                     ticket_text=args.get("ticket_text", ""),
                 )
@@ -173,7 +173,7 @@ class ModelManager:
         @tool("route_message", "Send a message to an existing worker.", {"worker_id": str, "message": str})
         async def route_message(args: dict) -> dict:
             try:
-                await sm.send(_uuid(args["worker_id"]), args["message"])
+                await sm.send(_require_uuid(args["worker_id"]), args["message"])
             except (SessionManagerError, ValueError) as exc:
                 return err(str(exc))
             return ok({"sent": True})
@@ -197,7 +197,7 @@ class ModelManager:
 
         @tool("open_worker", "Select a worker in the right-hand pane.", {"worker_id": str})
         async def open_worker(args: dict) -> dict:
-            worker_id = _uuid(args["worker_id"])
+            worker_id = _require_uuid(args["worker_id"])
             if sm.store.get_worker(worker_id) is None:
                 return err("No such worker.")
             sm.selected_worker_id = worker_id
@@ -206,7 +206,7 @@ class ModelManager:
         @tool("interrupt_worker", "Interrupt a worker's current turn.", {"worker_id": str})
         async def interrupt_worker(args: dict) -> dict:
             try:
-                await sm.interrupt_worker(_uuid(args["worker_id"]))
+                await sm.interrupt_worker(_require_uuid(args["worker_id"]))
             except (SessionManagerError, KeyError, ValueError) as exc:
                 return err(str(exc))
             return ok({"interrupted": True})
@@ -214,7 +214,7 @@ class ModelManager:
         @tool("stop_worker", "Stop a worker session.", {"worker_id": str})
         async def stop_worker(args: dict) -> dict:
             try:
-                await sm.stop_worker(_uuid(args["worker_id"]))
+                await sm.stop_worker(_require_uuid(args["worker_id"]))
             except (SessionManagerError, ValueError) as exc:
                 return err(str(exc))
             return ok({"stopped": True})
@@ -248,7 +248,7 @@ class ModelManager:
         @tool("record_decision", "Record the user's answer to a job decision.", {"job_id": str, "question": str, "answer": str})
         async def record_decision(args: dict) -> dict:
             try:
-                sm.record_decision(_uuid(args["job_id"]), args["question"], args["answer"])
+                sm.record_decision(_require_uuid(args["job_id"]), args["question"], args["answer"])
             except (SessionManagerError, ValueError) as exc:
                 return err(str(exc))
             return ok({"recorded": True})
@@ -363,6 +363,14 @@ MANAGER_TOOL_NAMES = [
     "list_attention_items",
     "record_decision",
 ]
+
+
+def _require_uuid(value: Any) -> UUID:
+    """A tool argument that must be a UUID. Malformed input raises, and the handler refuses."""
+    parsed = _uuid(value)
+    if parsed is None:
+        raise ValueError("A valid id is required.")
+    return parsed
 
 
 def _uuid(value: Any) -> UUID | None:

@@ -19,7 +19,7 @@ from claude_agent_sdk import (
     ToolUseBlock,
 )
 
-from csm.agents.backend import BackendHealth, WorkerEvent, WorkerHandle, WorkerSpec
+from csm.agents.backend import BackendHealth, EventType, WorkerEvent, WorkerHandle, WorkerSpec
 
 log = logging.getLogger(__name__)
 
@@ -122,7 +122,7 @@ class SdkWorkerBackend:
         session.task = asyncio.create_task(self._run(session, ready))
         try:
             session_id = await asyncio.wait_for(ready, timeout=120)
-        except (TimeoutError, asyncio.TimeoutError) as exc:
+        except TimeoutError as exc:
             session.alive = False
             session.detail = "Timed out connecting to the Claude runtime."
             raise RuntimeError(session.detail) from exc
@@ -206,7 +206,7 @@ class SdkWorkerBackend:
                     session.session_id = msg.session_id
                     await session.outbox.put(WorkerEvent(wid, "session", msg.session_id))
                 text = "\n".join(final_text)
-                kind = "blocked" if _looks_blocked(text) else "result"
+                kind: EventType = "blocked" if _looks_blocked(text) else "result"
                 await session.outbox.put(
                     WorkerEvent(wid, kind, text, {"is_error": bool(msg.is_error)})
                 )

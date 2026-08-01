@@ -40,7 +40,8 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
-ignore = ["E501", "B008"]
+# UP042: the spec prescribes `class X(str, Enum)`; keep the domain enums as written.
+ignore = ["E501", "B008", "UP042", "UP047"]
 
 [tool.mypy]
 python_version = "3.12"

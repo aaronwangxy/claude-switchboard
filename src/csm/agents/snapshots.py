@@ -89,7 +89,9 @@ def build_snapshot(data: SnapshotInput, route: RouteProposal | None = None) -> s
     active = [w for w in data.workers if w.status in ACTIVE_STATUSES]
     shown = active[:MAX_WORKERS_IN_DETAIL]
     lines.append("\n## Workers")
-    lines += [_worker_line(w, jobs_by_id.get(w.job_id)) for w in shown] or ["- (none)"]
+    lines += [
+        _worker_line(w, jobs_by_id.get(w.job_id) if w.job_id else None) for w in shown
+    ] or ["- (none)"]
     # Everything not shown in detail -- overflow plus every inactive worker -- is
     # summarised by status count so the snapshot stays bounded.
     remainder = active[MAX_WORKERS_IN_DETAIL:] + [

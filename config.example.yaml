@@ -1,0 +1,47 @@
+# Copy to ~/.config/claude-session-manager/config.yaml to override the defaults.
+# Every key is optional; anything omitted keeps the built-in default.
+
+communication:
+  style: concise_plain_english
+  default_verbosity: concise
+  status_max_sentences: 2
+  default_expand_details: false
+  plan_max_lines: 10
+  collapse_tool_output: true
+
+subagents:
+  enabled: true
+  max_concurrent_per_worker: 3
+  prefer_read_only: true
+  allow_nested: false
+
+commits:
+  require_plan: true
+  atomic_by_default: true
+  allow_wip_commits: false
+  test_before_commit: true
+
+# Model IDs are your configuration, not a product default baked into the code.
+# Leaving a value unset falls back to $CSM_STRONG_MODEL / $CSM_FAST_MODEL, and then
+# to whatever model the Claude runtime is already configured to use.
+models:
+  manager: null
+  planner: null
+  implementer: null
+  reviewer: null
+  verifier: null
+  general: null
+
+workflows:
+  rebase-stack:
+    preserve_merges: false
+    autosquash_fixups: true
+    never_force_push: true
+  plan-feature:
+    max_plan_lines: 10
+  review-change:
+    blocking_severities: [blocking, important]
+
+# Which Claude settings each session loads. "project" picks up the repository's
+# CLAUDE.md; "user" picks up your personal settings. Set to [] for hermetic runs.
+setting_sources: [user, project]

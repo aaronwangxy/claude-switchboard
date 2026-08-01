@@ -17,6 +17,7 @@ from uuid import UUID
 from csm.agents.backend import WorkerBackend, WorkerEvent, WorkerSpec
 from csm.agents.prompts import PROMPT_POLICY_VERSION, compose_worker_prompt
 from csm.config import Config
+from csm.core.transitions import WORKFLOW_STAGE, assert_worker_transition
 from csm.domain import events as ev
 from csm.domain.contracts import (
     BehaviorContract,
@@ -54,7 +55,6 @@ from csm.gitops.worktrees import CleanupDecision, WorktreeSafetyError, WorktreeS
 from csm.routing import router
 from csm.routing.router import RouteError, RouteProposal, RoutingState
 from csm.storage.store import Store
-from csm.core.transitions import WORKFLOW_STAGE, assert_worker_transition
 from csm.workflows.freshness import BEHAVIORAL_ARTIFACTS, CodeChange, GitSnapshot, classify_change
 from csm.workflows.registry import WorkflowDefinition, get_workflow, validate_for_role
 
