@@ -68,6 +68,7 @@ def test_launch_respects_executable_settings_sources_environment_and_hook_overla
     launch = prototype.launch(instance.id, cwd=tmp_path)
 
     assert launch.executable == wrapper
+    assert store.get_runtime(instance.id).claude_session_id == launch.expected_session_id
     assert launch.argv[0] == str(wrapper)
     assert launch.argv[-2:] == ("--setting-sources", "user,project,local")
     assert supervisor.launches[0][2:] == (tmp_path, {"COMPANY_PROXY": "configured"})
@@ -77,6 +78,9 @@ def test_launch_respects_executable_settings_sources_environment_and_hook_overla
     assert "switchboard.runtime.hook_bridge" in command
     assert str(instance.id) in command
     assert launch.settings_overlay.stat().st_mode & 0o777 == 0o600
+
+    recovered = prototype.launch(instance.id, cwd=tmp_path)
+    assert recovered.expected_session_id == launch.expected_session_id
 
 
 def test_launch_rejects_a_runtime_bound_to_different_configuration(store, tmp_path: Path):

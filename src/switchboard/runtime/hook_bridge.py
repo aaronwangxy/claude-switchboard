@@ -45,6 +45,11 @@ def handle_hook(store: Store, runtime_id: UUID, payload: dict[str, Any]) -> Runt
     turn: NativeTurn | None = None
 
     if session_id:
+        if runtime.claude_session_id and runtime.claude_session_id != session_id:
+            raise ValueError(
+                f"Claude session {session_id} does not match runtime "
+                f"{runtime.claude_session_id}."
+            )
         runtime.claude_session_id = session_id
 
     if name == "SessionStart":
@@ -59,7 +64,8 @@ def handle_hook(store: Store, runtime_id: UUID, payload: dict[str, Any]) -> Runt
         store.save_native_turn(turn)
         runtime.process_state = RuntimeProcessState.TURN_ACTIVE
     elif name == "PermissionRequest" or (
-        name == "Notification" and payload.get("notification_type") == "permission_prompt"
+        name == "Notification"
+        and payload.get("notification_type") in ("permission_prompt", "elicitation_dialog")
     ):
         turn = store.active_native_turn(runtime_id, prompt_id)
         if turn is not None:

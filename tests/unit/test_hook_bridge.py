@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+import pytest
+
 from switchboard.domain.contracts import extract_json_block
 from switchboard.domain.enums import (
     NativeTurnOrigin,
@@ -199,3 +201,20 @@ def test_permission_failure_and_session_lifecycle_are_distinct(store):
         "StopFailure",
         "SessionEnd",
     ]
+
+
+def test_hook_rejects_a_different_claude_session_for_bound_runtime(store):
+    instance = runtime(store)
+    instance.claude_session_id = "expected-session"
+    store.save_runtime(instance)
+
+    with pytest.raises(ValueError, match="does not match"):
+        handle_hook(
+            store,
+            instance.id,
+            {
+                "hook_event_name": "SessionStart",
+                "session_id": "stale-session",
+                "source": "startup",
+            },
+        )

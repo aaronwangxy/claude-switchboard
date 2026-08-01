@@ -81,7 +81,12 @@ class NativeClaudePrototype:
             raise TmuxError(
                 "Native Claude launch fingerprint does not match the durable runtime."
             )
-        session_id = str(uuid4())
+        # Re-running launch during recovery must describe/adopt the same Claude session,
+        # not allocate a replacement identity before the supervisor can observe tmux.
+        session_id = runtime.claude_session_id or str(uuid4())
+        runtime.claude_session_id = session_id
+        runtime.updated_at = now()
+        self.store.save_runtime(runtime)
         settings = self._write_settings(runtime_id)
         argv = (
             str(executable),
