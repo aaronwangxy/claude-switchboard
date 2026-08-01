@@ -37,7 +37,7 @@ def at(seconds: int) -> datetime:
 
 
 @pytest.fixture
-def reopen(csm_home: Path):
+def reopen(sb_home: Path):
     """Close a store and hand back a brand new one on the same database file."""
 
     opened: list[Store] = []

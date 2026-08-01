@@ -68,23 +68,24 @@ affected verification.
 
 ## Architecture
 
-Python package `csm` under `src/`. `SessionManager` is the hub: it owns every invariant and
-is the only thing the UI and the manager act through.
+Python package `switchboard` under `src/`. `SessionManager` is the hub: it owns every
+invariant and is the only thing the UI and the manager act through.
 
-**What CSM owns, and what Claude owns.** CSM is a semantic control plane over ongoing
-work, not a reimplementation of an agent. Claude Code owns the agent loop, tools, session
-persistence and resume, subagents, skills, CLAUDE.md/settings inheritance, permissions,
-and Dynamic Workflows *inside* a worker. CSM owns the layer above: the manager and its
-routing, independent worker lifecycle, the job/repo/branch/worktree/session graph,
-workflow selection and composition, approval gates, attention routing, durable
-cross-session state, and contracts/evidence/freshness. Prefer deleting anything in CSM
-that Claude already does well.
+**What Switchboard owns, and what Claude owns.** Switchboard is a semantic control plane
+over ongoing work, not a reimplementation of an agent. Claude Code owns the agent loop,
+tools, session persistence and resume, subagents, skills, CLAUDE.md/settings inheritance,
+permissions, and Dynamic Workflows *inside* a worker. Switchboard owns the layer above:
+the manager and its routing, independent worker lifecycle, the
+job/repo/branch/worktree/session graph, workflow selection and composition, approval
+gates, attention routing, durable cross-session state, and contracts/evidence/freshness.
+Prefer deleting anything in Switchboard that Claude already does well.
 
-Dynamic Workflows deliberately do *not* back CSM's composite runs. Their documented
-limits rule it out: no mid-run user input ("for sign-off between stages, run each stage
-as its own workflow"), resume only within the same session, and their units are subagents
-rather than sessions you can enter. CSM's runs are durable, human-gated, and made of real
-worker sessions. They remain a good tool for a worker to reach for.
+Dynamic Workflows deliberately do *not* back Switchboard's composite runs. Their
+documented limits rule it out: no mid-run user input ("for sign-off between stages, run
+each stage as its own workflow"), resume only within the same session, and their units
+are subagents rather than sessions you can enter. Switchboard's runs are durable,
+human-gated, and made of real worker sessions. They remain a good tool for a worker to
+reach for.
 
 | Module | Responsibility |
 | --- | --- |
@@ -96,7 +97,7 @@ worker sessions. They remain a good tool for a worker to reach for.
 | `routing/` | Deterministic router and attention-queue ordering |
 | `core/` | `SessionManager` (the orchestrator) and guarded state transitions |
 | `ui/` | Three-pane Textual app; presentation only |
-| `app.py` | Bootstrap and the `csm` / `csm workflows` / `csm config` command surface |
+| `app.py` | Bootstrap and the `sb` / `sb workflows` / `sb config` command surface |
 
 **Manager / job / worker.** A *job* is one unit of work in a repository (usually a ticket)
 with a stage and its artifacts. A *worker* is one independent Claude session with a role,
@@ -134,7 +135,7 @@ resumes each worker by its stored `session_id`, or marks it `disconnected` with 
 human-readable reason (missing worktree, no session id, resume failure).
 
 **Worktrees.** Only writable workers get one, always a fresh path under the managed root
-(`<data dir>/worktrees/<repo>/<job>-<role>-<id8>`, branch `csm/<slug>-<id8>`) — never inside
+(`<data dir>/worktrees/<repo>/<job>-<role>-<id8>`, branch `sb/<slug>-<id8>`) — never inside
 the user's repository. Read-only workers get no worktree; they observe the job's writable
 worktree path, or the repo root. `WorktreeService` owns creation, inspection, and the
 cleanup decision; nothing else may remove a directory.
@@ -159,18 +160,18 @@ never replaces it — layering concision policy, role policy, read-only note, su
 workflow policy, and verbosity. `PROMPT_POLICY_VERSION` is persisted per worker.
 
 **Workflows.** `WORKFLOWS` is loaded from YAML: built-in (`workflows/builtin/`), then the
-user's (`~/.csm/workflows`), then each registered repository's `.csm/workflows`. A
-malformed file is reported and skipped, never raised. **Built-in names are reserved**: a
-workflow's `requires` and `mutates_code` are what enforce contract prerequisites and
-worktree isolation, both default to permissive, and a repository's workflows travel
-inside the repository they would be constraining. Each
-is a `WorkflowDefinition` declaring allowed roles, required/produced artifacts, whether it
-mutates code, what it invalidates, and a prompt template. `SessionManager` renders the template, enforces prerequisites
-(`_assert_prerequisites`: implementation cannot run without a current *and approved*
-implementation contract with no unanswered blocking decisions), advances the job stage via
-`WORKFLOW_STAGE`, and harvests the artifact the workflow produces. Freshness is decided from
-Git head/tree hashes alone — a same-tree change only moves lineage forward, a tree change
-invalidates behavioral artifacts.
+user's (`~/.switchboard/workflows`), then each registered repository's
+`.switchboard/workflows`. A malformed file is reported and skipped, never raised.
+**Built-in names are reserved**: a workflow's `requires` and `mutates_code` are what
+enforce contract prerequisites and worktree isolation, both default to permissive, and a
+repository's workflows travel inside the repository they would be constraining. Each is a
+`WorkflowDefinition` declaring allowed roles, required/produced artifacts, whether it
+mutates code, what it invalidates, and a prompt template. `SessionManager` renders the
+template, enforces prerequisites (`_assert_prerequisites`: implementation cannot run
+without a current *and approved* implementation contract with no unanswered blocking
+decisions), advances the job stage via `WORKFLOW_STAGE`, and harvests the artifact the
+workflow produces. Freshness is decided from Git head/tree hashes alone — a same-tree
+change only moves lineage forward, a tree change invalidates behavioral artifacts.
 
 **Composite runs.** A composite workflow is a list of steps with a condition, an approval
 gate, and a bounded `max_iterations`. `WorkflowRun` is persisted, so a run survives a
@@ -179,9 +180,9 @@ backwards move is a bounded repeat, so a run provably terminates. Safety invaria
 never configurable from a workflow.
 
 **Mining.** `mine-workflows` is an ordinary read-only workflow whose input is
-`SessionManager.workflow_history()` -- CSM's own record of what ran, in order, per job. It
-produces `WORKFLOW_PROPOSALS`, which are inert; only `accept_proposal` writes a proposal
-out, as an ordinary user workflow file.
+`SessionManager.workflow_history()` -- Switchboard's own record of what ran, in order,
+per job. It produces `WORKFLOW_PROPOSALS`, which are inert; only `accept_proposal` writes
+a proposal out, as an ordinary user workflow file.
 
 **Claude settings inheritance.** `config.setting_sources` (default `["user", "project"]`)
 is passed to each worker SDK session, so workers pick up my user settings and the *target*
@@ -204,7 +205,7 @@ Enforced in ordinary Python, never by asking a model to behave:
 9. A malformed manager tool call returns a refusal, never an exception that kills the turn.
 10. A user or repository workflow may not redefine a built-in, so declared prerequisites
     and `mutates_code` cannot be stripped by a file in the repository being worked on.
-11. While the user is attached to a worker, CSM refuses to send to it.
+11. While the user is attached to a worker, Switchboard refuses to send to it.
 
 Known gap: read-only workers keep Bash (reviewers and verifiers need it), so read-only is
 enforced by tool policy and prompt, not a sandbox. See `docs/mvp-evidence.md` limitation 1.
@@ -213,8 +214,8 @@ enforced by tool policy and prompt, not a sandbox. See `docs/mvp-evidence.md` li
 
 - `WorkerBackend` protocol — add a backend (e.g. a native `claude` CLI/PTY) without
   touching orchestration.
-- `WORKFLOWS` registry — add a workflow by dropping YAML in `~/.csm/workflows` or a
-  repository's `.csm/workflows`; no core change, and no privileged built-in path.
+- `WORKFLOWS` registry — add a workflow by dropping YAML in `~/.switchboard/workflows`
+  or a repository's `.switchboard/workflows`; no core change, no privileged built-in path.
 - `ArtifactType` + `domain/contracts.py` — add an artifact type with its Pydantic schema.
 - `routing/router.py` — routing rules stay deterministic and testable without a model.
 - `AttentionKind` ordering — enum order *is* the priority.
@@ -225,12 +226,12 @@ enforced by tool policy and prompt, not a sandbox. See `docs/mvp-evidence.md` li
 
 ```bash
 python3 -m venv .venv && ./.venv/bin/pip install -e ".[dev]"   # install
-./.venv/bin/csm                                                # launch (or: csm claude)
-./.venv/bin/csm --register /path/to/repo                       # register a repo at startup
-./.venv/bin/csm workflows                                      # what routing can reach
-./.venv/bin/csm config                                         # effective config and paths
-./.venv/bin/csm --log-file /tmp/csm.log                        # logs (otherwise discarded)
-CSM_BACKEND=scripted ./.venv/bin/csm                           # offline: no model calls
+./.venv/bin/sb                                                 # launch (or: sb claude)
+./.venv/bin/sb --register /path/to/repo                        # register a repo at startup
+./.venv/bin/sb workflows                                       # what routing can reach
+./.venv/bin/sb config                                          # effective config and paths
+./.venv/bin/sb --log-file /tmp/switchboard.log                 # logs (otherwise discarded)
+SB_BACKEND=scripted ./.venv/bin/sb                             # offline: no model calls
 
 ./.venv/bin/python -m pytest -q                                # full suite, ~40s
 ./.venv/bin/ruff check src tests
@@ -240,7 +241,7 @@ CSM_BACKEND=scripted ./.venv/bin/csm                           # offline: no mod
 
 `tests/unit` covers routing, attention, transitions, freshness, prompts, and worktree
 safety; `tests/integration` drives the store, worktrees, manager tools, worker recovery,
-the full feature loop, and the UI headlessly through Textual's pilot. Set `CSM_HOME` to an
+the full feature loop, and the UI headlessly through Textual's pilot. Set `SB_HOME` to an
 isolated directory for any manual run that should not touch real state.
 
 ## Maintenance

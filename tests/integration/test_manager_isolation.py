@@ -1,6 +1,6 @@
-"""The manager's context is CSM's own state -- never a repository's.
+"""The manager's context is Switchboard's own state -- never a repository's.
 
-If the manager inherited the CLAUDE.md of whichever repository CSM happened to be
+If the manager inherited the CLAUDE.md of whichever repository Switchboard happened to be
 launched from, it would stop being a router and start behaving like that repository's
 coding agent. These assertions are about that boundary, not about model behaviour.
 """
@@ -31,7 +31,7 @@ def test_the_manager_loads_no_setting_sources(options):
     assert options.setting_sources == []
 
 
-def test_the_manager_runs_in_the_csm_data_directory(options, session_manager):
+def test_the_manager_runs_in_the_switchboard_data_directory(options, session_manager):
     assert Path(options.cwd) == session_manager.store.path.parent
 
 

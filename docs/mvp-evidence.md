@@ -17,7 +17,7 @@ python3 -m venv .venv
 ./.venv/bin/pip install -e ".[dev]"
 ```
 
-Exit code `0`. `./.venv/bin/python -c "import csm, textual, pydantic, claude_agent_sdk"` →
+Exit code `0`. `./.venv/bin/python -c "import switchboard, textual, pydantic, claude_agent_sdk"` →
 `setup ok`.
 
 Installed: `claude-agent-sdk`, `textual 8.2.8`, `pydantic 2.13.4`, `pyyaml`, `anyio`;
@@ -26,12 +26,12 @@ dev extras `pytest`, `pytest-asyncio`, `ruff`, `mypy`.
 ## 2. Launch
 
 ```bash
-./.venv/bin/python -m csm                        # three-pane UI, Agent SDK backend
-./.venv/bin/python -m csm --register /path/repo  # register a repository at startup
-CSM_BACKEND=scripted ./.venv/bin/python -m csm   # offline demo, no model calls
+./.venv/bin/sb                        # three-pane UI, Agent SDK backend
+./.venv/bin/sb --register /path/repo  # register a repository at startup
+SB_BACKEND=scripted ./.venv/bin/sb    # offline demo, no model calls
 ```
 
-`./.venv/bin/python -m csm --help` exits `0` and prints the `--register` / `--log-file`
+`./.venv/bin/python -m switchboard --help` exits `0` and prints the `--register` / `--log-file`
 options.
 
 ## 3. Verification commands and results
@@ -56,7 +56,7 @@ Recorded before substantial implementation and verified against at the end.
 
 ### 4.1 Implementation contract
 
-1. Python package `csm` under `src/`, layered: `domain` → `storage`/`gitops` → `core` →
+1. Python package `switchboard` under `src/`, layered: `domain` → `storage`/`gitops` → `core` →
    `agents`/`routing`/`workflows` → `ui`. Business logic never lives in a widget.
 2. SQLite is the system of record; Pydantic models define shape and are stored as JSON
    alongside queryable columns.
@@ -73,7 +73,7 @@ Material decisions taken (no user input required):
 - Agent SDK backend first; the `WorkerBackend` seam exists but no PTY backend is built.
 - Read-only workers run in the job's writable worktree so reviewers see the change without
   owning it.
-- Model IDs are configuration with `CSM_STRONG_MODEL` / `CSM_FAST_MODEL` env defaults.
+- Model IDs are configuration with `SB_STRONG_MODEL` / `SB_FAST_MODEL` env defaults.
 
 Planned commit stack: scaffold → domain → storage → git → agents → workflows → core →
 manager → UI → tests → evidence. The delivered stack (§5) matches, with three additional
@@ -99,7 +99,7 @@ contract verbatim. The checklist is in §8 below.
 
 | Commit | Purpose |
 | --- | --- |
-| `b96c2fe` | Scaffold the `csm` package and dependency manifest against the locked stack. |
+| `b96c2fe` | Scaffold the `switchboard` package and dependency manifest against the locked stack. |
 | `469a9a7` | Domain models, enums, the three contracts, events, and configuration. |
 | `29b233d` | SQLite schema and durable store; the store is the system of record. |
 | `e6adcb2` | Git runner and worktree service carrying every Git safety invariant. |
@@ -137,7 +137,7 @@ the primary worker was editing.
 | Helper | Scope | Owned files | How its output was verified |
 | --- | --- | --- | --- |
 | Storage/worktree tests | Write tests for the persistence and worktree layers; report but do not fix source bugs | `tests/conftest.py`, `tests/unit/test_worktree_safety.py`, `tests/integration/test_storage_persistence.py`, `tests/integration/test_worktrees.py` | Reran its 39 tests directly; read its reported source findings and fixed two myself (see below). |
-| Textual UI | Build the three-pane UI against a frozen `SessionManager` API | `src/csm/ui/*`, `src/csm/app.py`, `src/csm/__main__.py`, `ui-*.txt` | Reran its headless pilot on current HEAD (all checks pass), read `app.py` and the relevant parts of `screens.py`, fixed the one mypy error it left, and folded a durable version of its pilot into `tests/integration/test_ui.py`. |
+| Textual UI | Build the three-pane UI against a frozen `SessionManager` API | `src/switchboard/ui/*`, `src/switchboard/app.py`, `src/switchboard/__main__.py`, `ui-*.txt` | Reran its headless pilot on current HEAD (all checks pass), read `app.py` and the relevant parts of `screens.py`, fixed the one mypy error it left, and folded a durable version of its pilot into `tests/integration/test_ui.py`. |
 | Independent reviewer | Fresh review of `dd39f29..HEAD` with the spec, diff, commits, and evidence but not the implementer's reasoning | none (read-only) | Findings triaged in §7. |
 
 Helper completion was never treated as evidence. Both writable helpers reported real
@@ -222,7 +222,7 @@ All 50 criteria from `original-spec.md` §17. "Test" names are in
 
 | # | Criterion | ✓ | Evidence |
 | --- | --- | --- | --- |
-| 1 | `python -m csm` launches after documented setup | ✓ | §1–2 above; `--help` exits 0; `test_ui.py` boots the real `CsmApp` |
+| 1 | `python -m switchboard` launches after documented setup | ✓ | §1–2 above; `--help` exits 0; `test_ui.py` boots the real `CsmApp` |
 | 2 | UI has manager, worker list/attention, and worker panes | ✓ | `test_the_window_has_all_three_panes_and_one_manager_input`; `ui-01…04` |
 | 3 | A repository can be registered and persisted | ✓ | `test_storage_persistence.py`; `scenario.log` §1; recovery restores it (§9) |
 | 4 | Two independent workers in one repository, no shared writable worktree | ✓ | `test_two_writable_workers_in_one_repo_get_separate_worktrees`; `scenario.log` §3 |
@@ -310,6 +310,11 @@ All 50 criteria from `original-spec.md` §17. "Test" names are in
 
 Full logs: `scenario.log` (deterministic backend) and `smoke-real-sdk.log`
 (real Agent SDK and real manager model).
+
+Both logs, and every excerpt quoted from them below, predate the rename to Switchboard.
+They are left verbatim rather than rewritten, so they still show the old `csm` package,
+`CSM_*` variables, and `csm/<slug>` branches. Only the names changed; nothing they
+demonstrate did.
 
 `scenario.log` predates the freshness refactor in `f04bd51`, which touches the
 invalidation behaviour the log demonstrates, so the scenario was rerun on the final HEAD
@@ -400,7 +405,7 @@ No blocking decisions — the spec is clear and straightforward.
 The structured contract stored alongside it: 4 plan lines (cap is 10), a 2-commit stack,
 0 blocking decisions, and acceptance criteria `AC1, AC2, AC3, SMOKE`.
 
-The scripted planner (`src/csm/agents/scripted_backend.py:28-40`) shows the decision shape
+The scripted planner (`src/switchboard/agents/scripted_backend.py:28-40`) shows the decision shape
 when one is needed — concrete options, a recommendation, and `blocking: true`. It is
 quoted here from that source. In `ui-03-two-workers.txt` the worker pane is scrolled
 past most of this object, but the `[NEEDS DECISION] Choose the legacy-write strategy.`
@@ -480,7 +485,7 @@ A worker whose worktree has vanished, or which never captured a session id, is m
 `ui-01-startup.txt`, `ui-02-blocked-planner.txt`, `ui-03-two-workers.txt`,
 `ui-04-help.txt`, regenerated by `scripts/capture_ui.py` against the current UI. They
 are reproducible rather than pasted: the script drives the real application headlessly
-on the scripted backend, against a throwaway `CSM_HOME` and a throwaway repository.
+on the scripted backend, against a throwaway `SB_HOME` and a throwaway repository.
 
 The captures were regenerated when the interface was simplified (panel borders replaced
 by one dim rule, and per-worker role/stage/repository/model metadata moved out of the
@@ -551,7 +556,7 @@ These are deliberate. Each is recorded rather than solved, per the prototype's s
    route proposal is advisory to the model; only the safety invariants are mandatory. The
    first real-SDK run showed the model trying to skip planning, which the prerequisite gate
    refused (`7e5b562`). Refusals bound the damage; they do not guarantee an optimal route.
-7. **No `git worktree` locking.** Two `csm` processes against the same data directory could
+7. **No `git worktree` locking.** Two `sb` processes against the same data directory could
    race. Single-process personal use is the documented operating path.
 8. **Manager turn latency is not streamed.** The manager's reply appears when the turn
    finishes. Worker output streams; the manager's does not.
@@ -571,9 +576,9 @@ seam exists for it), and any Electron/React/TypeScript/Node dependency.
 
 ## 12. Assumptions made
 
-1. `~/.local/share/claude-session-manager/` is the data root, overridable with `CSM_HOME`;
-   `~/.config/claude-session-manager/config.yaml` is the config path, overridable with
-   `CSM_CONFIG`. Nothing is written inside the user's source repository.
+1. `~/.local/share/switchboard/` is the data root, overridable with `SB_HOME`;
+   `~/.config/switchboard/config.yaml` is the config path, overridable with
+   `SB_CONFIG`. Nothing is written inside the user's source repository.
 2. `setting_sources` defaults to `["user", "project"]`, so worker sessions do load the
    repository's `CLAUDE.md` and the user's Claude settings. This is documented in
    `config.example.yaml` and can be set to `[]`.
@@ -584,5 +589,5 @@ seam exists for it), and any Electron/React/TypeScript/Node dependency.
    separate explicit action and is not implemented.
 5. `Ctrl+C` is Textual's own binding, so interrupt is `Ctrl+O`; the command palette is
    disabled so `Ctrl+P` can pin. Both substitutions are listed on the help screen.
-6. The scripted backend is a first-class operating mode (`CSM_BACKEND=scripted`), not just
+6. The scripted backend is a first-class operating mode (`SB_BACKEND=scripted`), not just
    test scaffolding, so the whole control plane can be demonstrated without model calls.

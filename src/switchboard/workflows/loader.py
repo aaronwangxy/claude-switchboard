@@ -2,7 +2,7 @@
 
 Workflows are YAML. The built-ins ship inside the package and are loaded by exactly the
 same code as a workflow the user drops into `~/.switchboard/workflows` -- adding one requires no
-change to CSM.
+change to Switchboard.
 
 Built-in *names* are reserved, though. A workflow's declarations are load-bearing:
 `requires` is what stops implementation running without an approved contract, and
@@ -78,7 +78,7 @@ def load_directory(
 ) -> None:
     """Load one directory into `into`, recording rather than raising on a bad file.
 
-    One broken user workflow must not stop CSM from starting; it is reported instead.
+    One broken user workflow must not stop Switchboard from starting; it is reported instead.
     A file claiming a reserved name is refused the same way, so the built-in it would
     have replaced stays in force.
     """

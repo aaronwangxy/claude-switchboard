@@ -2,7 +2,7 @@
 
 The product claim is that a worker is an ordinary Claude session: the user can step
 into it exactly as if they had opened its worktree and run `claude`. These tests hold
-CSM to that -- the command it produces, and what it does to its own state first.
+Switchboard to that -- the command it produces, and what it does to its own state first.
 """
 
 from __future__ import annotations
@@ -103,7 +103,7 @@ class TestSessionManagerAttach:
 
 
 class TestAttachHandsOverControl:
-    async def test_csm_refuses_to_send_while_the_user_is_attached(self, session_manager, worker):
+    async def test_switchboard_refuses_to_send_while_the_user_is_attached(self, session_manager, worker):
         """Two writers would interleave turns in one session file."""
         await session_manager.attach(worker.id)
         with pytest.raises(SessionManagerError, match="attached"):

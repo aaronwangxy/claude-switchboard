@@ -38,18 +38,18 @@ def isolated_workflows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Itera
 
 
 @pytest.fixture
-def csm_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """A temporary CSM data directory, exported as `SB_HOME` for the test."""
-    home = tmp_path / "csm-home"
+def sb_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A temporary Switchboard data directory, exported as `SB_HOME` for the test."""
+    home = tmp_path / "sb-home"
     home.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv(HOME_ENV, str(home))
     return home
 
 
 @pytest.fixture
-def store(csm_home: Path) -> Iterator[Store]:
-    """A `Store` on a throwaway database inside `csm_home`."""
-    store = Store(csm_home / "switchboard.db")
+def store(sb_home: Path) -> Iterator[Store]:
+    """A `Store` on a throwaway database inside `sb_home`."""
+    store = Store(sb_home / "switchboard.db")
     try:
         yield store
     finally:
@@ -72,8 +72,8 @@ def git_repo(tmp_path: Path) -> Callable[[str], Path]:
         path = repos_root / name
         path.mkdir(parents=True)
         _git(path, "init", "-b", "main", "--quiet")
-        _git(path, "config", "user.email", "csm-tests@example.com")
-        _git(path, "config", "user.name", "CSM Tests")
+        _git(path, "config", "user.email", "switchboard-tests@example.com")
+        _git(path, "config", "user.name", "Switchboard Tests")
         _git(path, "config", "commit.gpgsign", "false")
         (path / "README.md").write_text(f"# {name}\n")
         _git(path, "add", "README.md")
@@ -84,9 +84,9 @@ def git_repo(tmp_path: Path) -> Callable[[str], Path]:
 
 
 @pytest.fixture
-def worktree_service(csm_home: Path) -> WorktreeService:
-    """A `WorktreeService` whose managed root lives under `csm_home`."""
-    return WorktreeService(root=csm_home / "worktrees")
+def worktree_service(sb_home: Path) -> WorktreeService:
+    """A `WorktreeService` whose managed root lives under `sb_home`."""
+    return WorktreeService(root=sb_home / "worktrees")
 
 
 @pytest.fixture
@@ -106,7 +106,7 @@ def commit_file(cwd: Path, name: str, content: str, message: str) -> str:
     """Write, stage, and commit a file in `cwd`; returns the new HEAD."""
     (cwd / name).write_text(content)
     _git(cwd, "add", "-A")
-    _git(cwd, "-c", "user.email=csm-tests@example.com", "-c", "user.name=CSM Tests",
+    _git(cwd, "-c", "user.email=switchboard-tests@example.com", "-c", "user.name=Switchboard Tests",
          "commit", "--quiet", "-m", message)
     return _git(cwd, "rev-parse", "HEAD").strip()
 

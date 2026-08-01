@@ -1,6 +1,6 @@
 """Mining repeated rituals into proposed workflows.
 
-The point of mining is that CSM already records what the user actually does. The
+The point of mining is that Switchboard already records what the user actually does. The
 constraint that makes it safe is that a proposal changes nothing until it is accepted.
 """
 

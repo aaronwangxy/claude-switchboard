@@ -232,10 +232,10 @@ class MainScreen(Screen):
 
 
 class SwitchboardApp(App[None]):
-    """The application shell. All behaviour is delegated to the session manager."""
+    """The application shell. All behaviour is delegated to `SessionManager`."""
 
     CSS_PATH = "app.tcss"
-    TITLE = "Claude Session Manager"
+    TITLE = "Switchboard"
 
     #: Textual binds Ctrl+P to its command palette; the documented pin binding wins.
     ENABLE_COMMAND_PALETTE = False
@@ -605,10 +605,10 @@ class SwitchboardApp(App[None]):
         self.refresh_worker_pane()
 
     async def action_attach(self) -> None:
-        """Suspend CSM and hand the terminal to the selected worker's own session.
+        """Suspend Switchboard and hand the terminal to the selected worker's own session.
 
         The worker is an ordinary Claude session, so this runs the same `claude --resume`
-        the user could have run themselves. CSM comes back when they exit it.
+        the user could have run themselves. Switchboard comes back when they exit it.
         """
         worker_id = self.sm.selected_worker_id
         if worker_id is None:
@@ -640,10 +640,10 @@ class SwitchboardApp(App[None]):
         run = self.sm.store.run_for_worker(worker_id)
         if run is not None and run.status is RunStatus.BLOCKED:
             return (
-                "Back in CSM. That worker's workflow run is paused where you left it — "
+                "Back in Switchboard. That worker's workflow run is paused where you left it — "
                 "say 'resume the run' to carry on, or just keep working."
             )
-        return "Back in CSM."
+        return "Back in Switchboard."
 
     def action_help(self) -> None:
         self.push_screen(HelpScreen())

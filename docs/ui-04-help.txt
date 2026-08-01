@@ -1,5 +1,5 @@
-csm — help screen
-=================
+sb — help screen
+================
 
 
 
@@ -7,7 +7,7 @@ csm — help screen
 
                                  ┌──────────────────────────────────────────────────────────────────────────────────┐
                                  │                                                                                  │
-                                 │  Claude Session Manager                                                          │
+                                 │  Switchboard                                                                     │
                                  │                                                                                  │
                                  │    Ctrl+N       Focus the manager input                                          │
                                  │    Ctrl+J       Select the next worker                                           │

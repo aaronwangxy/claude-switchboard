@@ -1,7 +1,7 @@
 """Workflows that travel with a repository.
 
 A team convention belongs to the repository, not to whichever machine happens to be
-running CSM, so registering a repository picks up its `.switchboard/workflows` directory.
+running Switchboard, so registering a repository picks up its `.switchboard/workflows` directory.
 """
 
 from __future__ import annotations
@@ -69,7 +69,7 @@ def test_one_repository_workflow_does_not_leak_its_name_into_a_builtin(
     repo = git_repo("adding")
     _write_workflow(repo, "house-review", SPEC)
     session_manager.register_repository(repo)
-    # A new name is added; every built-in is still exactly what CSM shipped.
+    # A new name is added; every built-in is still exactly what Switchboard shipped.
     assert get_workflow("house-review").source.startswith("repo:")
     assert get_workflow("independent-review").source == "builtin"
 

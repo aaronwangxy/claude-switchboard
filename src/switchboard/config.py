@@ -83,7 +83,7 @@ class ClaudeConfig(BaseModel):
     The executable is configuration rather than a hardcoded `claude`, so a wrapper can be
     used instead. The parent environment is always inherited so such a wrapper keeps
     working; `env` only adds to it. Nothing here can bypass managed policy -- the wrapper
-    is still the Claude CLI, and CSM only chooses which one to launch.
+    is still the Claude CLI, and Switchboard only chooses which one to launch.
     """
 
     executable: str | None = None
@@ -137,8 +137,8 @@ def worktree_root() -> Path:
 def user_workflows_dir() -> Path:
     """Where the user's own workflow definitions live.
 
-    `~/.switchboard/workflows` by default; relocated with the rest of CSM's state when `SB_HOME`
-    is set, so an isolated run never reads or writes the real one.
+    `~/.switchboard/workflows` by default; relocated with the rest of Switchboard's
+    state when `SB_HOME` is set, so an isolated run never reads or writes the real one.
     """
     override = os.getenv(WORKFLOWS_ENV)
     if override:

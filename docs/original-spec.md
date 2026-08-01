@@ -1,5 +1,12 @@
 # Goal: Build the Claude Session Manager
 
+> **Historical document.** This is the specification as originally written, kept
+> unedited. The project has since been named **Switchboard**: the package is
+> `switchboard`, the command is `sb`, variables are `SB_*`, and state lives under
+> `~/.config/switchboard/` and `~/.local/share/switchboard/`. Read the names below as
+> historical; see [`../README.md`](../README.md) and [`../CLAUDE.md`](../CLAUDE.md) for
+> what the code actually does now.
+
 > **This file is the complete product and implementation specification.**
 > Implement the application described here end to end. Do not depend on a separate README, handoff document, or prior conversation.
 

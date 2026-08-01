@@ -19,7 +19,7 @@ from switchboard.workflows.registry import (
 )
 from switchboard.workflows.spec import Approval, StepCondition, WorkerMode, WorkflowDefinition
 
-#: Every workflow the goal requires CSM to ship.
+#: Every workflow the goal requires Switchboard to ship.
 REQUIRED_BUILTINS = [
     "complete-ticket",
     "ask-question",
@@ -141,7 +141,7 @@ prompt: |
 """
 
 
-def test_a_user_can_add_a_workflow_without_editing_csm(isolated_workflows: Path):
+def test_a_user_can_add_a_workflow_without_editing_switchboard(isolated_workflows: Path):
     _write(isolated_workflows, "post-rebase-verify.yaml", CUSTOM)
     assert reload_workflows() == []
     definition = get_workflow("post-rebase-verify")

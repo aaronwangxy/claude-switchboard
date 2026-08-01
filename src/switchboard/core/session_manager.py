@@ -795,7 +795,7 @@ class SessionManager:
             "commits": "",
             "diff": "",
         }
-        # A workflow that mines rituals is given CSM's own history instead of a repository.
+        # A workflow that mines rituals is given Switchboard's own history instead of a repository.
         if ArtifactType.WORKFLOW_PROPOSALS in definition.produces:
             values |= {
                 "history": self.workflow_history(),
@@ -838,7 +838,7 @@ class SessionManager:
     # ---------------------------------------------------------------- mining
 
     def workflow_history(self, limit: int = 200) -> str:
-        """CSM's own record of what was run, grouped by job and ordered in time.
+        """Switchboard's own record of what was run, grouped by job and ordered in time.
 
         This is the whole input to mining. It is structured state rather than any
         transcript, so it stays small and contains no repository content -- but it does
@@ -968,7 +968,7 @@ class SessionManager:
         """Hand this worker's session back to the user as an ordinary Claude session.
 
         A worker mid-turn is interrupted first, and until `detach` it is marked attached:
-        `send` refuses, so nothing CSM does appends to a session file the user's own
+        `send` refuses, so nothing Switchboard does appends to a session file the user's own
         client is writing. Any composite run the worker belongs to pauses in a resumable
         state -- what happens next is the user's to decide, not the run's, but deciding
         "carry on" has to remain possible.
@@ -996,7 +996,7 @@ class SessionManager:
         return attachment
 
     def detach(self, worker_id: UUID) -> Worker:
-        """The user has left the session. CSM may drive it again; the run stays paused.
+        """The user has left the session. Switchboard may drive it again; the run stays paused.
 
         The run is deliberately not resumed here. The user has just been editing in that
         worktree by hand, so whether the ritual should carry on from where it stopped is
@@ -1014,7 +1014,7 @@ class SessionManager:
         """What the user should know before taking this session over, if anything.
 
         Attaching starts an ordinary interactive Claude, which has none of the tool
-        restrictions CSM gave the worker. That is the user's prerogative -- but a
+        restrictions Switchboard gave the worker. That is the user's prerogative -- but a
         read-only worker usually sits in *another* worker's worktree, so it is worth
         saying that the session they are about to drive can write there.
         """

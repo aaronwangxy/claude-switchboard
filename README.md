@@ -1,4 +1,4 @@
-# Claude Session Manager
+# Switchboard
 
 A one-window control plane for multiple independent Claude coding sessions.
 
@@ -16,19 +16,20 @@ Running multiple coding agents is useful. Managing them manually is tedious:
 
 The engineering work can run in parallel, but the human becomes a process manager.
 
-Claude Session Manager removes that operational burden while keeping every worker
+Switchboard removes that operational burden while keeping every worker
 isolated and directly interactive.
 
 Where it is going: paste a ticket into the manager chat and it gets routed and consumed
 by the right agent — planned, implemented, verified, reviewed — surfacing to you only
 where a human decision genuinely matters.
 
-CSM is deliberately thin. Claude Code already owns the agent loop, tools, session
-persistence, subagents, skills, and settings inheritance, and CSM reuses all of it. What
-CSM owns is the layer above: understanding a casual reference to work in flight,
-resolving it against the durable relationships between jobs, repositories, branches,
-worktrees, and sessions, choosing the development ritual you prefer, and holding the
-contracts and evidence that decide whether a change is actually finished.
+Switchboard is deliberately thin. Claude Code already owns the agent loop, tools,
+session persistence, subagents, skills, and settings inheritance, and Switchboard reuses
+all of it. What Switchboard owns is the layer above: understanding a casual reference to
+work in flight, resolving it against the durable relationships between jobs,
+repositories, branches, worktrees, and sessions, choosing the development ritual you
+prefer, and holding the contracts and evidence that decide whether a change is actually
+finished.
 
 ## Contracts
 
@@ -73,7 +74,7 @@ have typed:
 cd <worktree> && claude --resume <session id>
 ```
 
-CSM interrupts the worker, refuses to send to it while you are there, and pauses any
+Switchboard interrupts the worker, refuses to send to it while you are there, and pauses any
 workflow run it belongs to. When you exit, the run stays paused until you say "resume the
 run" — you have just been editing by hand, so whether the ritual should carry on is
 yours to decide.
@@ -99,11 +100,11 @@ python3 -m venv .venv
 ## Run
 
 ```bash
-./.venv/bin/csm                          # launch the interface (or: csm claude)
-./.venv/bin/csm --register /path/repo    # register a repository at startup
-./.venv/bin/csm workflows                # what this installation can route to
-./.venv/bin/csm config                   # effective configuration and its paths
-CSM_BACKEND=scripted ./.venv/bin/csm     # offline demo: no model calls
+./.venv/bin/sb                          # launch the interface (or: sb claude)
+./.venv/bin/sb --register /path/repo    # register a repository at startup
+./.venv/bin/sb workflows                # what this installation can route to
+./.venv/bin/sb config                   # effective configuration and its paths
+SB_BACKEND=scripted ./.venv/bin/sb      # offline demo: no model calls
 ```
 
 Press `?` in the app for the key bindings.
@@ -112,7 +113,7 @@ Press `?` in the app for the key bindings.
 
 A workflow is routing metadata plus a prompt: what it needs, what it produces, what it
 invalidates, and whether it needs a fresh Claude. They are YAML, and adding one requires
-no change to CSM:
+no change to Switchboard:
 
 ```yaml
 name: post-rebase-verify
@@ -123,13 +124,13 @@ steps:
   - workflow: smoke-test
 ```
 
-Drop that in `~/.csm/workflows/` for yourself, or in a repository's `.csm/workflows/` so
-the convention travels with the clone. Built-in names are reserved — a file in a
-repository must not be able to strip the prerequisites that keep implementation from
-running without an approved plan. `csm workflows` lists everything loaded.
-`mine-workflows` reads CSM's own record of what you have been running and *proposes*
-workflows for rituals you keep assembling by hand; a proposal changes nothing until you
-accept it.
+Drop that in `~/.switchboard/workflows/` for yourself, or in a repository's
+`.switchboard/workflows/` so the convention travels with the clone. Built-in names are
+reserved — a file in a repository must not be able to strip the prerequisites that keep
+implementation from running without an approved plan. `sb workflows` lists everything
+loaded. `mine-workflows` reads Switchboard's own record of what you have been running and
+*proposes* workflows for rituals you keep assembling by hand; a proposal changes nothing
+until you accept it.
 
 ## Test
 
@@ -143,14 +144,14 @@ accept it.
 
 | Path / variable | Purpose |
 | --- | --- |
-| `~/.config/claude-session-manager/config.yaml` | preferences and model policy (see `config.example.yaml`) |
-| `~/.local/share/claude-session-manager/csm.db` | durable state |
-| `~/.local/share/claude-session-manager/worktrees/` | managed worktrees, never inside your repo |
-| `CSM_HOME` | relocate the data directory |
-| `CSM_CONFIG` | alternate config file |
-| `CSM_STRONG_MODEL` / `CSM_FAST_MODEL` | default models per role |
-| `CSM_BACKEND=scripted` | use the deterministic in-process backend |
-| `CSM_WORKFLOWS_DIR` | relocate the user workflow directory |
+| `~/.config/switchboard/config.yaml` | preferences and model policy (see `config.example.yaml`) |
+| `~/.local/share/switchboard/switchboard.db` | durable state |
+| `~/.local/share/switchboard/worktrees/` | managed worktrees, never inside your repo |
+| `SB_HOME` | relocate the data directory |
+| `SB_CONFIG` | alternate config file |
+| `SB_STRONG_MODEL` / `SB_FAST_MODEL` | default models per role |
+| `SB_BACKEND=scripted` | use the deterministic in-process backend |
+| `SB_WORKFLOWS_DIR` | relocate the user workflow directory |
 | `claude.executable` | launch a wrapper such as `company-claude` instead of `claude` |
 | `worktree_bootstrap.files` | gitignored files to copy into a new worktree (empty by default) |
 
@@ -167,4 +168,4 @@ Working prototype, built for personal use. Architecture and conventions are in
 [`CLAUDE.md`](CLAUDE.md). In [`docs/`](docs/): the original specification, the MVP
 verification record, and [`harness-evidence.md`](docs/harness-evidence.md) — what was
 verified for the workflow-harness milestone, including why native Dynamic Workflows do
-not back CSM'''s composite runs, and what was not verified.
+not back Switchboard's composite runs, and what was not verified.

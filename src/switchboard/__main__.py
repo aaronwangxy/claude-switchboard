@@ -1,4 +1,4 @@
-"""`python -m switchboard` launches the session manager."""
+"""`python -m switchboard` launches the interface."""
 
 from __future__ import annotations
 

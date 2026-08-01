@@ -40,8 +40,8 @@ def make_repo(root: Path) -> Path:
         subprocess.run(["git", "-C", str(path), *args], check=True, capture_output=True)
 
     run("init", "-b", "main", "--quiet")
-    run("config", "user.email", "csm@example.com")
-    run("config", "user.name", "CSM")
+    run("config", "user.email", "switchboard@example.com")
+    run("config", "user.name", "Switchboard")
     run("config", "commit.gpgsign", "false")
     (path / "README.md").write_text("# alpha\n")
     run("add", "README.md")
@@ -102,7 +102,7 @@ async def capture(repo: Path) -> None:
 
 
 def main() -> int:
-    with tempfile.TemporaryDirectory(prefix="csm-capture-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="switchboard-capture-") as tmp:
         root = Path(tmp)
         os.environ["SB_HOME"] = str(root / "home")
         os.environ["SB_WORKFLOWS_DIR"] = str(root / "workflows")

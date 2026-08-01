@@ -171,7 +171,7 @@ def show_config() -> int:
     """Print the effective configuration, including where everything is read from.
 
     `claude.env` is redacted: it is the one place in this file a token could be sitting,
-    and the point of the command is to see where CSM is reading state from.
+    and the point of the command is to see where Switchboard is reading state from.
     """
     config = load_config()
     print(f"config file      {config_path()}")

@@ -8,5 +8,5 @@ dist/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-.csm-home/
+.switchboard-home/
 .claude/settings.local.json

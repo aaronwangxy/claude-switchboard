@@ -1,4 +1,4 @@
-# Copy to ~/.config/claude-session-manager/config.yaml to override the defaults.
+# Copy to ~/.config/switchboard/config.yaml to override the defaults.
 # Every key is optional; anything omitted keeps the built-in default.
 
 communication:
@@ -22,7 +22,7 @@ commits:
   test_before_commit: true
 
 # Model IDs are your configuration, not a product default baked into the code.
-# Leaving a value unset falls back to $CSM_STRONG_MODEL / $CSM_FAST_MODEL, and then
+# Leaving a value unset falls back to $SB_STRONG_MODEL / $SB_FAST_MODEL, and then
 # to whatever model the Claude runtime is already configured to use.
 models:
   manager: null

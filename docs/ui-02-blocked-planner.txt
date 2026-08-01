@@ -1,14 +1,14 @@
-csm — blocked planner with attention banner
-===========================================
+sb — blocked planner with attention banner
+==========================================
 
- ⭘                                                             Claude Session Manager
+ ⭘                                                                  Switchboard
  Manager                                                      │ ENG-421 · planner · blocked · planning · default model
- mgr  Scripted backend (CSM_BACKEND=scripted): no model is    │█ Reason: [NEEDS DECISION] Choose the legacy-write strategy.
+ mgr  Scripted backend (SB_BACKEND=scripted): no model is     │█ Reason: [NEEDS DECISION] Choose the legacy-write strategy.
  called.                                                      │█ Waiting for: [NEEDS DECISION] Choose the legacy-write strategy.
                                                               │
  mgr  Registered repository repo-alpha                        │           {
- (/private/var/folders/3l/s3t0j73x1bl1bvyxr7c53bf40000gn/T/cs │             "order": 1,
- m-capture-i8hjr4_y/repo-alpha).                              │             "message": "feat: add preferences table",
+ (/private/var/folders/3l/s3t0j73x1bl1bvyxr7c53bf40000gn/T/sw │             "order": 1,
+ itchboard-capture-5k2pn9gu/repo-alpha).                      │             "message": "feat: add preferences table",
                                                               │             "purpose": "schema"
  mgr  Nothing to recover. Nothing needs you. 0 worker(s)      │           },
  still working.                                               │           {

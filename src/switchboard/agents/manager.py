@@ -71,10 +71,10 @@ class ModelManager:
     def options(self) -> Any:
         """The manager's session options.
 
-        Deliberately isolated: the manager runs in CSM's own data directory, never in a
-        repository, and loads no setting sources -- so launching CSM from inside a
+        Deliberately isolated: the manager runs in Switchboard's own data directory, never in a
+        repository, and loads no setting sources -- so launching Switchboard from inside a
         repository does not quietly turn the router into that repository's coding agent.
-        Its context is CSM's structured state, delivered as a snapshot each turn. It also
+        Its context is Switchboard's structured state, delivered as a snapshot each turn. It also
         has no file, shell, or subagent tools: it routes, it never works.
         """
         from claude_agent_sdk import ClaudeAgentOptions

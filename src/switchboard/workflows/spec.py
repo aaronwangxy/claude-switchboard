@@ -5,7 +5,7 @@ A workflow is either *atomic* -- a prompt template run by one independent Claude
 workflows are how the development ritual itself becomes configurable: `complete-ticket`
 is a composite of the same atomic workflows a user can invoke directly.
 
-Both kinds are the same type, loaded from the same YAML, whether they ship with CSM or
+Both kinds are the same type, loaded from the same YAML, whether they ship with Switchboard or
 live in `~/.switchboard/workflows`. There is deliberately no graph, no branching and no
 expression language: a sequence, five named conditions, and a bounded repeat count.
 """
@@ -60,7 +60,7 @@ class WorkerMode(str, Enum):
     FRESH = "fresh"
     #: Reuse the job's existing worker for this role when there is one.
     EXISTING = "existing"
-    #: Let the session manager decide from the workflow's role and writability.
+    #: Let `SessionManager` decide from the workflow's role and writability.
     AUTO = "auto"
 
 

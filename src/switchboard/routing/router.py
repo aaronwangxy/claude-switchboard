@@ -2,7 +2,7 @@
 
 The manager model proposes a route in natural language; this module computes the same
 route from state and rules so the application can validate what the model asked for.
-Both paths converge on `RouteProposal`, which the session manager executes.
+Both paths converge on `RouteProposal`, which `SessionManager` executes.
 """
 
 from __future__ import annotations
@@ -69,7 +69,7 @@ class RouteProposal:
 
 @dataclass
 class RoutingState:
-    """The bounded state the router needs. Built by the session manager."""
+    """The bounded state the router needs. Built by `SessionManager`."""
 
     repositories: list[Repository] = field(default_factory=list)
     jobs: list[Job] = field(default_factory=list)

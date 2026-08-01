@@ -1,13 +1,13 @@
 """Entering a worker as an ordinary Claude session.
 
-A CSM worker is not a special kind of agent. It is a normal Claude Code session that
-CSM happened to start, and the runtime persists it under `~/.claude/projects/` exactly
-like any session started by hand. So attaching needs no protocol and no bridge: it is
+A Switchboard worker is not a special kind of agent. It is a normal Claude Code session
+that Switchboard happened to start, and the runtime persists it under `~/.claude/projects/`
+exactly like any session started by hand. So attaching needs no protocol and no bridge: it is
 `claude --resume <session id>` run in the worker's working directory, which is what the
 user would have typed if they had opened that worktree themselves.
 
 Building the command here rather than in the UI keeps the one thing that can go wrong --
-attaching to a session CSM is still driving -- decided in one place.
+attaching to a session Switchboard is still driving -- decided in one place.
 """
 
 from __future__ import annotations
@@ -42,9 +42,9 @@ def build_attachment(
     """The command that resumes this worker's session in its own directory.
 
     Note what this does *not* reproduce: the resumed session is an ordinary interactive
-    Claude, so the tool policy CSM gave the worker -- read-only, in particular -- does not
-    apply to it. That is the point of handing over control, but the caller is expected to
-    say so through `note` where it could surprise.
+    Claude, so the tool policy Switchboard gave the worker -- read-only, in particular --
+    does not apply to it. That is the point of handing over control, but the caller is
+    expected to say so through `note` where it could surprise.
     """
     if not session_id:
         raise AttachError(

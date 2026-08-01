@@ -43,7 +43,7 @@ SUBSTITUTIONS: list[str] = [
 ]
 
 HELP_TEXT = "\n".join(
-    ["[b]Claude Session Manager[/b]", ""]
+    ["[b]Switchboard[/b]", ""]
     + [f"  [b]{keys:<12}[/b] {description}" for keys, description in KEY_BINDINGS]
     + [
         "",

@@ -1,7 +1,7 @@
 """Locating the Claude executable.
 
 The command is configuration rather than a literal `claude`, so a wrapper can be used
-instead. CSM only decides which executable to launch; the parent environment is always
+instead. Switchboard only decides which executable to launch; the parent environment is always
 inherited, so whatever that wrapper configures still applies.
 """
 

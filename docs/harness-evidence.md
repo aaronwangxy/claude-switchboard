@@ -7,29 +7,32 @@ What was claimed, and what was actually run to check it. Everything here corresp
 
 The plan was to build a workflow harness. Partway through, the question became whether
 current Claude Code already provides it. It does provide a great deal, and the design
-changed accordingly: CSM delegates the agent loop, tools, session persistence and resume,
+changed accordingly: Switchboard delegates the agent loop, tools, session persistence and resume,
 subagents, skills, and settings inheritance, and keeps only the layer above.
 
-**Dynamic Workflows were evaluated as a replacement for CSM's composite runs and
+**Dynamic Workflows were evaluated as a replacement for Switchboard's composite runs and
 rejected on three documented limits** (Claude Code 2.1.220, `code.claude.com/docs/en/workflows`):
 
 | Requirement | Dynamic Workflows |
 | --- | --- |
 | Human sign-off between stages | "No mid-run user input… For sign-off between stages, run each stage as its own workflow" |
-| Survives restarting CSM | "Resume works within the same Claude Code session. If you exit Claude Code while a workflow is running, the next session starts the workflow fresh" |
+| Survives restarting Switchboard | "Resume works within the same Claude Code session. If you exit Claude Code while a workflow is running, the next session starts the workflow fresh" |
 | Units the user can enter and drive | Its `agent()` units are subagents in an isolated runtime |
 
-CSM's runs need all three. Dynamic Workflows remain a good tool *inside* a worker, and
+Switchboard's runs need all three. Dynamic Workflows remain a good tool *inside* a worker, and
 workers can already reach for them.
 
 The same investigation found the opposite result for attach, which is why that feature
-exists: CSM's workers were already ordinary sessions on disk, and CSM had simply never
+exists: Switchboard's workers were already ordinary sessions on disk, and Switchboard had simply never
 exposed it.
 
 ## Attach, verified against the real runtime
 
 Not scripted, not mocked — a real worker through `SdkWorkerBackend`, then a real
 `claude --resume` from the command line:
+
+This run predates the rename to Switchboard, so the transcript below is left verbatim
+and still shows the old `csm` names.
 
 ```
 1. starting a real worker through CSM's SDK backend ...
@@ -46,7 +49,7 @@ Not scripted, not mocked — a real worker through `SdkWorkerBackend`, then a re
 RESULT: PASS - the resumed session remembers the worker's context
 ```
 
-A codeword given to the CSM worker came back out of the resumed session. That is the
+A codeword given to the Switchboard worker came back out of the resumed session. That is the
 whole claim: a worker is an ordinary Claude session, and entering it needs no bridge.
 
 ## Routing, driven through the real manager
@@ -75,12 +78,12 @@ its `allowed_roles` for that reason and does not mutate code.
 A fresh reviewer that had not seen the implementation found one blocking issue and six
 important ones. All were fixed and re-verified; the two that mattered most:
 
-- **A repository's `.csm/workflows` could redefine a built-in.** Every field defaults to
+- **A repository's `.switchboard/workflows` could redefine a built-in.** Every field defaults to
   permissive, so a file that merely reused a name stripped `requires` and `mutates_code` —
   from inside the repository those exist to constrain, for *every* registered repository,
   since the registry is global. Built-in names are now reserved (invariant 10).
 - **Attach claimed more than it did and took away more than it gave.** `send` still worked
-  during an attach, so CSM could append to a session file the user's own client was
+  during an attach, so Switchboard could append to a session file the user's own client was
   writing; and the paused run had no reachable resume path, so pressing `Ctrl+E` ended the
   ritual permanently. Both fixed (invariant 11, and `resume_run` as a tool and a route).
 

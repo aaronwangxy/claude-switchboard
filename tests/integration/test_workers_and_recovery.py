@@ -234,7 +234,7 @@ async def test_pin_and_snooze_are_persisted(session_manager, git_repo):
 # ------------------------------------------------------------- transcripts
 
 
-async def test_transcript_survives_selection_and_restart(session_manager, git_repo, csm_home):
+async def test_transcript_survives_selection_and_restart(session_manager, git_repo, sb_home):
     sm = session_manager
     repo = sm.register_repository(git_repo("alpha"), "alpha")
     worker = await sm.create_worker(
@@ -248,7 +248,7 @@ async def test_transcript_survives_selection_and_restart(session_manager, git_re
     assert "first question" in texts and "follow-up question" in texts
 
     sm.store.close()
-    reopened = Store(csm_home / "switchboard.db")
+    reopened = Store(sb_home / "switchboard.db")
     restored = [m.text for m in reopened.transcript(worker.id)]
     assert restored == texts
     reopened.close()
@@ -257,7 +257,7 @@ async def test_transcript_survives_selection_and_restart(session_manager, git_re
 # --------------------------------------------------------------- recovery
 
 
-async def test_restart_resumes_a_session_by_its_stored_id(session_manager, git_repo, csm_home):
+async def test_restart_resumes_a_session_by_its_stored_id(session_manager, git_repo, sb_home):
     sm = session_manager
     repo = sm.register_repository(git_repo("alpha"), "alpha")
     worker = await sm.create_worker(
@@ -279,7 +279,7 @@ async def test_restart_resumes_a_session_by_its_stored_id(session_manager, git_r
 
 
 async def test_a_worker_whose_worktree_vanished_is_marked_disconnected(
-    session_manager, git_repo, csm_home
+    session_manager, git_repo, sb_home
 ):
     import shutil
 
