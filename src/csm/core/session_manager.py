@@ -477,9 +477,18 @@ class SessionManager:
     # ------------------------------------------------------------ interruption
 
     async def interrupt_worker(self, worker_id: UUID) -> None:
+        """Stop the current turn. The worker stays alive and can be messaged again.
+
+        The interruption is recorded in the transcript rather than in `waiting_for`,
+        because the backend's own end-of-turn event legitimately clears that field a
+        moment later. Any attention the worker was holding is resolved, so auto-advance
+        does not immediately bounce back to the worker the user just interrupted.
+        """
         worker = self._require_worker(worker_id)
         await self.backend.interrupt(worker_id)
-        self._set_status(worker, WorkerStatus.IDLE, waiting_for="Interrupted by the user.")
+        self._record(worker, "system", "[interrupted by the user]")
+        self._resolve_attention(worker)
+        self._set_status(worker, WorkerStatus.IDLE, waiting_for=None)
 
     async def stop_worker(self, worker_id: UUID) -> None:
         worker = self._require_worker(worker_id)

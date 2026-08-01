@@ -194,6 +194,29 @@ async def test_answering_a_blocked_worker_resumes_it_and_advances_the_queue(
     )
 
 
+async def test_interrupting_a_blocked_worker_clears_its_attention(
+    session_manager, git_repo, backend
+):
+    sm = session_manager
+    repo = sm.register_repository(git_repo("alpha"), "alpha")
+    job = sm.create_job("Interrupt", repo.id)
+    backend.responses["planner"] = lambda spec, msg: "[NEEDS INPUT] Which strategy?"
+    worker = await sm.create_worker(
+        role=WorkerRole.PLANNER, title="planner", prompt="plan", job_id=job.id
+    )
+    await settle()
+    assert sm.list_attention_items()
+
+    await sm.interrupt_worker(worker.id)
+    await settle()
+
+    assert sm.store.get_worker(worker.id).status is WorkerStatus.IDLE
+    assert sm.list_attention_items() == [], "an interrupted worker stops asking for the user"
+    assert any(
+        m.text == "[interrupted by the user]" for m in sm.store.transcript(worker.id)
+    ), "the interruption is visible in the transcript"
+
+
 async def test_pin_and_snooze_are_persisted(session_manager, git_repo):
     sm = session_manager
     repo = sm.register_repository(git_repo("alpha"), "alpha")
