@@ -306,6 +306,8 @@ class SessionManager:
             setting_sources=list(self.config.setting_sources),
             resume_session_id=worker.session_id if resume else None,
             max_helpers=self.config.subagents.max_concurrent_per_worker,
+            claude_executable=self.config.claude.executable,
+            env=dict(self.config.claude.env),
         )
         if prompt:
             self._record(worker, "user", prompt)

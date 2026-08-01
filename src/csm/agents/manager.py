@@ -20,6 +20,7 @@ from typing import Any, Protocol
 from uuid import UUID
 
 from csm.agents.prompts import compose_manager_prompt
+from csm.agents.runtime import claude_cli_path
 from csm.agents.snapshots import Exchange, SnapshotInput, build_snapshot
 from csm.core.session_manager import SessionManager, SessionManagerError
 from csm.domain.enums import WorkerRole
@@ -330,8 +331,13 @@ class ModelManager:
             route=proposal,
         )
         options = ClaudeAgentOptions(
+            # The manager runs in CSM's own data directory, never in a repository, and
+            # loads no setting sources -- so launching CSM from inside a repository does
+            # not quietly turn the router into that repository's coding agent.
             cwd=str(sm.store.path.parent),
             model=sm.config.models.manager,
+            cli_path=claude_cli_path(sm.config.claude.executable),
+            env=dict(sm.config.claude.env),
             setting_sources=[],
             system_prompt={
                 "type": "preset",

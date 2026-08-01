@@ -33,6 +33,10 @@ class WorkerSpec:
     setting_sources: list[str] = field(default_factory=lambda: ["user", "project"])
     resume_session_id: str | None = None
     max_helpers: int = 3
+    #: The Claude executable to launch, or None for the runtime's own default.
+    claude_executable: str | None = None
+    #: Extra environment for the session, merged over the inherited parent environment.
+    env: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass

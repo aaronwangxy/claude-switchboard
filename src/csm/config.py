@@ -77,6 +77,20 @@ class WorkflowConfig(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class ClaudeConfig(BaseModel):
+    """How to reach the Claude runtime.
+
+    The executable is configuration, not a hardcoded `claude`, so a wrapper that supplies
+    authentication, SSO, a proxy, a gateway, or managed configuration can be used instead.
+    The parent environment is always inherited so such a wrapper keeps working; `env` only
+    adds to it. Nothing here can bypass managed policy: the wrapper is still the Claude
+    CLI, and CSM only chooses which one to launch.
+    """
+
+    executable: str | None = None
+    env: dict[str, str] = Field(default_factory=dict)
+
+
 class Config(BaseModel):
     communication: CommunicationConfig = Field(default_factory=CommunicationConfig)
     subagents: SubagentConfig = Field(default_factory=SubagentConfig)
@@ -88,6 +102,7 @@ class Config(BaseModel):
     setting_sources: list[str] = Field(default_factory=lambda: ["user", "project"])
     #: The composite workflow a new job follows unless the job or repository says otherwise.
     default_profile: str = "complete-ticket"
+    claude: ClaudeConfig = Field(default_factory=ClaudeConfig)
 
     def model_for_role(self, role: str) -> str | None:
         return getattr(self.models, role, None) or self.models.general

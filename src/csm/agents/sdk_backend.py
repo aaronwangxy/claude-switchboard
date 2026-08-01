@@ -20,6 +20,7 @@ from claude_agent_sdk import (
 )
 
 from csm.agents.backend import BackendHealth, EventType, WorkerEvent, WorkerHandle, WorkerSpec
+from csm.agents.runtime import claude_cli_path
 
 log = logging.getLogger(__name__)
 
@@ -144,6 +145,10 @@ class SdkWorkerBackend:
             cwd=str(spec.cwd),
             model=spec.model,
             resume=spec.resume_session_id,
+            # The configured executable, and the parent environment plus any additions,
+            # so a compatible wrapper keeps providing auth, proxies, and managed config.
+            cli_path=claude_cli_path(spec.claude_executable),
+            env=dict(spec.env),
             setting_sources=list(spec.setting_sources),  # type: ignore[arg-type]
             allowed_tools=allowed or [],
             disallowed_tools=disallowed,
