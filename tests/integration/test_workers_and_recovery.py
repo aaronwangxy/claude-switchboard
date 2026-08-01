@@ -486,6 +486,39 @@ async def test_direct_workflow_start_reconciles_every_writable_worker_for_the_jo
     assert sm.store.latest_artifact(job.id, ArtifactType.REVIEW).stale
 
 
+async def test_job_inspection_uses_the_explicit_authoritative_worktree(
+    session_manager, git_repo
+):
+    sm = session_manager
+    repo = sm.register_repository(git_repo("authoritative-lineage"), "lineage")
+    job = sm.create_job("Lineage", repo.id)
+    authoritative = await sm.create_worker(
+        role=WorkerRole.IMPLEMENTER,
+        title="authoritative",
+        prompt="",
+        job_id=job.id,
+        writable=True,
+    )
+    other = await sm.create_worker(
+        role=WorkerRole.IMPLEMENTER,
+        title="isolated experiment",
+        prompt="",
+        job_id=job.id,
+        writable=True,
+    )
+    commit_file(authoritative.cwd, "intended.txt", "yes\n", "intended lineage")
+    commit_file(other.cwd, "wrong.txt", "no\n", "other lineage")
+
+    stored = sm.store.get_job(job.id)
+    assert stored.authoritative_worktree_id == authoritative.worktree_id
+    assert sm._job_inspection_path(stored) == authoritative.cwd
+    base, head, commits, diff = sm._review_inputs(stored)
+    assert base and head
+    assert "intended lineage" in commits
+    assert "intended.txt" in diff
+    assert "wrong.txt" not in diff
+
+
 async def test_send_failure_does_not_leave_the_runtime_working(
     session_manager, git_repo, backend
 ):

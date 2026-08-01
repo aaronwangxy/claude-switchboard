@@ -50,6 +50,9 @@ class Job(Base):
     ticket_text: str = ""
     #: The composite workflow this job follows. Stored so a resumed job is reproducible.
     profile: str | None = None
+    #: The one worktree whose Git lineage defines this job's change. Other writable
+    #: workers remain isolated, but may not implicitly become the review target.
+    authoritative_worktree_id: UUID | None = None
     created_at: datetime = Field(default_factory=now)
     updated_at: datetime = Field(default_factory=now)
 
@@ -217,6 +220,10 @@ class WorkflowRun(Base):
     approved_steps: list[int] = Field(default_factory=list)
     status: RunStatus = RunStatus.RUNNING
     current_worker_id: UUID | None = None
+    #: Set only when the current worker's trusted managed turn and all of its artifacts
+    #: have been applied durably. A worker assignment alone never means a step finished.
+    current_step_completed: bool = False
+    completion_turn_id: UUID | None = None
     #: Why the run is paused or how it ended, in one human-readable sentence.
     detail: str = ""
     head_at_start: str | None = None

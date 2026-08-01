@@ -273,6 +273,10 @@ class SessionManager:
             worktree = self._allocate_worktree(repo, job, worker)
             worker.worktree_id = worktree.id
             worker.cwd = worktree.path
+            if job is not None and job.authoritative_worktree_id is None:
+                job.authoritative_worktree_id = worktree.id
+                job.updated_at = now()
+                self.store.save_job(job)
         elif job is not None:
             # Read-only workers observe the job's writable worktree when one exists, so a
             # reviewer or verifier sees the change under review without owning it.
@@ -280,6 +284,12 @@ class SessionManager:
 
         self.store.save_worker(worker)
         self.store.save_runtime(self._new_runtime(worker, generation=1))
+        if job is not None:
+            definition = self._definition(workflow)
+            if definition is not None:
+                # Reserve a composite step before native launch/send. A crash from this
+                # point onward recovers this exact worker instead of dispatching twice.
+                self._adopt_into_run(job, worker, definition)
         self._snapshot_before_change(worker)
         self.emit(
             ev.WORKER_CREATED,
@@ -312,11 +322,10 @@ class SessionManager:
         return self.store.save_worktree(worktree)
 
     def _job_inspection_path(self, job: Job) -> Path | None:
-        for worker in self.store.list_workers(job.id):
-            if worker.writable and worker.worktree_id:
-                worktree = self.store.get_worktree(worker.worktree_id)
-                if worktree and worktree.path.exists():
-                    return worktree.path
+        if job.authoritative_worktree_id is not None:
+            worktree = self.store.get_worktree(job.authoritative_worktree_id)
+            if worktree and worktree.path.exists():
+                return worktree.path
         return None
 
     async def _start_backend(
@@ -526,7 +535,10 @@ class SessionManager:
             workflow=definition.name,
         )
         self._note_execution(job, worker, definition.name)
-        self._advance_stage(job, definition)
+        # Worker creation may establish the job's authoritative worktree. Do not save
+        # the older in-memory Job while advancing its stage and erase that lineage.
+        current_job = self.store.get_job(job.id) or job
+        self._advance_stage(current_job, definition)
         self._adopt_into_run(job, worker, definition)
         return worker
 
@@ -548,6 +560,8 @@ class SessionManager:
             return
         run.iterations[str(run.step_index)] = run.iterations.get(str(run.step_index), 0) + 1
         run.current_worker_id = worker.id
+        run.current_step_completed = False
+        run.completion_turn_id = None
         run.status = RunStatus.RUNNING
         run.updated_at = now()
         self.store.save_run(run)
@@ -634,6 +648,8 @@ class SessionManager:
 
         # The step that just finished decides whether the run may continue.
         if run.current_worker_id is not None:
+            if not run.current_step_completed:
+                return run
             if run.step_index < len(steps) and not self._approval_satisfied(run, steps[run.step_index], job):
                 return self._pause_run(
                     run,
@@ -641,6 +657,8 @@ class SessionManager:
                     f"Step {run.step_index + 1} ({steps[run.step_index].workflow}) needs your approval.",
                 )
             run.current_worker_id = None
+            run.current_step_completed = False
+            run.completion_turn_id = None
             run.step_index += 1
 
         while True:
@@ -696,6 +714,8 @@ class SessionManager:
             if run.current_worker_id is None:
                 run.iterations[str(run.step_index)] = used + 1
                 run.current_worker_id = worker.id
+                run.current_step_completed = False
+                run.completion_turn_id = None
                 run.updated_at = now()
                 self.store.save_run(run)
             return run
@@ -760,6 +780,11 @@ class SessionManager:
             if w.role in definition.allowed_roles
             and w.status not in (WorkerStatus.STOPPED, WorkerStatus.FAILED, WorkerStatus.DISCONNECTED)
             and (w.writable or not definition.mutates_code)
+            and (
+                not definition.mutates_code
+                or job.authoritative_worktree_id is None
+                or w.worktree_id == job.authoritative_worktree_id
+            )
         ]
         return candidates[-1].id if candidates else None
 
@@ -812,6 +837,16 @@ class SessionManager:
             )
             return
         self._spawn(self.advance_run(run.id))
+
+    def _complete_run_step(self, worker: Worker, turn_id: str | None) -> None:
+        """Durably authorize advancement after a successful trusted worker result."""
+        run = self.store.run_for_worker(worker.id)
+        if run is None or run.status is not RunStatus.RUNNING:
+            return
+        run.current_step_completed = True
+        run.completion_turn_id = UUID(turn_id) if turn_id else None
+        run.updated_at = now()
+        self.store.save_run(run)
 
     def _spawn(self, coro) -> None:
         try:
@@ -1366,6 +1401,11 @@ class SessionManager:
                     self._record(worker, "assistant", event.text)
                     self.emit(ev.WORKER_OUTPUT, worker_id=worker.id, job_id=worker.job_id)
                 self._finish_turn(worker, event.text)
+                # A planner may deliberately stop for decisions after emitting its
+                # complete structured contract. That artifact is a completed step even
+                # though the run must remain approval-gated.
+                if extract_json_block(event.text) is not None:
+                    self._complete_run_step(worker, event.data.get("turn_id"))
                 reason = _last_question(event.text)
                 self._set_status(worker, WorkerStatus.BLOCKED, waiting_for=reason)
                 kind = (
@@ -1392,6 +1432,7 @@ class SessionManager:
                     )
                 else:
                     self._finish_turn(worker, event.text)
+                    self._complete_run_step(worker, event.data.get("turn_id"))
                 self._set_runtime_state(worker.id, RuntimeProcessState.TURN_COMPLETE)
                 if event.data.get("is_error"):
                     self._set_status(worker, WorkerStatus.FAILED, waiting_for="Turn failed.")
