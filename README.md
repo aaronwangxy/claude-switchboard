@@ -164,5 +164,7 @@ deleted; nothing pushes, force-pushes, or merges.
 ## Status
 
 Working prototype, built for personal use. Architecture and conventions are in
-[`CLAUDE.md`](CLAUDE.md); the original specification and the MVP verification record are
-in [`docs/`](docs/).
+[`CLAUDE.md`](CLAUDE.md). In [`docs/`](docs/): the original specification, the MVP
+verification record, and [`harness-evidence.md`](docs/harness-evidence.md) — what was
+verified for the workflow-harness milestone, including why native Dynamic Workflows do
+not back CSM'''s composite runs, and what was not verified.
