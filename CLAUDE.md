@@ -71,6 +71,21 @@ affected verification.
 Python package `csm` under `src/`. `SessionManager` is the hub: it owns every invariant and
 is the only thing the UI and the manager act through.
 
+**What CSM owns, and what Claude owns.** CSM is a semantic control plane over ongoing
+work, not a reimplementation of an agent. Claude Code owns the agent loop, tools, session
+persistence and resume, subagents, skills, CLAUDE.md/settings inheritance, permissions,
+and Dynamic Workflows *inside* a worker. CSM owns the layer above: the manager and its
+routing, independent worker lifecycle, the job/repo/branch/worktree/session graph,
+workflow selection and composition, approval gates, attention routing, durable
+cross-session state, and contracts/evidence/freshness. Prefer deleting anything in CSM
+that Claude already does well.
+
+Dynamic Workflows deliberately do *not* back CSM's composite runs. Their documented
+limits rule it out: no mid-run user input ("for sign-off between stages, run each stage
+as its own workflow"), resume only within the same session, and their units are subagents
+rather than sessions you can enter. CSM's runs are durable, human-gated, and made of real
+worker sessions. They remain a good tool for a worker to reach for.
+
 | Module | Responsibility |
 | --- | --- |
 | `domain/` | Pydantic models, enums (incl. the allowed worker-transition table and attention priority), the three contracts, event kinds |
@@ -81,7 +96,7 @@ is the only thing the UI and the manager act through.
 | `routing/` | Deterministic router and attention-queue ordering |
 | `core/` | `SessionManager` (the orchestrator) and guarded state transitions |
 | `ui/` | Three-pane Textual app; presentation only |
-| `app.py` | Bootstrap: builds every service and hands them to the UI |
+| `app.py` | Bootstrap and the `csm` / `csm workflows` / `csm config` command surface |
 
 **Manager / job / worker.** A *job* is one unit of work in a repository (usually a ticket)
 with a stage and its artifacts. A *worker* is one independent Claude session with a role,
@@ -95,6 +110,13 @@ MCP tools, no Bash/Read/Edit, `max_turns=12`, falling back to the deterministic 
 error). The deterministic route is computed first and included in the snapshot; the model is
 asked to follow it. Every tool handler re-validates against the domain, so a bad proposal
 cannot do damage.
+
+**Attach.** A worker is an ordinary Claude Code session, persisted by the runtime under
+`~/.claude/projects/` like any other, so `agents/attach.py` builds the command the user
+would have typed themselves: `claude --resume <session id>` in the worker's worktree.
+`SessionManager.attach` interrupts a working worker and pauses its run first -- two
+clients driving one session would interleave turns. Reachable by `Ctrl+E`, by the
+`attach_worker` manager tool, and deterministically from the router.
 
 **Worker backend.** `agents/backend.py` defines `WorkerSpec`/`WorkerHandle`/`WorkerEvent`
 and the `WorkerBackend` protocol (start, send, stream, interrupt, stop, resume, health).
@@ -133,14 +155,27 @@ store, so the manager can be restarted at any time without losing operational st
 never replaces it — layering concision policy, role policy, read-only note, subagent policy,
 workflow policy, and verbosity. `PROMPT_POLICY_VERSION` is persisted per worker.
 
-**Workflows.** 11 entries in `WORKFLOWS`, each a `WorkflowDefinition` declaring allowed
-roles, required/produced artifacts, whether it mutates code, what it invalidates, and a
-prompt template. `SessionManager` renders the template, enforces prerequisites
+**Workflows.** `WORKFLOWS` is loaded from YAML: built-in (`workflows/builtin/`), then the
+user's (`~/.csm/workflows`), then each registered repository's `.csm/workflows`, later
+overriding earlier by name. A malformed file is reported and skipped, never raised. Each
+is a `WorkflowDefinition` declaring allowed roles, required/produced artifacts, whether it
+mutates code, what it invalidates, and a prompt template. `SessionManager` renders the template, enforces prerequisites
 (`_assert_prerequisites`: implementation cannot run without a current *and approved*
 implementation contract with no unanswered blocking decisions), advances the job stage via
 `WORKFLOW_STAGE`, and harvests the artifact the workflow produces. Freshness is decided from
 Git head/tree hashes alone — a same-tree change only moves lineage forward, a tree change
 invalidates behavioral artifacts.
+
+**Composite runs.** A composite workflow is a list of steps with a condition, an approval
+gate, and a bounded `max_iterations`. `WorkflowRun` is persisted, so a run survives a
+restart; `core/runs.py` evaluates every condition from stored state alone. The only
+backwards move is a bounded repeat, so a run provably terminates. Safety invariants are
+never configurable from a workflow.
+
+**Mining.** `mine-workflows` is an ordinary read-only workflow whose input is
+`SessionManager.workflow_history()` -- CSM's own record of what ran, in order, per job. It
+produces `WORKFLOW_PROPOSALS`, which are inert; only `accept_proposal` writes a proposal
+out, as an ordinary user workflow file.
 
 **Claude settings inheritance.** `config.setting_sources` (default `["user", "project"]`)
 is passed to each worker SDK session, so workers pick up my user settings and the *target*
@@ -169,8 +204,8 @@ enforced by tool policy and prompt, not a sandbox. See `docs/mvp-evidence.md` li
 
 - `WorkerBackend` protocol — add a backend (e.g. a native `claude` CLI/PTY) without
   touching orchestration.
-- `WORKFLOWS` registry — add a workflow declaratively; templates could become filesystem
-  Skills without an API change.
+- `WORKFLOWS` registry — add a workflow by dropping YAML in `~/.csm/workflows` or a
+  repository's `.csm/workflows`; no core change, and no privileged built-in path.
 - `ArtifactType` + `domain/contracts.py` — add an artifact type with its Pydantic schema.
 - `routing/router.py` — routing rules stay deterministic and testable without a model.
 - `AttentionKind` ordering — enum order *is* the priority.
@@ -181,14 +216,17 @@ enforced by tool policy and prompt, not a sandbox. See `docs/mvp-evidence.md` li
 
 ```bash
 python3 -m venv .venv && ./.venv/bin/pip install -e ".[dev]"   # install
-./.venv/bin/python -m csm                                      # launch (or: ./.venv/bin/csm)
-./.venv/bin/python -m csm --register /path/to/repo             # register a repo at startup
-./.venv/bin/python -m csm --log-file /tmp/csm.log              # logs (otherwise discarded)
-CSM_BACKEND=scripted ./.venv/bin/python -m csm                 # offline: no model calls
+./.venv/bin/csm                                                # launch (or: csm claude)
+./.venv/bin/csm --register /path/to/repo                       # register a repo at startup
+./.venv/bin/csm workflows                                      # what routing can reach
+./.venv/bin/csm config                                         # effective config and paths
+./.venv/bin/csm --log-file /tmp/csm.log                        # logs (otherwise discarded)
+CSM_BACKEND=scripted ./.venv/bin/csm                           # offline: no model calls
 
 ./.venv/bin/python -m pytest -q                                # full suite, ~40s
 ./.venv/bin/ruff check src tests
 ./.venv/bin/mypy
+./.venv/bin/python scripts/capture_ui.py                       # regenerate docs/ui-*.txt
 ```
 
 `tests/unit` covers routing, attention, transitions, freshness, prompts, and worktree

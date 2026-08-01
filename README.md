@@ -23,6 +23,13 @@ Where it is going: paste a ticket into the manager chat and it gets routed and c
 by the right agent — planned, implemented, verified, reviewed — surfacing to you only
 where a human decision genuinely matters.
 
+CSM is deliberately thin. Claude Code already owns the agent loop, tools, session
+persistence, subagents, skills, and settings inheritance, and CSM reuses all of it. What
+CSM owns is the layer above: understanding a casual reference to work in flight,
+resolving it against the durable relationships between jobs, repositories, branches,
+worktrees, and sessions, choosing the development ritual you prefer, and holding the
+contracts and evidence that decide whether a change is actually finished.
+
 ## Contracts
 
 What makes delegation at scale reliable is not a better prompt; it is an executable
@@ -48,9 +55,25 @@ deterministically invalidates the verification and review that no longer apply, 
 
 Paste a ticket, ask a question, or say "rebase this" into one manager input. The manager
 routes it: to an existing worker, to a reusable workflow, or to a new independent worker
-in its own Git worktree. Every worker is a normal Claude session you can talk to directly
-in the right-hand pane, and it inherits your user settings plus the target repository's
-own `CLAUDE.md` and skills.
+in its own Git worktree.
+
+```
+you  →  manager Claude  →  resolve the job/repo/change  →  select a workflow
+                                                            ↓
+                                    reuse or launch an independent Claude worker
+```
+
+Every worker is a normal Claude Code session. It inherits your user settings plus the
+target repository's own `CLAUDE.md` and skills, and because the runtime persists it like
+any other session, you can step into it at any time and drive it yourself — `Ctrl+E`, or
+ask the manager to "let me into the payments change". That runs exactly what you would
+have typed:
+
+```bash
+cd <worktree> && claude --resume <session id>
+```
+
+CSM interrupts the worker and pauses its run first, so nothing is steering it but you.
 
 ```
 +------------------------------+----------------------------------------+
@@ -73,12 +96,35 @@ python3 -m venv .venv
 ## Run
 
 ```bash
-./.venv/bin/python -m csm                        # launch the three-pane UI
-./.venv/bin/python -m csm --register /path/repo  # register a repository at startup
-CSM_BACKEND=scripted ./.venv/bin/python -m csm   # offline demo: no model calls
+./.venv/bin/csm                          # launch the interface (or: csm claude)
+./.venv/bin/csm --register /path/repo    # register a repository at startup
+./.venv/bin/csm workflows                # what this installation can route to
+./.venv/bin/csm config                   # effective configuration and its paths
+CSM_BACKEND=scripted ./.venv/bin/csm     # offline demo: no model calls
 ```
 
 Press `?` in the app for the key bindings.
+
+## Workflows
+
+A workflow is routing metadata plus a prompt: what it needs, what it produces, what it
+invalidates, and whether it needs a fresh Claude. They are YAML, and adding one requires
+no change to CSM:
+
+```yaml
+name: post-rebase-verify
+description: Re-verify a change after rebasing it, because the old evidence no longer holds.
+steps:
+  - workflow: rebase-stack
+  - workflow: full-verify
+  - workflow: smoke-test
+```
+
+Drop that in `~/.csm/workflows/` for yourself, or in a repository's `.csm/workflows/` so
+the convention travels with the clone. `csm workflows` lists everything loaded.
+`mine-workflows` reads CSM's own record of what you have been running and *proposes*
+workflows for rituals you keep assembling by hand; a proposal changes nothing until you
+accept it.
 
 ## Test
 
@@ -99,6 +145,9 @@ Press `?` in the app for the key bindings.
 | `CSM_CONFIG` | alternate config file |
 | `CSM_STRONG_MODEL` / `CSM_FAST_MODEL` | default models per role |
 | `CSM_BACKEND=scripted` | use the deterministic in-process backend |
+| `CSM_WORKFLOWS_DIR` | relocate the user workflow directory |
+| `claude.executable` | launch a wrapper such as `company-claude` instead of `claude` |
+| `worktree_bootstrap.files` | gitignored files to copy into a new worktree (empty by default) |
 
 ## Safety
 
