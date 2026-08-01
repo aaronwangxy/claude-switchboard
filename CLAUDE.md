@@ -93,7 +93,7 @@ reach for.
 | `storage/` | SQLite schema (v3) and `Store` |
 | `gitops/` | `runner` (argv-only git) and `WorktreeService` |
 | `workflows/` | `WORKFLOWS` registry and deterministic artifact freshness |
-| `agents/` | `WorkerBackend` protocol, SDK + scripted backends, manager, prompt composition, bounded snapshots |
+| `agents/` | Native/scripted worker backends, persistent native manager, manager MCP, prompt composition |
 | `runtime/` | Substrate-neutral durable runtime supervision and focused tmux process control |
 | `routing/` | Deterministic router and attention-queue ordering |
 | `core/` | `SessionManager` (the orchestrator) and guarded state transitions |
@@ -107,11 +107,10 @@ is a router, command palette, and status summarizer — never the system of reco
 never writes code. `SessionManager` executes; the manager only proposes.
 
 Two manager implementations share one `handle(text) -> str` contract: `DeterministicManager`
-(rules only, no model) and `ModelManager` (a Claude session with ~15 constrained in-process
-MCP tools, no Bash/Read/Edit, `max_turns=12`, falling back to the deterministic one on
-error). The deterministic route is computed first and included in the snapshot; the model is
-asked to follow it. Every tool handler re-validates against the domain, so a bad proposal
-cannot do damage.
+(rules only, for offline/scripted runs) and `PersistentNativeManager`. The production manager
+is a generation-bound native Claude process on the same tmux substrate as workers. Its real
+stdio MCP exposes only semantic orchestration operations through `SessionManager`; each call
+revalidates the current manager identity, generation, kind, and ownership.
 
 **Attach.** A worker is an ordinary Claude Code session, persisted by the runtime under
 `~/.claude/projects/` like any other, so `agents/attach.py` builds the command the user
@@ -170,9 +169,10 @@ an interrupt completion arriving after human handover may not consume that basel
 listeners → the UI repaints. The attention queue is ordered by `AttentionKind` ordinal then
 age; snoozed workers drop out; a pin does not reorder but stops auto-advance from leaving.
 
-**Manager context.** No growing transcript. Each turn builds a bounded snapshot (8
-exchanges, 8 detailed workers with the rest summarized by status count, 10 events) from the
-store, so the manager can be restarted at any time without losing operational state.
+**Manager context.** The native transcript is replaceable working memory. SQLite remains
+long-term orchestration memory. A fresh manager reconstructs bounded objectives, jobs, runs,
+workers, attention, decisions, contracts, and evidence through its MCP; worker transcripts
+are not fed by default. Rotation stores only a bounded handoff for non-authoritative nuance.
 
 **Runtime prompting.** `compose_worker_prompt` *appends* to the SDK's `claude_code` preset —
 never replaces it — layering concision policy, role policy, read-only note, subagent policy,
@@ -211,9 +211,11 @@ isolated and cannot silently become the change under review.
 per job. It produces `WORKFLOW_PROPOSALS`, which are inert; only `accept_proposal` writes
 a proposal out, as an ordinary user workflow file.
 
-**Claude settings inheritance.** Native workers use Claude's normal discovery, including
-user, managed/company, project, and project-local settings plus the *target* repository's
-`CLAUDE.md` and skills. The manager session uses `setting_sources=[]` and only its MCP tools.
+**Claude settings inheritance.** Native workers use normal discovery in their repository,
+including user, managed/company, project, and project-local configuration. The manager uses
+the same configured wrapper/environment and native user/managed discovery from a dedicated
+non-repository workspace, plus an additive prompt and generation-bound Switchboard MCP. Its
+coding tools are disabled and workers never receive its MCP configuration.
 
 ## Safety invariants
 

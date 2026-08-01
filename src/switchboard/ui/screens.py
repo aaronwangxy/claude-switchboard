@@ -304,6 +304,8 @@ class SwitchboardApp(App[None]):
 
     async def _recover(self) -> None:
         try:
+            if hasattr(self.manager, "start_or_recover"):
+                await self.manager.start_or_recover()  # type: ignore[attr-defined]
             notes = await self.sm.recover()
         except Exception as exc:  # recovery must never stop the UI from coming up
             log.exception("recovery failed")
@@ -312,7 +314,7 @@ class SwitchboardApp(App[None]):
         if notes:
             self.manager_pane.add_note("Recovered sessions: " + "; ".join(notes))
         else:
-            self.manager_pane.add_note("Nothing to recover. " + self.sm.status_summary())
+            self.manager_pane.add_note("Manager ready. " + self.sm.status_summary())
         self.refresh_workers()
 
     # -------------------------------------------------------------- live updates
@@ -588,9 +590,7 @@ class SwitchboardApp(App[None]):
 
     def action_toggle_auto_advance(self) -> None:
         self.sm.auto_advance = not self.sm.auto_advance
-        self.manager_pane.add_note(
-            f"Auto-advance is {'on' if self.sm.auto_advance else 'off'}."
-        )
+        self.manager_pane.add_note(f"Auto-advance is {'on' if self.sm.auto_advance else 'off'}.")
         self.refresh_workers()
         self.maybe_auto_advance()
 
@@ -606,18 +606,24 @@ class SwitchboardApp(App[None]):
         self.refresh_worker_pane()
 
     async def action_attach(self) -> None:
-        """Suspend Switchboard and hand the terminal to the selected worker's own session.
+        """Enter the exact live native manager or selected worker process.
 
         This enters the exact tmux-hosted native Claude process. The subprocess is awaited
         off the UI event loop so Switchboard's control plane keeps processing hook events.
         """
-        worker_id = self.sm.selected_worker_id
-        if worker_id is None:
-            return
+        focused = self.focused
+        entering_manager = focused is not None and focused.id == "manager-input"
         try:
-            attachment = await self.sm.attach(worker_id)
+            if entering_manager and hasattr(self.manager, "enter"):
+                attachment = await self.manager.enter()  # type: ignore[attr-defined]
+                worker_id = None
+            else:
+                worker_id = self.sm.selected_worker_id
+                if worker_id is None:
+                    return
+                attachment = await self.sm.attach(worker_id)
         except Exception as exc:
-            self.manager_pane.add_note(f"Cannot attach to that worker: {exc}")
+            self.manager_pane.add_note(f"Cannot enter that session: {exc}")
             return
         if attachment.note:
             self.manager_pane.add_note(attachment.note)
@@ -638,13 +644,19 @@ class SwitchboardApp(App[None]):
                 composer_cleared = answer.strip().lower() in ("y", "yes")
         finally:
             if composer_cleared:
-                self.sm.detach(worker_id, composer_cleared=True)
+                if entering_manager and hasattr(self.manager, "release_human"):
+                    self.manager.release_human(composer_cleared=True)  # type: ignore[attr-defined]
+                elif worker_id is not None:
+                    self.sm.detach(worker_id, composer_cleared=True)
             else:
                 self.manager_pane.add_note(
-                    "Worker remains human-controlled. Re-enter it, clear the composer, "
+                    "Session remains human-controlled. Re-enter it, clear the composer, "
                     "and detach again to return manager control."
                 )
-        self.manager_pane.add_note(self._back_from_attach(worker_id))
+        if worker_id is not None:
+            self.manager_pane.add_note(self._back_from_attach(worker_id))
+        else:
+            self.manager_pane.add_note("Returned from Manager; its native process stayed alive.")
         self.refresh_workers()
         self.refresh_worker_pane()
 

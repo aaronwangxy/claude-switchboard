@@ -14,8 +14,8 @@ SessionManager
 ```
 
 `SB_BACKEND=scripted` selects `ScriptedWorkerBackend` for deterministic tests and offline
-demos. There is no SDK worker fallback. The manager still uses `claude-agent-sdk`, so that
-dependency remains until manager migration.
+demos. There is no SDK worker fallback. Phase 6 also migrated the manager to native Claude,
+so `claude-agent-sdk` is no longer a dependency.
 
 ## Launch and configuration
 
