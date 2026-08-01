@@ -7,13 +7,20 @@ Switchboard to that -- the command it produces, and what it does to its own stat
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from switchboard.agents.attach import AttachError, build_attachment
-from switchboard.core.session_manager import SessionManagerError
+from switchboard.agents.scripted_backend import ScriptedWorkerBackend
+from switchboard.config import Config
+from switchboard.core.session_manager import SessionManager, SessionManagerError
 from switchboard.domain import events as ev
-from switchboard.domain.enums import RunStatus, WorkerRole, WorkerStatus
+from switchboard.domain.enums import ArtifactType, RunStatus, RuntimeOwner, WorkerRole, WorkerStatus
+from switchboard.domain.models import Artifact
+from switchboard.gitops import runner
 from switchboard.routing import router
+from tests.conftest import commit_file
 
 
 class TestAttachmentCommand:
@@ -109,10 +116,41 @@ class TestAttachHandsOverControl:
         with pytest.raises(SessionManagerError, match="attached"):
             await session_manager.send(worker.id, "keep going")
 
+    async def test_attachment_ownership_survives_a_session_manager_restart(
+        self, session_manager, worker, backend
+    ):
+        await session_manager.attach(worker.id)
+        restarted = SessionManager(
+            session_manager.store, backend, Config(), session_manager.worktrees
+        )
+
+        assert restarted.is_attached(worker.id)
+        assert restarted.store.current_runtime(worker.id).owner is RuntimeOwner.HUMAN
+        with pytest.raises(SessionManagerError, match="attached"):
+            await restarted.send(worker.id, "do not interleave")
+
+    async def test_recovery_does_not_recreate_an_unobservable_human_owned_runtime(
+        self, session_manager, worker
+    ):
+        await session_manager.attach(worker.id)
+        restarted = SessionManager(
+            session_manager.store,
+            ScriptedWorkerBackend(),
+            Config(),
+            session_manager.worktrees,
+        )
+
+        notes = await restarted.recover()
+
+        assert any("human-owned runtime not observable" in note for note in notes)
+        assert restarted.store.get_worker(worker.id).status is WorkerStatus.DISCONNECTED
+        assert len(restarted.store.list_runtimes(worker.id)) == 1
+
     async def test_leaving_gives_control_back(self, session_manager, worker):
         await session_manager.attach(worker.id)
         session_manager.detach(worker.id)
         assert not session_manager.is_attached(worker.id)
+        assert session_manager.store.current_runtime(worker.id).owner is RuntimeOwner.MANAGER
         await session_manager.send(worker.id, "keep going")  # must not raise
 
     async def test_the_paused_run_can_be_resumed_after_leaving(self, session_manager, worker):
@@ -153,6 +191,33 @@ class TestAttachHandsOverControl:
 
     async def test_attaching_to_a_writable_worker_needs_no_warning(self, session_manager, worker):
         assert (await session_manager.attach(worker.id)).note == ""
+
+    async def test_detach_invalidates_evidence_changed_during_human_control(
+        self, session_manager, worker
+    ):
+        head = runner.head_commit(worker.cwd)
+        session_manager.store.save_artifact(
+            Artifact(
+                job_id=worker.job_id,
+                worker_id=worker.id,
+                type=ArtifactType.VERIFICATION,
+                head_commit=head,
+                tree_hash=runner.tree_hash(worker.cwd),
+                body={"evidence": []},
+            )
+        )
+
+        await session_manager.attach(worker.id)
+        for _ in range(5):
+            await asyncio.sleep(0)
+        commit_file(worker.cwd, "human.txt", "changed\n", "human edit")
+        session_manager.detach(worker.id)
+
+        artifact = session_manager.store.latest_artifact(
+            worker.job_id, ArtifactType.VERIFICATION
+        )
+        assert artifact.stale
+        assert "implementation_edit" in artifact.stale_reason
 
 
 class TestAttachRouting:

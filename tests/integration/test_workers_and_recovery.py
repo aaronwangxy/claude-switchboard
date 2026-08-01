@@ -10,11 +10,13 @@ from switchboard.agents.scripted_backend import ScriptedWorkerBackend
 from switchboard.config import Config
 from switchboard.core.session_manager import SessionManager
 from switchboard.domain.enums import (
+    ArtifactType,
     AttentionKind,
     RuntimeProcessState,
     WorkerRole,
     WorkerStatus,
 )
+from switchboard.domain.models import Artifact
 from switchboard.gitops import runner
 from switchboard.routing.attention import next_actionable
 from switchboard.storage.store import Store
@@ -323,6 +325,43 @@ async def test_recovery_rejects_a_live_generation_mismatch(
     restored = restarted.store.get_worker(worker.id)
     assert restored.status is WorkerStatus.DISCONNECTED
     assert "Refusing to adopt" in restored.waiting_for
+
+
+async def test_recovery_reconciles_a_durable_git_baseline(
+    session_manager, git_repo
+):
+    sm = session_manager
+    repo = sm.register_repository(git_repo("reconcile"), "reconcile")
+    job = sm.create_job("Reconcile", repo.id)
+    worker = await sm.create_worker(
+        role=WorkerRole.IMPLEMENTER,
+        title="w",
+        prompt="",
+        job_id=job.id,
+        writable=True,
+    )
+    head = runner.head_commit(worker.cwd)
+    sm.store.save_artifact(
+        Artifact(
+            job_id=job.id,
+            worker_id=worker.id,
+            type=ArtifactType.REVIEW,
+            head_commit=head,
+            tree_hash=runner.tree_hash(worker.cwd),
+            body={"verdict": "pass", "findings": []},
+        )
+    )
+    sm._snapshot_before_change(worker)
+    commit_file(worker.cwd, "late.txt", "late\n", "late edit")
+
+    restarted = SessionManager(sm.store, ScriptedWorkerBackend(), Config(), sm.worktrees)
+    await restarted.recover()
+
+    artifact = restarted.store.latest_artifact(job.id, ArtifactType.REVIEW)
+    assert artifact.stale
+    runtime = restarted.store.current_runtime(worker.id)
+    assert runtime.git_head_before_turn is None
+    assert runtime.git_tree_before_turn is None
 
 
 async def test_a_worker_whose_worktree_vanished_is_marked_disconnected(

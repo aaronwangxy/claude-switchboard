@@ -43,6 +43,7 @@ from switchboard.domain.enums import (
     JobStage,
     RunStatus,
     RuntimeAgentKind,
+    RuntimeOwner,
     RuntimeProcessState,
     Verbosity,
     WorkerRole,
@@ -138,8 +139,6 @@ class SessionManager:
         self.auto_advance: bool = True
         self.verbosity: dict[UUID, Verbosity] = {}
         self._pumps: dict[UUID, asyncio.Task] = {}
-        self._pending_change: dict[UUID, GitSnapshot] = {}
-        self._attached: set[UUID] = set()
         self._listeners: list[Callable[[Event], None]] = []
         #: Strong references to in-flight run advances, so they are not garbage collected.
         self._background: set[asyncio.Task] = set()
@@ -428,7 +427,8 @@ class SessionManager:
 
     async def send(self, worker_id: UUID, message: str) -> None:
         worker = self._require_worker(worker_id)
-        if worker_id in self._attached:
+        runtime = self.store.current_runtime(worker_id)
+        if runtime is not None and runtime.owner is RuntimeOwner.HUMAN:
             # The user's own client is writing this session. A second writer would
             # interleave turns in one session file.
             raise SessionManagerError(
@@ -590,6 +590,8 @@ class SessionManager:
         if run.status in (RunStatus.COMPLETED, RunStatus.FAILED):
             return run
         job = self.store.get_job(run.job_id)
+        if job is not None:
+            self._reconcile_job_git(job)
         definition = self._definition(run.workflow)
         if job is None or definition is None or not definition.is_composite:
             return self._pause_run(run, RunStatus.FAILED, "Its workflow or job no longer exists.")
@@ -1044,7 +1046,14 @@ class SessionManager:
         )
         if worker.status is WorkerStatus.WORKING:
             await self.interrupt_worker(worker_id)
-        self._attached.add(worker.id)
+        runtime = self.store.current_runtime(worker.id)
+        if runtime is None:
+            raise AttachError("This worker has no durable runtime instance.")
+        self._snapshot_before_change(worker)
+        runtime = self.store.current_runtime(worker.id) or runtime
+        runtime.owner = RuntimeOwner.HUMAN
+        runtime.updated_at = now()
+        self.store.save_runtime(runtime)
         self._pause_run_of(worker, RunStatus.BLOCKED, "The user attached to this worker.")
         self._record(worker, "system", "[the user attached to this session directly]")
         self._resolve_attention(worker)
@@ -1065,12 +1074,22 @@ class SessionManager:
         a judgement only they can make -- `resume_run` is how they say yes.
         """
         worker = self._require_worker(worker_id)
-        self._attached.discard(worker.id)
+        runtime = self.store.current_runtime(worker.id)
+        if runtime is not None:
+            runtime.owner = RuntimeOwner.MANAGER
+            runtime.updated_at = now()
+            self.store.save_runtime(runtime)
+        self._apply_invalidation(
+            worker,
+            self.store.get_job(worker.job_id) if worker.job_id else None,
+            force=True,
+        )
         self._record(worker, "system", "[the user left this session]")
         return worker
 
     def is_attached(self, worker_id: UUID) -> bool:
-        return worker_id in self._attached
+        runtime = self.store.current_runtime(worker_id)
+        return runtime is not None and runtime.owner is RuntimeOwner.HUMAN
 
     def _attach_note(self, worker: Worker) -> str:
         """What the user should know before taking this session over, if anything.
@@ -1510,11 +1529,33 @@ class SessionManager:
             return
         head, tree = self._head(worker), self._tree(worker)
         if head and tree:
-            self._pending_change[worker.id] = GitSnapshot(head, tree)
+            runtime = self.store.current_runtime(worker.id)
+            if runtime is not None:
+                runtime.git_head_before_turn = head
+                runtime.git_tree_before_turn = tree
+                runtime.updated_at = now()
+                self.store.save_runtime(runtime)
 
-    def _apply_invalidation(self, worker: Worker, job: Job | None) -> None:
-        before = self._pending_change.pop(worker.id, None)
-        if before is None or job is None:
+    def _apply_invalidation(
+        self, worker: Worker, job: Job | None, *, force: bool = False
+    ) -> None:
+        runtime = self.store.current_runtime(worker.id)
+        if (
+            runtime is None
+            or runtime.git_head_before_turn is None
+            or runtime.git_tree_before_turn is None
+        ):
+            return
+        if runtime.owner is RuntimeOwner.HUMAN and not force:
+            # An interrupt completion may arrive after ownership was handed over. Keep
+            # the baseline until detach/recovery observes the human's complete edit.
+            return
+        before = GitSnapshot(runtime.git_head_before_turn, runtime.git_tree_before_turn)
+        runtime.git_head_before_turn = None
+        runtime.git_tree_before_turn = None
+        runtime.updated_at = now()
+        self.store.save_runtime(runtime)
+        if job is None:
             return
         definition = self._definition(worker.workflow)
         head, tree = self._head(worker), self._tree(worker)
@@ -1546,6 +1587,12 @@ class SessionManager:
                 worker_id=worker.id,
                 summary=f"{invalidated} artifact(s) invalidated by {change.value}.",
             )
+
+    def _reconcile_job_git(self, job: Job) -> None:
+        """Apply any durable, unfinished Git baselines before trusting run state."""
+        for worker in self.store.list_workers(job.id):
+            if worker.writable:
+                self._apply_invalidation(worker, job)
 
     # ------------------------------------------------------------ ready to push
 
@@ -1677,6 +1724,8 @@ class SessionManager:
                     )
                     notes.append(f"{worker.title}: worktree missing")
                     continue
+            job = self.store.get_job(worker.job_id) if worker.job_id else None
+            self._apply_invalidation(worker, job, force=True)
             if not worker.session_id:
                 self._force_status(
                     worker,
@@ -1712,6 +1761,19 @@ class SessionManager:
                     await self._start_backend(worker, prompt="", adopt=True)
                     action = "adopted"
                 else:
+                    if runtime.owner is RuntimeOwner.HUMAN:
+                        runtime.process_state = RuntimeProcessState.ABSENT
+                        runtime.updated_at = now()
+                        self.store.save_runtime(runtime)
+                        self._force_status(
+                            worker,
+                            WorkerStatus.DISCONNECTED,
+                            "This runtime was human-controlled when Switchboard stopped, and "
+                            "the backend cannot observe it now. Refusing to recreate it until "
+                            "ownership is explicitly returned.",
+                        )
+                        notes.append(f"{worker.title}: human-owned runtime not observable")
+                        continue
                     runtime.process_state = RuntimeProcessState.ABSENT
                     runtime.updated_at = now()
                     self.store.save_runtime(runtime)
