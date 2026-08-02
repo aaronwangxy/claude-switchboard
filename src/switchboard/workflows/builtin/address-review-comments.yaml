@@ -6,7 +6,6 @@ mutates_code: true
 produces: [comment_resolutions]
 invalidates: [verification, smoke_verification, review]
 context: [implementation_contract, behavior_contract, verification, review]
-model_role: implementer
 stage: fixing
 worker: existing
 prompt: |

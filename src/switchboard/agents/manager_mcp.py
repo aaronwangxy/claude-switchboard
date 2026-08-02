@@ -277,7 +277,7 @@ class ManagerTools:
             "name": name,
             "description": workflow.description,
             "composite": workflow.is_composite,
-            "role": workflow.default_role.value,
+            "role": workflow.role.value,
             "requires": [item.value for item in workflow.requires],
             "produces": [item.value for item in workflow.produces],
             "mutates_code": workflow.mutates_code,

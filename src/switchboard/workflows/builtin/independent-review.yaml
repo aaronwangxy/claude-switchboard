@@ -7,7 +7,6 @@ requires: [implementation_contract]
 produces: [review]
 aliases: [review-change, rereview]
 context: [behavior_contract, verification]
-model_role: reviewer
 stage: reviewing
 worker: fresh
 prompt: |

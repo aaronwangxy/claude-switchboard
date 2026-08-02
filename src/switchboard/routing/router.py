@@ -504,11 +504,11 @@ def _route_into_job(
     if definition.worker is WorkerMode.FRESH:
         return RouteProposal(
             action="start_workflow",
-            reason=f"{workflow} runs on a fresh independent {definition.default_role.value}.",
+            reason=f"{workflow} runs on a fresh independent {definition.role.value}.",
             job_id=job.id,
             repository_id=job.repository_id,
             workflow=workflow,
-            role=definition.default_role,
+            role=definition.role,
             writable=False,
             message=text,
             priority=priority,
@@ -521,7 +521,7 @@ def _route_into_job(
             job_id=job.id,
             repository_id=job.repository_id,
             workflow=workflow,
-            role=definition.default_role,
+            role=definition.role,
             writable=definition.mutates_code,
             message=text,
             priority=priority,

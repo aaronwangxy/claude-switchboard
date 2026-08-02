@@ -691,8 +691,8 @@ class SessionManager:
             )
         prompt = self._render(definition, job, request)
         worker = await self.create_worker(
-            role=definition.default_role,
-            title=f"{job.external_ref or job.title} · {definition.default_role.value}",
+            role=definition.role,
+            title=f"{job.external_ref or job.title} · {definition.role.value}",
             prompt=prompt,
             job_id=job.id,
             writable=definition.mutates_code,
@@ -712,7 +712,7 @@ class SessionManager:
         Without this, invoking the step a paused run was about to run anyway would make
         the run start a second worker for it once the user resumed.
         """
-        if job is None or not self.backend.supports_composites:
+        if job is None:
             return
         run = self.store.active_run(job.id)
         if run is None or run.current_worker_id is not None:
@@ -754,11 +754,6 @@ class SessionManager:
 
     async def start_run(self, workflow_name: str, *, job_id: UUID, request: str = "") -> WorkflowRun:
         """Begin a composite workflow over a job and start its first applicable step."""
-        if not self.backend.supports_composites:
-            raise SessionManagerError(
-                "Composite workflows are not enabled for native workers until native "
-                "atomic workflow recovery is validated across complete runs."
-            )
         definition = get_workflow(workflow_name)
         if not definition.is_composite:
             raise SessionManagerError(f"{definition.name} is not a composite workflow.")
@@ -803,12 +798,6 @@ class SessionManager:
             raise SessionManagerError(f"Run {run_id} does not exist.")
         if run.status is not RunStatus.RUNNING:
             return run
-        if not self.backend.supports_composites:
-            return self._pause_run(
-                run,
-                RunStatus.BLOCKED,
-                "Composite workflow advancement is disabled for native workers.",
-            )
         job = self.store.get_job(run.job_id)
         if job is not None:
             self._reconcile_job_git(job)
@@ -1034,10 +1023,6 @@ class SessionManager:
             return await self._resume_run(run_id)
 
     async def _resume_run(self, run_id: UUID) -> WorkflowRun:
-        if not self.backend.supports_composites:
-            raise SessionManagerError(
-                "Composite workflow advancement is disabled for native workers."
-            )
         run = self.store.get_run(run_id)
         if run is None:
             raise SessionManagerError(f"Run {run_id} does not exist.")
@@ -1100,13 +1085,6 @@ class SessionManager:
             or run.human_intervened
         ):
             return
-        if not self.backend.supports_composites:
-            self._pause_run(
-                run,
-                RunStatus.BLOCKED,
-                "Composite workflow advancement is disabled for native workers.",
-            )
-            return
         self._spawn(self.advance_run(run.id))
 
     def _complete_run_step(self, worker: Worker, turn_id: str | None) -> None:
@@ -1134,14 +1112,14 @@ class SessionManager:
         This is what stops implementation from starting without an approved plan, however
         confidently a model asks for it.
         """
-        if not definition.required_artifacts:
+        if not definition.requires:
             return
         if job is None:
             raise SessionManagerError(
                 f"{definition.name} needs a job carrying "
-                f"{', '.join(sorted(a.value for a in definition.required_artifacts))}."
+                f"{', '.join(sorted(a.value for a in definition.requires))}."
             )
-        for required in sorted(definition.required_artifacts, key=lambda a: a.value):
+        for required in sorted(definition.requires, key=lambda a: a.value):
             artifact = self.store.latest_artifact(job.id, required)
             if artifact is None or artifact.stale:
                 raise SessionManagerError(
@@ -1221,7 +1199,7 @@ class SessionManager:
             values |= {
                 "base_commit": base, "head_commit": head, "commits": commits, "diff": diff
             }
-        return render_template(definition.template, values)
+        return render_template(definition.prompt, values)
 
     def _artifact_block(self, job: Job | None, definition: WorkflowDefinition) -> str:
         """Only the structured artifacts this action declares -- never a planner transcript."""
@@ -2238,39 +2216,38 @@ class SessionManager:
                     "stored job artifacts.",
                 )
                 notes.append(f"{worker.title}: {exc}")
-        if self.backend.supports_composites:
-            for run in self.store.list_runs():
-                if run.status is not RunStatus.RUNNING:
-                    continue
-                if run.current_worker_id in recreated_workers and not run.current_step_completed:
+        for run in self.store.list_runs():
+            if run.status is not RunStatus.RUNNING:
+                continue
+            if run.current_worker_id in recreated_workers and not run.current_step_completed:
+                self._pause_run(
+                    run,
+                    RunStatus.BLOCKED,
+                    "The step runtime disappeared before a trusted completion; refusing "
+                    "to resend or advance automatically.",
+                )
+                notes.append(f"{run.workflow}: incomplete step requires reconciliation")
+                continue
+            if run.current_worker_id is not None and not run.current_step_completed:
+                runtime = self.store.current_runtime(run.current_worker_id)
+                turns = self.store.list_native_turns(runtime.id) if runtime else []
+                if (
+                    runtime is not None
+                    and runtime.process_state is RuntimeProcessState.READY
+                    and turns
+                    and turns[-1].status is NativeTurnStatus.PENDING
+                ):
                     self._pause_run(
                         run,
                         RunStatus.BLOCKED,
-                        "The step runtime disappeared before a trusted completion; refusing "
-                        "to resend or advance automatically.",
+                        "Prompt delivery is uncertain before UserPromptSubmit. Attach, "
+                        "clear the composer, and hand control back before replaying it.",
                     )
-                    notes.append(f"{run.workflow}: incomplete step requires reconciliation")
+                    notes.append(f"{run.workflow}: uncertain prompt delivery blocked")
                     continue
-                if run.current_worker_id is not None and not run.current_step_completed:
-                    runtime = self.store.current_runtime(run.current_worker_id)
-                    turns = self.store.list_native_turns(runtime.id) if runtime else []
-                    if (
-                        runtime is not None
-                        and runtime.process_state is RuntimeProcessState.READY
-                        and turns
-                        and turns[-1].status is NativeTurnStatus.PENDING
-                    ):
-                        self._pause_run(
-                            run,
-                            RunStatus.BLOCKED,
-                            "Prompt delivery is uncertain before UserPromptSubmit. Attach, "
-                            "clear the composer, and hand control back before replaying it.",
-                        )
-                        notes.append(f"{run.workflow}: uncertain prompt delivery blocked")
-                        continue
-                if run.current_worker_id is None or run.current_step_completed:
-                    await self.advance_run(run.id)
-                    notes.append(f"{run.workflow}: composite run reconciled")
+            if run.current_worker_id is None or run.current_step_completed:
+                await self.advance_run(run.id)
+                notes.append(f"{run.workflow}: composite run reconciled")
         return notes
 
     # ------------------------------------------------------------------ router
@@ -2352,7 +2329,7 @@ class SessionManager:
                 worker = await self.create_worker(
                     role=WorkerRole.QUESTION,
                     title=proposal.title or "Question",
-                    prompt=render_template(definition.template, {"request": proposal.message}),
+                    prompt=render_template(definition.prompt, {"request": proposal.message}),
                     job_id=proposal.job_id,
                     repository_id=proposal.repository_id,
                     writable=False,

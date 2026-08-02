@@ -4,7 +4,6 @@ role: implementer
 allowed_roles: [implementer, rebase]
 mutates_code: true
 context: [implementation_contract]
-model_role: implementer
 stage: implementing
 worker: existing
 prompt: |

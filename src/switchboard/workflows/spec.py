@@ -100,7 +100,6 @@ class WorkflowDefinition(BaseModel):
     context: frozenset[ArtifactType] = frozenset()
     #: The job stage this workflow moves its job to when it starts.
     stage: JobStage | None = None
-    model_role: str = "general"
     worker: WorkerMode = WorkerMode.AUTO
     prompt: str = ""
     steps: tuple[WorkflowStep, ...] = ()
@@ -124,28 +123,6 @@ class WorkflowDefinition(BaseModel):
     @property
     def is_composite(self) -> bool:
         return bool(self.steps)
-
-    # Names the rest of the application reads. Keeping them as properties means the
-    # YAML stays readable without every call site learning two vocabularies.
-    @property
-    def required_artifacts(self) -> frozenset[ArtifactType]:
-        return self.requires
-
-    @property
-    def produced_artifacts(self) -> frozenset[ArtifactType]:
-        return self.produces
-
-    @property
-    def default_role(self) -> WorkerRole:
-        return self.role
-
-    @property
-    def default_model_role(self) -> str:
-        return self.model_role
-
-    @property
-    def template(self) -> str:
-        return self.prompt
 
     @property
     def prompt_context(self) -> frozenset[ArtifactType]:

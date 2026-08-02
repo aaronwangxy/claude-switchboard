@@ -132,6 +132,9 @@ class NativeClaudeRuntime:
     ) -> str:
         """Hash every stable launch input that defines a reusable native process."""
         payload = {
+            # Frozen literal. The fingerprint decides whether a live process may be
+            # adopted, so changing this string would orphan every runtime a user has
+            # running across the upgrade -- it is a hash input, not a name.
             "adapter": "native-claude-prototype-v1",
             "cwd": str(cwd.resolve()),
             "env": self.config.claude.env,
@@ -291,6 +294,3 @@ class NativeClaudeRuntime:
             raise ClaudeRuntimeError("Claude executable was not found on PATH.")
         return Path(found)
 
-
-# Kept as a source-compatible name for Phase 3 callers; production uses the runtime name.
-NativeClaudePrototype = NativeClaudeRuntime

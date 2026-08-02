@@ -18,7 +18,7 @@ from switchboard.domain.enums import (
 )
 from switchboard.domain.models import NativeTurn, RuntimeInstance
 from switchboard.runtime.hook_bridge import handle_hook
-from switchboard.runtime.native_claude import HOOK_EVENTS, NativeClaudePrototype
+from switchboard.runtime.native_claude import HOOK_EVENTS, NativeClaudeRuntime
 from switchboard.runtime.tmux import TmuxError
 
 
@@ -62,7 +62,7 @@ def test_launch_respects_executable_environment_and_native_settings_discovery(
     wrapper.write_text("#!/bin/sh\nexit 0\n")
     wrapper.chmod(0o755)
     supervisor = RecordingSupervisor()
-    prototype = NativeClaudePrototype(
+    prototype = NativeClaudeRuntime(
         store,
         supervisor,  # type: ignore[arg-type]
         Config(
@@ -95,7 +95,7 @@ def test_launch_rejects_a_runtime_bound_to_different_configuration(store, tmp_pa
     wrapper = tmp_path / "claude"
     wrapper.write_text("#!/bin/sh\nexit 0\n")
     wrapper.chmod(0o755)
-    prototype = NativeClaudePrototype(
+    prototype = NativeClaudeRuntime(
         store,
         RecordingSupervisor(),  # type: ignore[arg-type]
         Config(claude=ClaudeConfig(executable=str(wrapper))),
@@ -109,7 +109,7 @@ def test_launch_rejects_a_runtime_bound_to_different_configuration(store, tmp_pa
 
 def test_pending_turn_owns_the_input_lane_before_user_prompt_submit(store, tmp_path: Path):
     supervisor = RecordingSupervisor()
-    prototype = NativeClaudePrototype(
+    prototype = NativeClaudeRuntime(
         store, supervisor, Config(), tmp_path / "state"  # type: ignore[arg-type]
     )
     instance = runtime(store)
@@ -139,7 +139,7 @@ def test_failed_input_injection_closes_pending_turn(store, tmp_path: Path):
         def send(self, runtime_id, prompt):
             raise TmuxError("pane disappeared")
 
-    prototype = NativeClaudePrototype(
+    prototype = NativeClaudeRuntime(
         store, FailingSupervisor(), Config(), tmp_path / "state"  # type: ignore[arg-type]
     )
     instance = runtime(store)
@@ -166,14 +166,14 @@ def test_adoption_validates_hook_configuration_and_interrupt_only_records_reques
     store, tmp_path: Path
 ):
     supervisor = RecordingSupervisor()
-    prototype = NativeClaudePrototype(
+    prototype = NativeClaudeRuntime(
         store, supervisor, Config(), tmp_path / "state"  # type: ignore[arg-type]
     )
     fingerprint = prototype.launch_fingerprint(cwd=tmp_path)
     instance = runtime(store, fingerprint=fingerprint)
 
     assert prototype.adopt(instance.id, cwd=tmp_path) == ("observed", instance.id)
-    incompatible = NativeClaudePrototype(
+    incompatible = NativeClaudeRuntime(
         store,
         supervisor,  # type: ignore[arg-type]
         Config(),
@@ -199,7 +199,7 @@ def test_adoption_validates_hook_configuration_and_interrupt_only_records_reques
 
 def test_human_handback_requires_explicit_empty_composer_confirmation(store, tmp_path: Path):
     supervisor = RecordingSupervisor()
-    prototype = NativeClaudePrototype(
+    prototype = NativeClaudeRuntime(
         store, supervisor, Config(), tmp_path / "state"  # type: ignore[arg-type]
     )
     instance = runtime(store)

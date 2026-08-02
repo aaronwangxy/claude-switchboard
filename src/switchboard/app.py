@@ -164,7 +164,7 @@ def list_workflows() -> int:
         problems = services.session_manager.reload_workflows()
         for name in workflow_names():
             definition = get_workflow(name)
-            kind = "composite" if definition.is_composite else definition.default_role.value
+            kind = "composite" if definition.is_composite else definition.role.value
             description = " ".join(definition.description.split())
             print(f"{name:<26} {kind:<16} {description}")
         for problem in problems:

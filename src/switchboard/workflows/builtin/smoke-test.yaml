@@ -5,7 +5,6 @@ allowed_roles: [verifier]
 mutates_code: false
 requires: [behavior_contract]
 produces: [smoke_verification]
-model_role: verifier
 stage: verifying
 worker: fresh
 prompt: |

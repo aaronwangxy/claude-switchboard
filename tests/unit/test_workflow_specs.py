@@ -134,7 +134,6 @@ role: verifier
 mutates_code: false
 requires: [behavior_contract]
 produces: [smoke_verification]
-model_role: verifier
 prompt: |
   Re-run the snapshot regeneration and the smoke test.
   {request}

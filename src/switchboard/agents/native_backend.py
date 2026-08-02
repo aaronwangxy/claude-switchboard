@@ -58,8 +58,6 @@ class _NativeSession:
 class NativeClaudeBackend:
     """Maps supported Claude hooks into the orchestration worker-event contract."""
 
-    supports_composites = True
-
     def __init__(
         self,
         store: Store,

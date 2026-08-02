@@ -4,7 +4,6 @@ role: question
 allowed_roles: [question, general, implementer, planner]
 mutates_code: false
 aliases: [answer-codebase-question]
-model_role: general
 prompt: |
   Answer this question about the codebase in your working directory. You are read-only.
 

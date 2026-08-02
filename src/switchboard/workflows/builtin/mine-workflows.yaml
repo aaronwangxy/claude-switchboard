@@ -5,7 +5,6 @@ allowed_roles: [question]
 mutates_code: false
 produces: [workflow_proposals]
 aliases: [propose-workflows, find-rituals]
-model_role: reviewer
 worker: fresh
 prompt: |
   Below is this application's own record of what has been run recently: which workflows

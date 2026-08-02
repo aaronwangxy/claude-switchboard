@@ -4,7 +4,6 @@ role: planner
 allowed_roles: [planner]
 mutates_code: false
 produces: [implementation_contract, behavior_contract]
-model_role: planner
 stage: planning
 prompt: |
   Plan this work for the repository in your working directory.

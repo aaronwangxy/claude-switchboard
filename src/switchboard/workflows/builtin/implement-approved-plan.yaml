@@ -5,7 +5,6 @@ allowed_roles: [implementer]
 mutates_code: true
 requires: [implementation_contract]
 invalidates: [verification, smoke_verification, review]
-model_role: implementer
 stage: implementing
 prompt: |
   Implement the approved plan in your working directory.

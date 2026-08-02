@@ -111,7 +111,11 @@ class RuntimeInstance(Base):
 
 
 class NativeTurn(Base):
-    """Experimental native-Claude turn correlated through supported hooks."""
+    """One turn of a native Claude session, correlated through its lifecycle hooks.
+
+    `origin` is the provenance that decides authority: only a `MANAGED` turn that no
+    human touched may harvest artifacts or advance a workflow run.
+    """
 
     id: UUID = Field(default_factory=uuid4)
     runtime_id: UUID
