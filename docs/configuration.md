@@ -50,6 +50,12 @@ commits:
 # an explicit null pins the value and skips the environment fallback.
 models: {}
 
+permissions:
+  writable_worker: acceptEdits  # acceptEdits | auto | manual | plan | null
+  read_only_worker: plan
+
+effort: {}                      # per role, e.g. `reviewer: high`. Null leaves it alone.
+
 default_composite_workflow: complete-ticket
 
 workflows:
@@ -84,13 +90,27 @@ Notes on the ones with sharp edges:
   named here are copied, and only plain files directly inside the repository root — nothing
   is swept up by pattern, because these files are exactly where credentials tend to live.
 - **`default_composite_workflow`** was previously called `default_profile`. The old key
-  still loads.
+  still loads. It is only the default: the Manager picks a workflow per request, and
+  `investigate`, `diagnose-and-fix`, `rebase` and `review-only` are its equals.
+- **`permissions`** is the knob that decides how often a fleet interrupts you. The default
+  stops a writable worker asking about writes inside its own worktree while still asking
+  about shell commands. `auto` hands command classification to Claude as well, which
+  removes almost all remaining prompts; `manual` asks about everything. A workflow may
+  override it with `permission_mode:`.
 
-## Model selection
+## Model, effort, and role selection
 
 A worker's model comes from its role, resolved through `models.<role>` and falling back to
-`models.general`. Setting nothing at all means Switchboard passes no `--model` and Claude
-uses whatever it is already configured to use — which is usually what you want.
+`models.general`; `effort` works the same way. Setting nothing at all means Switchboard
+passes no `--model` or `--effort` and Claude uses whatever it is already configured to
+use — which is usually what you want.
+
+Roles are not a fixed list. A workflow declares the role its workers play, so
+`models.investigator` or `effort.flake-hunter` works as soon as a workflow uses that name.
+
+Every session is also launched with `--name`, so it appears under its job and role in
+Claude's own `/resume` picker, Agent View, and `claude agents --json` — a worker stays an
+ordinary session you could have started yourself.
 
 ## Claude settings inheritance
 

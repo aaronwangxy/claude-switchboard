@@ -40,12 +40,16 @@ manager act through.
 | Question | Module |
 | --- | --- |
 | Which worktree *is* this job's change, and what did a change to it invalidate? | `core/lineage.py` |
-| Is this change finished? | `core/evidence.py` |
+| Is this work finished, and what is left? | `core/evidence.py` |
 | Should this composite step run? | `core/runs.py` |
-| What does this workflow need, produce, and invalidate? | `workflows/spec.py` + the YAML |
+| What does this workflow need, produce, invalidate, and mean by done? | `workflows/spec.py` + the YAML |
+| Is this workflow well-formed? | `workflows/validate.py` (`sb workflows validate`) |
 | How is a native Claude process launched, observed, or entered? | `runtime/` |
 | What may the Manager do? | `agents/manager_mcp.py` |
 | Anything that mutates orchestration state | `core/session_manager.py` |
+
+Adding a workflow — including its role, that role's policy, and its permission mode —
+must never require a change to Python. If it does, that is the bug.
 
 The UI holds no Git, SQLite, or worktree logic. Keep it that way.
 
@@ -63,7 +67,8 @@ Enforced in ordinary Python, never by asking a model to behave:
 5. Stopping a worker and cleaning up a worktree each require an explicit confirmation
    in the user's own current message, checked in Python before the operation runs.
 6. Worker status changes must satisfy `ALLOWED_WORKER_TRANSITIONS`.
-7. Workflow prerequisites and `ready_to_push` are computed from stored state, not judgment.
+7. Workflow prerequisites and job completion are computed from stored state, not judgment.
+   What "complete" means comes from the job's workflow, never from a fixed checklist.
 8. Workers never receive the manager's MCP configuration, socket, or launch arguments,
    so orchestration authority is unreachable from a worker rather than merely discouraged.
    (Workers do perform normal MCP discovery, so a user's or repository's own MCP servers
@@ -74,6 +79,11 @@ Enforced in ordinary Python, never by asking a model to behave:
 12. Only a `MANAGED` turn that no human touched may harvest an artifact or advance a run.
 13. Reserving a worker and sending it a prompt do not complete a composite step; only a
     successfully applied, manager-owned terminal event does.
+14. A job following no workflow is never announced complete: an empty checklist is not a
+    satisfied one.
+15. Answering a native workspace-trust prompt requires recorded per-repository consent, a
+    directory Switchboard owns, a pre-session runtime, and a pane actually showing that
+    prompt. Pane text is a veto, never a source of truth.
 
 Known gap: read-only workers keep `Bash`, so read-only is a tool policy and prompt
 guarantee rather than a sandbox. See [`docs/troubleshooting.md`](docs/troubleshooting.md).
@@ -87,6 +97,7 @@ edits are live immediately, but a `pyproject.toml` dependency change needs
 ```bash
 sb                                                             # launch (or: sb claude)
 sb workflows                                                   # what routing can reach
+sb workflows validate                                          # check them before relying on one
 sb config                                                      # effective config and paths
 sb --log-file /tmp/switchboard.log                             # logs (otherwise discarded)
 SB_BACKEND=scripted sb                                         # offline: no model calls

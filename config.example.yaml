@@ -24,6 +24,22 @@ models: {}
   # verifier: claude-sonnet-4-6
   # general: claude-sonnet-4-6
 
+# Native Claude permission mode per kind of worker. Delegated to Claude, not reimplemented.
+# A writable worker owns an isolated worktree on its own branch that Switchboard never
+# pushes, merges, or deletes, so `acceptEdits` matches what it is allowed to do -- and it
+# is the difference between a fleet that runs and one that stops on every file write. Bash
+# still prompts. Use `auto` to let Claude's own classifier judge commands too, `manual` to
+# be asked about everything, or null for Claude's default.
+permissions:
+  writable_worker: acceptEdits
+  read_only_worker: plan
+
+# Native Claude effort level per role. Omit or null to leave the session default alone.
+effort: {}
+  # planner: high
+  # reviewer: high
+  # implementer: medium
+
 # The composite workflow a brand new job follows when nothing else says otherwise.
 default_composite_workflow: complete-ticket
 

@@ -1,7 +1,9 @@
 # Switchboard
 
-One board for several long-running native Claude Code sessions: route the work, gate it on
-contracts and evidence, and step into any live session whenever you want to.
+A conversational manager for durable workflows across many independent Claude Code
+sessions. You give one Manager a request; it decides what sessions to run, hands each one's
+output to the next, and tells you — from stored evidence, not from an opinion — when the
+work is actually done. Every worker stays an ordinary Claude session you can walk into.
 
 ```
 +------------------------------+----------------------------------------+
@@ -50,37 +52,54 @@ evidence that decide whether a change is actually finished.
 > This section is a description of the gap I hit, not a competitive claim. A detailed
 > comparison against current tools has not been done yet.
 
-## Contracts and evidence
+## Goal, criteria, evidence
 
 What makes delegation reliable is not a better prompt; it is an executable contract around
-the agent.
+the agent. Every request has a goal, so every workflow shares one spine:
 
-| Artifact | Question | Produced by |
+```
+goal  ->  acceptance criteria  ->  evidence
+```
+
+| Artifact | Question | Typically produced by |
 | --- | --- | --- |
-| Implementation contract | What shape should the solution take? | planner |
-| Behavior contract | What must observably work, and what proof would show it? | planner |
-| Verification report | What proof was actually observed, at which commit? | verifier |
+| `goal` | What is this trying to achieve, and what would establish it? | planner, investigator |
+| `implementation_contract` | What shape should the solution take? | planner |
+| `findings` | What is actually going on, and what is the evidence? | investigator |
+| `verification` | What proof was observed, at which commit? | verifier |
+| `review` | Does it hold up to a fresh independent reading? | reviewer |
 
-The behavior contract carries each acceptance criterion's `evidence_required`; the
-verification report carries the commands, exit codes, and observed behaviour that answer
-it. Nothing is finished until the second matches the first at the current commit.
+These are structured artifacts, not prose in a transcript, and the application enforces
+them. Implementation cannot start without an approved plan. A fix cannot start before
+something was actually diagnosed. A code change deterministically invalidates the
+verification and review that no longer apply.
 
-They are stored as structured artifacts, not prose in a transcript, and the application
-enforces them. Implementation cannot start without an approved plan. A code change
-deterministically invalidates the verification and review that no longer apply. "Ready to
-push" is computed from stored evidence rather than asserted by a model.
+**Done is defined by the workflow, not by a fixed checklist.** A job is complete when
+everything its workflow's unconditional steps promised exists, still applies to the current
+commit, and passes the check its type carries — so `complete-ticket` demands a plan,
+criteria, verification and review, `rebase` demands a clean tree and fresh checks, and
+`investigate` demands an evidenced answer. `sb workflows` prints each one's definition of
+done; `sb workflows validate` checks them before you rely on one.
 
 ## How it works
 
-Paste a ticket, ask a question, or say "rebase this" into one Manager input. It routes: to
-an existing worker, to a reusable workflow, or to a new independent worker in its own Git
-worktree.
+Say what you want into one Manager input. It picks a workflow — matching what you want
+established against what each workflow would prove — and runs it across independent
+sessions.
 
 ```
-you → Manager Claude → resolve the job/repo/change → select a workflow
+you → Manager Claude → pick the workflow whose definition of done matches
                                                        ↓
-                            reuse or launch an independent Claude worker
+                             independent Claude sessions, one per stage
+                                                       ↓
+                             evidence stored, next session handed it
 ```
+
+Firefighting, for instance, is an ordinary workflow rather than a special case:
+`diagnose-and-fix` runs one session to diagnose, hands its stored findings to a second that
+fixes them, then a third verifies and a fourth reviews. When work genuinely belongs in
+separate jobs, Manager links them so evidence still travels and the parent stays open until
+its children close.
 
 For engineers who want to know how the interesting parts are actually achieved:
 
@@ -104,7 +123,13 @@ For engineers who want to know how the interesting parts are actually achieved:
   root, never inside your repository. Read-only reviewers and verifiers observe rather than
   own.
 - **Each job has one authoritative worktree,** and that lineage is the only thing reviewers,
-  verifiers, freshness, and the ready-to-push gate inspect.
+  verifiers, freshness, and the completion gate inspect.
+- **Native Claude features are configured, not reimplemented.** Model, effort, permission
+  mode and the session's display name are passed through, so a worker shows up in your own
+  `/resume` picker and `claude agents --json` like any session you started yourself.
+- **Interruptions are minimised, not bypassed.** You vouch for a repository once and
+  Switchboard answers the per-worktree trust dialog under four Python guards; writable
+  workers run with `acceptEdits` in their own worktree so they do not stop on every write.
 - **Pressing Enter puts you in the exact same process.** No `--resume`, no replacement
   process, no interrupted turn. Ownership becomes yours, Switchboard refuses to send while
   you are there, and the run pauses in a resumable state.

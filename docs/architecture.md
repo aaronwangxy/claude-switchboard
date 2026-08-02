@@ -28,12 +28,48 @@ worker to reach for inside its own session.
 
 ## Manager, job, worker
 
-A **job** is one unit of work in a repository — usually a ticket — with a stage and its
-artifacts. A **worker** is one independent Claude session with a role, a working
-directory, a writable flag, and optionally a worktree; it may belong to a job. The
-**manager** is a router, a command palette, and a status summariser. It is never the
-system of record and it never writes code: `SessionManager` executes, the manager only
-proposes.
+A **job** is one unit of work in a repository — a ticket, an outage, a question — with a
+workflow, a descriptive stage, its artifacts, and optionally a parent job and other jobs
+whose evidence it is given. A **worker** is one independent Claude session with a role, a
+working directory, a writable flag, and optionally a worktree. The **manager** is the
+operator: it decides what sessions to create, what each does, how their outputs feed the
+next, and when the request is finished. It is never the system of record and it never
+writes code — `SessionManager` executes, the manager only proposes — and it never judges
+completion, because the gate computes it.
+
+The user's normal path is one sentence to the Manager. Everything else follows from that.
+
+## Goal, criteria, evidence
+
+Every request has a goal, whether it is a ticket, a question or an outage, so that is the
+spine every workflow shares:
+
+```
+goal  ->  acceptance criteria  ->  evidence
+```
+
+`Goal` states what the request is trying to achieve and the criteria that would establish
+it. The evidence is whatever suits the work: a verification report for code that must
+behave a certain way, a **findings** report for a question or an investigation, a review
+for a change somebody had to judge. A workflow declares which of these it `produces`, and
+that declaration is what the completion gate reads.
+
+A findings report carries an answer that stands on its own, which is what lets one
+session's conclusion become another session's input without a person or a model retyping
+it — either as a later step of the same job, or through `context_job_ids` when Manager
+split the request across jobs.
+
+## Deterministic completion
+
+"Is this finished?" is derived from the workflow the job is following: every artifact its
+unconditional steps promise must exist, be current for the code, and satisfy the check
+that artifact type carries. A conditional step is never a precondition, because a step
+that may not run cannot be required. Any workflow that mutates code also needs a clean
+authoritative tree, and a parent job waits for its children.
+
+For `complete-ticket` this evaluates to the rule that used to be hardcoded. For `rebase`
+it asks for a clean tree and fresh checks. For `investigate` it asks for evidenced
+findings. A job following no workflow is reported unfinished, never vacuously done.
 
 ```
 Switchboard
@@ -50,10 +86,10 @@ Switchboard
 
 | Module | Responsibility |
 | --- | --- |
-| `domain/` | Pydantic models, enums (the worker-transition table, attention priority), the contract and report schemas, event kinds |
+| `domain/` | Pydantic models, enums (the worker-transition table, attention priority), the goal/report schemas, event kinds. `WorkerRole` is a validated *name*, not a closed set: a workflow declares its own. |
 | `storage/` | SQLite schema and `Store`, the system of record |
 | `gitops/` | `runner` (argv-only git) and `WorktreeService` |
-| `workflows/` | The `WORKFLOWS` registry, YAML loading, and deterministic artifact freshness |
+| `workflows/` | The `WORKFLOWS` registry, YAML loading, deterministic artifact freshness, and `validate` (what `sb workflows validate` runs) |
 | `agents/` | Worker backends, the persistent native manager, the manager MCP, prompt composition |
 | `runtime/` | Substrate-neutral runtime supervision, the tmux controller, the Claude hook bridge |
 | `routing/` | Attention-queue ordering, plus the deterministic router used by the offline manager |
@@ -65,9 +101,9 @@ Where a behaviour belongs:
 
 - *"which worktree is this job's change, and what did a change to it invalidate?"* →
   `core/lineage.py`
-- *"is this change finished?"* → `core/evidence.py`
+- *"is this work finished, and what is left?"* → `core/evidence.py`
 - *"should this composite step run?"* → `core/runs.py`
-- *"what does this workflow need and produce?"* → `workflows/spec.py` and the YAML
+- *"what does this workflow need, produce, and mean by done?"* → `workflows/spec.py` and the YAML
 - everything that mutates orchestration state → `core/session_manager.py`
 
 ## Session lifecycle
@@ -111,6 +147,13 @@ that baseline.
 
 ## Worktrees
 
+Claude records workspace trust against an exact directory, and every writable worker gets
+a fresh path, so each one would meet the trust dialog. The user vouches once per
+repository; after that Switchboard answers the dialog only when the recorded consent
+exists, the directory is one it owns or the registered repository itself, the runtime is
+genuinely pre-`SessionStart`, and the pane really is showing a trust prompt. The pane text
+is a veto, never a source of truth.
+
 Only writable workers get a worktree, always at a fresh path under the managed root
 (`<data dir>/worktrees/<repo>/<job>-<role>-<id8>`, on branch `sb/<slug>-<id8>`) — never
 inside the user's repository. Read-only workers get none: they observe the job's
@@ -133,7 +176,7 @@ Enforced in ordinary Python, never by asking a model to behave:
 5. Stopping a worker and cleaning up a worktree each require an explicit confirmation
    in the user's own current message, checked in Python before the operation runs.
 6. Worker status changes must satisfy `ALLOWED_WORKER_TRANSITIONS`.
-7. Workflow prerequisites and `ready_to_push` are computed from stored state, not judgment.
+7. Workflow prerequisites and job completion are computed from stored state, not judgment.
 8. Workers never receive the manager's MCP configuration, socket, or launch arguments,
    so orchestration authority is unreachable from a worker rather than merely discouraged.
    (Workers do perform normal MCP discovery, so a user's or repository's own MCP servers
@@ -145,6 +188,12 @@ Enforced in ordinary Python, never by asking a model to behave:
 12. Only a `MANAGED` turn that no human touched may harvest an artifact or advance a run.
 13. Reserving a worker and sending it a prompt do not complete a composite step; only a
     successfully applied, manager-owned terminal event does.
+14. A job is complete only when its workflow's definition of done is satisfied by stored
+    evidence. A worker saying it finished is not that, and neither is the Manager's
+    opinion. A job following no workflow is never announced complete.
+15. Answering a native workspace-trust prompt requires recorded per-repository consent,
+    a directory Switchboard owns, a pre-session runtime, and a pane that is actually
+    showing that prompt. Each is checked in Python.
 
 Read-only workers keep `Bash`, because reviewers and verifiers need it, so read-only is a
 tool-policy and prompt guarantee rather than a sandbox. See
@@ -156,7 +205,12 @@ tool-policy and prompt guarantee rather than a sandbox. See
   boundary.
 - `WORKFLOWS` — add a workflow by dropping YAML in `~/.switchboard/workflows` or a
   repository's `.switchboard/workflows`; no core change, no privileged built-in path.
-- `ArtifactType` + `domain/contracts.py` — add an artifact type with its Pydantic schema.
+- `ArtifactType` + `domain/contracts.py` — add an artifact type with its Pydantic schema,
+  its harvester in `SessionManager._HARVESTERS`, and, if it can be unsatisfied, its check
+  in `evidence.COMPLETION_CHECKS`.
+- `WorkerRole` — free-form. A workflow declares `role:` and `role_policy:` in its YAML.
+- Native Claude knobs — model, effort, permission mode and session name are configuration
+  passed through, never reimplemented.
 - `routing/router.py` — the offline routing rules stay deterministic and testable without
   a model. The production native Manager routes through its MCP instead, so this is the
   reference implementation and the validator, not the production path.

@@ -1,8 +1,20 @@
 # The Manager
 
 The Manager is one persistent native Claude Code process running under the same tmux
-runtime supervisor as workers. It routes, summarises, and proposes. It is never the system
-of record and it never writes code.
+runtime supervisor as workers. It is the operator: it decides what independent sessions to
+create, what each should do, how their outputs feed the next, and when a request is
+finished. It is never the system of record, it never writes code, and it never judges
+completion — the gate computes that and the Manager reports it.
+
+It chooses workflows from the registry rather than from its instructions. `list_workflows`
+reports each workflow's `definition_of_done` — what starting it would commit the job to
+proving — and that is the field the Manager is told to choose on. No workflow is named in
+its prompt, because naming one would make that workflow the architecture.
+
+When a request is genuinely several pieces of work, the Manager creates a job per part:
+`context_job_ids` hands one job's stored evidence to another's workers, and `parent_job_id`
+keeps the parent incomplete until its children are. It is told not to split work a single
+workflow already expresses.
 
 Two implementations share one `handle(text) -> str` contract:
 
@@ -36,20 +48,24 @@ it never constructs a peer orchestrator or its own worker pumps. Handlers call
 
 The tools are semantic orchestration operations only:
 
-`register_repository`, `create_job`, `inspect_state`, `list_workflows`, `start_workflow`,
-`start_run`, `send_worker_followup`, `record_decision`, `resume_run`, `interrupt_worker`,
-`stop_worker`, `inspect_contracts`, `approve_plan`, `status_summary`.
+`register_repository`, `create_job`, `check_completion`, `inspect_state`,
+`list_workflows`, `start_workflow`, `start_run`, `send_worker_followup`, `record_decision`,
+`resume_run`, `interrupt_worker`, `stop_worker`, `trust_repository_worktrees`,
+`unblock_worker_startup`, `inspect_contracts`, `approve_plan`, `status_summary`.
 
-Two of them require the user's own current turn to have said so:
+Three of them require the user's own current turn to have said so:
 
 - `stop_worker` needs an explicit confirmation in the current message;
-- `approve_plan` needs an approval in the current message.
+- `approve_plan` needs an approval in the current message;
+- `trust_repository_worktrees` needs the user to vouch for the repository in theirs.
 
-The approval guard is a lexical one, and it is honest about that: the durable property it
-enforces is that the approval appeared in the user's own current turn, not that a model
-understood it. The approval must open its own sentence in the user's voice, any withholding
-instruction anywhere in the message vetoes it, quoted text is somebody else's approval being
-relayed, and an interrogative never grants.
+These guards are lexical, and they are honest about that: the durable property they enforce
+is that the consent appeared in the user's own current turn, not that a model understood
+it. Stopping a worker is destructive, so it demands a bare confirmation message. Approval
+and trust use a sentence-level guard instead — it must open its own sentence in the user's
+voice, any withholding instruction anywhere in the message vetoes it, quoted text is
+somebody else's consent being relayed, and an interrogative never grants — because
+demanding a message containing nothing else would make the user answer twice.
 
 Its launch disables native coding tools and allows only `mcp__switchboard__*`. **Workers
 never receive the manager's MCP configuration, socket, or launch arguments** — orchestration
@@ -68,6 +84,15 @@ the same generation-bound path when it returns, and every call is reauthorised s
 The bridge is exactly-once in every realistic case, and says so honestly when it is not: a
 call the board accepted before vanishing is reported as *applied-unknown*, so the Manager
 inspects state rather than retrying a mutation that may already have happened.
+
+### When native startup needs a person
+
+A first run in a fresh data directory meets Claude's workspace-trust dialog, which blocks
+`SessionStart`. Raising there used to kill the board process and take down the Unix socket
+the MCP bridge connects to, leaving a Manager with no tools that could only narrate having
+none. The board now stays up, records which runtime is waiting, and says to press Ctrl+E.
+`handle` refuses to send while the session is not ready, so a message can never be typed
+into a trust dialog.
 
 ## Workspace and configuration
 

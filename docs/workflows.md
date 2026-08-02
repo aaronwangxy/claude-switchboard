@@ -1,8 +1,24 @@
-# Workflows, contracts, and evidence
+# Workflows: goal, criteria, evidence
 
-A workflow is routing metadata plus a prompt: what it needs, what it produces, what it
-invalidates, and whether it needs a fresh Claude. Workflows are YAML, and adding one
-requires no change to Switchboard.
+A workflow encodes a procedure you would otherwise carry out by hand after opening a
+Claude. It is routing metadata plus a prompt: what it needs, what it produces, what it
+invalidates, and whether it needs a fresh session. Workflows are YAML, and adding one
+requires no change to Switchboard — including the role its workers play and the policy
+they are launched with.
+
+Every request has a goal, so every workflow shares one spine:
+
+```
+goal  ->  acceptance criteria  ->  evidence
+```
+
+What a workflow `produces` is that evidence, and it is also its **definition of done**:
+the union of what its unconditional steps promise is exactly what a job following it must
+have before Switchboard will call it complete. `sb workflows` prints it.
+
+`complete-ticket` is one workflow among peers, not the architecture. `investigate`,
+`diagnose-and-fix`, `rebase`, `review-only` and `answer-question` are its equals, each with
+its own definition of done.
 
 ## Atomic and composite
 
@@ -38,7 +54,9 @@ steps:
 | `produces` | The artifact harvested from its fenced JSON block. |
 | `invalidates` | Extra artifact types a run of this workflow makes stale. |
 | `context` | Extra stored artifacts to put in the prompt beyond `requires`. |
-| `stage` | The job stage starting it moves the job to. |
+| `role_policy` | System-prompt policy for a role Switchboard has no built-in policy for. |
+| `permission_mode` | Native Claude permission mode for its workers, overriding config. |
+| `stage` | A free-text label starting it moves the job to. Descriptive; nothing gates on it. |
 | `worker` | `fresh`, `existing`, or `auto`. |
 | `prompt` | The template, for an atomic workflow. |
 | `steps` | The step list, for a composite. |
@@ -56,6 +74,27 @@ steps:
 Every `when` condition is answered from stored state and Git lineage — never from a model
 remembering that something changed. That is what makes a run resumed tomorrow evaluate its
 next step exactly as it would have today.
+
+A conditional step is deliberately **not** part of the definition of done: a step that may
+not run cannot be a precondition for finishing, or a change with no review findings would
+be permanently unfinished. Its evidence is still checked when it exists.
+
+## Checking a workflow before you rely on it
+
+```bash
+sb workflows validate
+```
+
+catches what is answerable from the definitions alone: a step naming a workflow that does
+not exist, a composite that composes itself, a step needing evidence no earlier step
+produces (and which workflows would supply it), a workflow no worker could run because its
+own role is not in `allowed_roles`, one that requires what it produces, and a composite
+whose unconditional steps produce nothing — so a job following it could never be reported
+complete. It exits non-zero.
+
+An unknown `{token}` in a prompt is not a problem: unmatched braces are left alone on
+purpose, which is what lets a prompt carry a JSON schema or `git rev-parse HEAD^{tree}`
+without escaping.
 
 ## Where workflows come from
 
@@ -78,15 +117,23 @@ raised: one broken user workflow must not stop Switchboard from starting.
 What makes delegation reliable is not a better prompt; it is an executable contract around
 the agent.
 
-| Artifact | Question | Produced by |
+| Artifact | Question | Typically produced by |
 | --- | --- | --- |
-| Implementation contract | What shape should the solution take? | planner |
-| Behavior contract | What must observably work, and what proof would show it? | planner |
-| Verification report | What proof was actually observed, at which commit? | verifier |
+| `goal` | What is this trying to achieve, and what would establish it? | planner, investigator |
+| `implementation_contract` | What shape should the solution take? | planner |
+| `findings` | What is actually going on, and what is the evidence? | investigator, question |
+| `verification` | What proof was observed, at which commit? | verifier |
+| `review` | Does the change hold up to a fresh independent reading? | reviewer |
+| `comment_resolutions` | What was done about each review comment? | implementer |
 
-The behavior contract carries each acceptance criterion's `evidence_required`; the
-verification report carries the commands, exit codes, and observed behaviour that answer
-it. Nothing is finished until the second matches the first at the current commit.
+The goal carries each acceptance criterion's `evidence_required`; the verification report
+carries the commands, exit codes, and observed behaviour that answer it. Nothing is
+finished until the second matches the first at the current commit.
+
+A `findings` report is the one that makes non-code work first-class. It carries an
+`answer` that stands on its own plus evidenced findings, so asking a Claude something
+leaves a durable result rather than a transcript — and a later fix worker can be handed
+that artifact verbatim instead of somebody's paraphrase of it.
 
 They are stored as structured artifacts, not prose in a transcript. A worker emits a
 fenced ```json block; `extract_json_block` plus Pydantic validation turn it into an
@@ -144,19 +191,44 @@ flight. A step with an approval gate raises a `plan_approval` attention item poi
 the worker whose session explains the gate — or at nothing, rather than at an unrelated
 worker the user happens to have started.
 
-## Ready to push
+## Completion
 
-`ready_to_push` is computed in `core/evidence.py` from stored state, never asserted by a
-model. It reports every blocker it finds:
+`job_completion` is computed in `core/evidence.py` from stored state, never asserted by a
+model, and what it asks for comes from the job's workflow rather than from a fixed list.
+For each artifact that workflow's unconditional steps promise, it requires the artifact to
+exist, to still apply to current HEAD, and to satisfy the check its type carries:
 
-- no authoritative change worktree;
-- no implementation contract, or an unapproved one, or unanswered blocking decisions;
-- no acceptance criteria, or a criterion that is not passed and has no accepted limitation;
-- no verification evidence, or evidence that does not apply to current HEAD;
-- no independent review, a stale one, or unresolved blocking findings;
-- uncommitted changes in the worktree.
+- an implementation contract must be approved and free of unanswered blocking decisions;
+- a goal must have criteria, each passed or carrying an accepted limitation;
+- a verification report must pass;
+- a review must have no unresolved blocking findings;
+- a findings report must state an answer, and every non-speculative finding needs evidence;
+- comment resolutions must not still need a human decision.
 
-`verification_blurb` builds a copy-pastable summary from the same stored evidence.
+It also requires a clean authoritative worktree when the workflow mutates code, a run that
+has finished, and every child job complete. A job following no workflow is reported
+unfinished: an empty checklist is not a satisfied one.
+
+`check_completion` is the Manager's tool for this, and it is told to report what the gate
+says rather than judge. `verification_blurb` builds a copy-pastable summary from the same
+stored evidence.
+
+## Splitting a request across jobs
+
+Some work is genuinely separable — diagnosing before anyone can fix, changes in two
+repositories, an investigation whose answer decides what to do next. Manager can create a
+job per part:
+
+- `context_job_ids` names the jobs whose stored artifacts this job's workers are given.
+  The artifact travels from the store verbatim, and satisfies a prerequisite: input may be
+  borrowed.
+- `parent_job_id` says the parts serve one request. The parent is not complete until its
+  children are.
+
+Completion deliberately reads only a job's *own* evidence. Output may not be borrowed.
+
+Do not split what a single workflow already expresses: `diagnose-and-fix` already runs
+diagnosis, fix, verification and review as four independent sessions inside one job.
 
 ## Mining
 
