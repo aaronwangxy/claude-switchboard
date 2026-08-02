@@ -418,6 +418,12 @@ class SwitchboardApp(App[None]):
             detail.append("workspace  ", style="dim")
             detail.append(str(status.get("workspace") or "isolated non-repository workspace") + "\n\n")
             detail.append(self.sm.status_summary())
+            if status.get("state") == "starting":
+                detail.append(
+                    "\n\nStartup is waiting for native Claude. Press Enter to handle "
+                    "workspace trust, login, or another startup prompt.",
+                    style="yellow",
+                )
             self._pane_signature = ("manager", *sorted(status.items()))
             self.worker_pane.show_manager("Manager · native Claude", detail)
             return

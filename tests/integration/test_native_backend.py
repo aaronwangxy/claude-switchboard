@@ -14,7 +14,7 @@ from uuid import uuid4
 import pytest
 
 from switchboard.agents.backend import WorkerEvent
-from switchboard.agents.native_backend import NativeClaudeBackend
+from switchboard.agents.native_backend import NativeClaudeBackend, default_tmux_socket_path
 from switchboard.agents.native_manager import MAX_HANDOFF_CHARS, PersistentNativeManager
 from switchboard.config import ClaudeConfig, Config
 from switchboard.core.session_manager import SessionManager, SessionManagerError
@@ -42,6 +42,16 @@ async def wait_for(check, timeout: float = 5.0):
             return value
         await asyncio.sleep(0.02)
     raise AssertionError("condition did not become true")
+
+
+def test_long_state_directory_uses_a_short_stable_tmux_socket(tmp_path):
+    state_dir = tmp_path / ("nested-" * 30)
+    first = default_tmux_socket_path(state_dir)
+    second = default_tmux_socket_path(state_dir)
+
+    assert first == second
+    assert len(str(first).encode()) <= 96
+    assert first.parent in (Path("/private/tmp"), Path("/tmp"))
 
 
 async def test_native_manager_is_persistent_adoptable_and_rotatable(native_services, tmp_path):
@@ -73,6 +83,7 @@ async def test_native_manager_human_entry_uses_same_process(native_services, tmp
     sm, backend, _ = native_services
     manager = PersistentNativeManager(sm, backend, tmp_path / "manager-entry")
     runtime = await manager.start_or_recover()
+    await manager.handle("Report status.")
     attachment = await manager.enter()
     assert attachment.session_id == runtime.claude_session_id
     assert "--resume" not in attachment.argv

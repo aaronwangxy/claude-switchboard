@@ -20,7 +20,7 @@ class ClaudeRuntimeError(RuntimeError):
 
 
 def claude_cli_path(configured: str | None) -> Path | None:
-    """Resolve the configured executable, or None to let the SDK find its own.
+    """Resolve the configured native Claude executable.
 
     A shell alias or shell function is not an executable and cannot be launched; the
     error says so, because that is the mistake this is most likely to catch.

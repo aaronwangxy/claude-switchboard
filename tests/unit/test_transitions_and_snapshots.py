@@ -29,6 +29,7 @@ NOW = datetime(2026, 7, 31, 12, 0, tzinfo=UTC)
     ("current", "target"),
     [
         (WorkerStatus.STARTING, WorkerStatus.WORKING),
+        (WorkerStatus.STARTING, WorkerStatus.BLOCKED),
         (WorkerStatus.WORKING, WorkerStatus.BLOCKED),
         (WorkerStatus.BLOCKED, WorkerStatus.WORKING),
         (WorkerStatus.IDLE, WorkerStatus.WORKING),
@@ -45,7 +46,6 @@ def test_permitted_transitions(current, target):
     [
         (WorkerStatus.STOPPED, WorkerStatus.WORKING),
         (WorkerStatus.STOPPED, WorkerStatus.IDLE),
-        (WorkerStatus.STARTING, WorkerStatus.BLOCKED),
         (WorkerStatus.DONE, WorkerStatus.BLOCKED),
     ],
 )

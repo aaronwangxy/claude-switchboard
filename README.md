@@ -194,4 +194,5 @@ Working prototype, built for personal use. Architecture and conventions are in
 [`CLAUDE.md`](CLAUDE.md). In [`docs/`](docs/): the original specification, the MVP
 verification record, and [`harness-evidence.md`](docs/harness-evidence.md) — what was
 verified for the workflow-harness milestone, including why native Dynamic Workflows do
-not back Switchboard's composite runs, and what was not verified.
+not back Switchboard's composite runs. [`phase7-product-integration.md`](docs/phase7-product-integration.md)
+records the current product/UI and authenticated native-Claude evidence.

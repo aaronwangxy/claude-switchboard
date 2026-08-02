@@ -402,10 +402,34 @@ class SessionManager:
                 else await self.backend.start(spec)
             )
         except Exception as exc:
-            runtime.process_state = RuntimeProcessState.EXITED
+            try:
+                observation = await self.backend.observe(worker.id)
+            except Exception:
+                observation = None
+            startup_alive = observation is not None and observation.exists
+            current_runtime = self.store.get_runtime(runtime.id) or runtime
+            runtime.process_state = (
+                current_runtime.process_state
+                if current_runtime.process_state is RuntimeProcessState.READY
+                else RuntimeProcessState.STARTING
+                if startup_alive
+                else RuntimeProcessState.EXITED
+            )
             runtime.updated_at = now()
             self.store.save_runtime(runtime)
-            self._set_status(worker, WorkerStatus.FAILED, waiting_for=f"Backend error: {exc}")
+            waiting_for = (
+                "Native Claude startup needs human attention. Enter this session to handle "
+                f"workspace trust, login, or another startup prompt. ({exc})"
+                if startup_alive
+                else f"Backend error: {exc}"
+            )
+            self._set_status(
+                worker,
+                WorkerStatus.BLOCKED if startup_alive else WorkerStatus.FAILED,
+                waiting_for=waiting_for,
+            )
+            if startup_alive:
+                self.raise_attention(worker, AttentionKind.PERMISSION_REQUIRED, waiting_for)
             self.emit(
                 ev.WORKER_FAILED, worker_id=worker.id, job_id=worker.job_id, summary=str(exc)
             )
@@ -591,6 +615,22 @@ class SessionManager:
 
         if job is None:
             raise SessionManagerError(f"{definition.name} needs a job or a target worker.")
+        existing = next(
+            (
+                candidate
+                for candidate in reversed(self.store.list_workers(job.id))
+                if candidate.workflow == definition.name
+                and candidate.status
+                in (WorkerStatus.STARTING, WorkerStatus.WORKING, WorkerStatus.BLOCKED)
+            ),
+            None,
+        )
+        if existing is not None:
+            raise SessionManagerError(
+                f"{job.title!r} already has {definition.name} on {existing.title!r} "
+                f"({existing.status.value}). Enter or recover that session instead of "
+                "starting a duplicate."
+            )
         prompt = self._render(definition, job, request)
         worker = await self.create_worker(
             role=definition.default_role,

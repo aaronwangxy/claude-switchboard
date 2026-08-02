@@ -1,8 +1,7 @@
-"""Runtime prompt composition.
+"""Additive policy for native Claude Manager and worker sessions.
 
-Every manager and worker invocation appends product policy to the SDK's normal
-coding-agent preset. We never replace the coding-agent instructions with a custom
-chatbot prompt: concision must change presentation, not reasoning or tool quality.
+We never replace Claude Code's native instructions with a custom chatbot prompt: concision
+changes presentation, not reasoning or tool quality.
 """
 
 from __future__ import annotations

@@ -203,4 +203,4 @@ def test_the_documented_terminal_captures_exist():
     assert len(captures) >= 3
     for capture in captures:
         text = capture.read_text()
-        assert "Manager" in text and "Workers" in text
+        assert "Manager" in text and "Sessions" in text

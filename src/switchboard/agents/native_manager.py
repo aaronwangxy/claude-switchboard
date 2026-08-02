@@ -156,7 +156,13 @@ class PersistentNativeManager(Manager):
             raise TmuxError("Manager runtime is missing.")
         self.backend.runtime.release_human(runtime.id, composer_cleared=composer_cleared)
         turns = self.sm.store.list_native_turns(runtime.id)
-        if turns and self.backend.runtime.completed(turns[-1].id) is not None:
+        refreshed = self.sm.store.get_runtime(runtime.id)
+        if (
+            turns
+            and refreshed is not None
+            and refreshed.process_state is RuntimeProcessState.TURN_COMPLETE
+            and self.backend.runtime.completed(turns[-1].id) is not None
+        ):
             self.backend.runtime.acknowledge(runtime.id, turns[-1].id)
 
     def status(self) -> dict[str, object]:

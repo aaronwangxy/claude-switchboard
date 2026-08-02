@@ -44,7 +44,7 @@ class ModelConfig(BaseModel):
     """Model IDs are configuration, not hardcoded product knowledge.
 
     Defaults come from the environment (`SB_STRONG_MODEL` / `SB_FAST_MODEL`) and fall
-    back to the SDK default (``None`` -> whatever the Claude runtime is configured to use).
+    back to the native Claude default (``None`` -> the configured runtime's default model).
     """
 
     manager: str | None = Field(default_factory=lambda: os.getenv("SB_STRONG_MODEL"))

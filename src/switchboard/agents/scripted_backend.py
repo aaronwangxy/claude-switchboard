@@ -2,7 +2,7 @@
 
 Used by the test suite and by `SB_BACKEND=scripted` so the whole control plane --
 routing, worktrees, contracts, attention, invalidation -- can be exercised without
-calling a model. It emits the same normalized events as the SDK backend.
+calling a model. It emits the same normalized events as the native backend.
 """
 
 from __future__ import annotations
@@ -117,7 +117,7 @@ class _Session:
 
 
 class ScriptedWorkerBackend:
-    """Deterministic stand-in for the SDK backend.
+    """Deterministic stand-in for the native backend.
 
     `responses` maps a role name to a callable returning the assistant text for a turn.
     Tests override entries to drive specific scenarios (blocked workers, failures).

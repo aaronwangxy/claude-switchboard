@@ -62,7 +62,13 @@ TERMINAL_WORKER_STATUSES = frozenset(
 #: Only these transitions are permitted. Enforced in `switchboard.core.transitions`.
 ALLOWED_WORKER_TRANSITIONS: dict[WorkerStatus, frozenset[WorkerStatus]] = {
     WorkerStatus.STARTING: frozenset(
-        {WorkerStatus.WORKING, WorkerStatus.FAILED, WorkerStatus.STOPPED, WorkerStatus.IDLE}
+        {
+            WorkerStatus.WORKING,
+            WorkerStatus.BLOCKED,
+            WorkerStatus.FAILED,
+            WorkerStatus.STOPPED,
+            WorkerStatus.IDLE,
+        }
     ),
     WorkerStatus.WORKING: frozenset(
         {

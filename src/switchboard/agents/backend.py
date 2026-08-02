@@ -1,4 +1,4 @@
-"""The backend boundary: orchestration never depends on SDK details directly."""
+"""The backend boundary: orchestration never depends on runtime-substrate details."""
 
 from __future__ import annotations
 

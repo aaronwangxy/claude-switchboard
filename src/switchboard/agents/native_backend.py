@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import shutil
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
@@ -28,6 +29,17 @@ from switchboard.runtime.tmux import TmuxController, TmuxError, TmuxRuntimeStatu
 from switchboard.storage.store import Store
 
 BLOCKED_MARKERS = ("[NEEDS INPUT]", "[NEEDS DECISION]")
+MAX_UNIX_SOCKET_PATH_BYTES = 96
+
+
+def default_tmux_socket_path(state_dir: Path) -> Path:
+    """Keep tmux usable when an isolated data directory has a long macOS path."""
+    preferred = state_dir / "tmux.sock"
+    if len(str(preferred).encode()) <= MAX_UNIX_SOCKET_PATH_BYTES:
+        return preferred
+    root = Path("/private/tmp") if Path("/private/tmp").is_dir() else Path("/tmp")
+    digest = hashlib.sha256(str(state_dir.resolve()).encode()).hexdigest()[:20]
+    return root / f"switchboard-tmux-{digest}.sock"
 
 
 @dataclass
@@ -60,7 +72,9 @@ class NativeClaudeBackend:
         if executable is None:
             raise RuntimeError("tmux is required for native Claude workers.")
         self.store = store
-        self.controller = TmuxController(socket_path or state_dir / "tmux.sock", executable)
+        self.controller = TmuxController(
+            socket_path or default_tmux_socket_path(state_dir), executable
+        )
         self.supervisor = TmuxRuntimeSupervisor(store, self.controller)
         self.runtime = NativeClaudeRuntime(store, self.supervisor, config, state_dir / "hooks")
         self._sessions: dict[UUID, _NativeSession] = {}
@@ -238,14 +252,17 @@ class NativeClaudeBackend:
             turns[-1].error = "Human reconciled uncertain delivery and cleared the composer."
             turns[-1].updated_at = now()
             self.store.save_native_turn(turns[-1])
+        refreshed = self.store.get_runtime(runtime_id)
         if (
             turns
             and turns[-1].status is not NativeTurnStatus.INTERRUPTED
+            and refreshed is not None
+            and refreshed.process_state is RuntimeProcessState.TURN_COMPLETE
             and self.runtime.completed(turns[-1].id) is not None
         ):
             self.runtime.acknowledge(runtime_id, turns[-1].id)
 
-    async def _wait_ready(self, runtime_id: UUID, timeout: float = 30.0) -> None:
+    async def _wait_ready(self, runtime_id: UUID, timeout: float = 60.0) -> None:
         deadline = asyncio.get_running_loop().time() + timeout
         while asyncio.get_running_loop().time() < deadline:
             runtime = self.store.get_runtime(runtime_id)

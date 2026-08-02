@@ -151,6 +151,38 @@ async def test_one_worker_blocks_while_another_keeps_working(session_manager, gi
     assert slow.is_set() is False  # nothing hung
 
 
+async def test_live_native_startup_failure_requests_entry_and_prevents_duplicate(
+    session_manager, git_repo, backend, monkeypatch
+):
+    repo = session_manager.register_repository(git_repo("startup-trust"))
+    job = session_manager.create_job("Trust prompt", repo.id)
+
+    async def timed_out(spec):
+        raise RuntimeError("Timed out waiting for native Claude SessionStart.")
+
+    async def still_alive(worker_id):
+        return RuntimeObservation(exists=True, detail="native process is alive")
+
+    monkeypatch.setattr(backend, "start", timed_out)
+    monkeypatch.setattr(backend, "observe", still_alive)
+
+    with pytest.raises(Exception, match="Could not start worker"):
+        await session_manager.start_workflow("plan-feature", job_id=job.id)
+
+    worker = session_manager.store.list_workers(job.id)[0]
+    assert worker.status is WorkerStatus.BLOCKED
+    assert "Enter this session" in worker.waiting_for
+    assert (
+        session_manager.store.current_runtime(worker.id).process_state
+        is RuntimeProcessState.STARTING
+    )
+    assert session_manager.list_attention_items()[0].kind is AttentionKind.PERMISSION_REQUIRED
+
+    with pytest.raises(Exception, match="instead of starting a duplicate"):
+        await session_manager.start_workflow("plan-feature", job_id=job.id)
+    assert len(session_manager.store.list_workers(job.id)) == 1
+
+
 async def test_answering_a_blocked_worker_resumes_it_and_advances_the_queue(
     session_manager, git_repo, backend
 ):
