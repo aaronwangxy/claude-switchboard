@@ -376,14 +376,17 @@ class SwitchboardApp(App[None]):
                 by_job.setdefault(worker.job_id, []).append(worker)
 
         jobs = {job.id: job for job in self.sm.store.list_jobs()}
-        # A job whose first session needs attention sorts first, then by recency.
-        def urgency(job_id: UUID) -> tuple[int, str]:
+
+        def urgency(job_id: UUID) -> tuple[int, tuple[int, ...]]:
+            """Jobs needing the user first, then the most recently touched."""
             has_attention = any(w.id in attention_by_worker for w in by_job[job_id])
             job = jobs.get(job_id)
-            return (0 if has_attention else 1, str(job.updated_at) if job else "")
+            # Negated by sorting the timestamp descending within each urgency band, which
+            # a plain reverse cannot do without also flipping the band.
+            return (0 if has_attention else 1, _descending(str(job.updated_at) if job else ""))
 
         rows: list[tuple[str, Text]] = []
-        for job_id in sorted(by_job, key=urgency, reverse=False):
+        for job_id in sorted(by_job, key=urgency):
             job = jobs.get(job_id)
             if job is None:
                 continue
@@ -805,6 +808,11 @@ class SwitchboardApp(App[None]):
 
 
 # -------------------------------------------------------------------- rendering
+
+
+def _descending(text: str) -> tuple[int, ...]:
+    """A sort key that orders `text` backwards, for use inside an ascending tuple."""
+    return tuple(-ord(character) for character in text)
 
 
 def _compact(text: str, limit: int = 160) -> str:
