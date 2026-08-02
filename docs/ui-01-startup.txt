@@ -5,11 +5,11 @@ sb — startup, no workers yet
  Manager                                                      │ Manager · native Claude
                                                               │ role       orchestrator; never writes repository code
                                                               │ lifecycle  ready
- Scripted backend (SB_BACKEND=scripted): no model is called.  │ ownership  manager
- Registered repository repo-alpha                             │ workspace  isolated non-repository workspace
- (/private/var/folders/3l/s3t0j73x1bl1bvyxr7c53bf40000gn/T/sw │
- itchboard-capture-nwy7izs9/repo-alpha).                      │ Nothing needs you. 0 worker(s) still working.
- Manager ready. Nothing needs you. 0 worker(s) still working. │
+ Registered repository repo-alpha                             │ ownership  manager
+ (/private/var/folders/3l/s3t0j73x1bl1bvyxr7c53bf40000gn/T/sw │ workspace  in-process rule engine (SB_BACKEND=scripted)
+ itchboard-capture-sktcdh3d/repo-alpha).                      │
+ Scripted backend (SB_BACKEND=scripted): no model is called.  │ Nothing needs you. 0 worker(s) still working.
+                                                              │
                                                               │
                                                               │
                                                               │

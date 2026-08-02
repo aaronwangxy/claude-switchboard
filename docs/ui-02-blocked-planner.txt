@@ -2,22 +2,22 @@ sb — blocked planner with attention banner
 ==========================================
 
  ⭘                                                                  Switchboard
- Manager                                                      │ ENG-421 · planner · blocked · planning · default model
-                                                              │█ Reason: [NEEDS DECISION] Choose the legacy-write strategy.
-                                                              │█ Waiting for: [NEEDS DECISION] Choose the legacy-write strategy.
- Scripted backend (SB_BACKEND=scripted): no model is called.  │
- Registered repository repo-alpha                             │ role         planner
- (/private/var/folders/3l/s3t0j73x1bl1bvyxr7c53bf40000gn/T/sw │ task         ENG-421 · planner
- itchboard-capture-nwy7izs9/repo-alpha).                      │ workflow     plan-feature
- Manager ready. Nothing needs you. 0 worker(s) still working. │ lifecycle    blocked
- Started ENG-421 on the complete-ticket workflow. Step 1:     │ ownership    manager
- plan-feature on ENG-421 · planner.                           │ native state waiting
+ Manager · ready · manager                                    │ ENG-421 · planner · blocked · planning · default model
+ 1 worker(s) need attention: 1 plan approval.                 │█ Reason: [NEEDS DECISION] Choose the legacy-write strategy.
+ Current goal: ENG-421 Notification preference…               │█ Waiting for: [NEEDS DECISION] Choose the legacy-write strategy.
+                                                              │
+ Started ENG-421 on the complete-ticket workflow. Step 1:     │ role         planner
+ plan-feature on ENG-421 · planner.                           │ task         ENG-421 · planner
+ Registered repository repo-alpha                             │ workflow     plan-feature
+ (/private/var/folders/3l/s3t0j73x1bl1bvyxr7c53bf40000gn/T/sw │ lifecycle    blocked
+ itchboard-capture-sktcdh3d/repo-alpha).                      │ ownership    manager
+ Scripted backend (SB_BACKEND=scripted): no model is called.  │ native state waiting
                                                               │ job stage    planning
                                                               │ base         main
                                                               │ active run   complete-ticket · step 1 · awaiting_approval
                                                               │ why waiting  [NEEDS DECISION] Choose the legacy-write strategy.
                                                               │ working dir
-                                                              │ /private/var/folders/3l/s3t0j73x1bl1bvyxr7c53bf40000gn/T/switchboard-capture-nwy7izs9
+                                                              │ /private/var/folders/3l/s3t0j73x1bl1bvyxr7c53bf40000gn/T/switchboard-capture-sktcdh3d
  Message the manager — paste a ticket, ask a question, give a │ /repo-alpha
                                                               │
 ──────────────────────────────────────────────────────────────│ evidence     implementation_contract ✓, behavior_contract ✓
