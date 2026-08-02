@@ -475,13 +475,17 @@ class SessionManager:
             job_id=worker.job_id,
             summary=worker.title,
         )
-        self._ensure_pump(worker.id)
+        # A completed launch means a new backend session object, and a pump binds the one
+        # it started with, so an inherited pump would consume nothing. Always replace here.
+        self._ensure_pump(worker.id, replace=True)
 
-    def _ensure_pump(self, worker_id: UUID) -> None:
+    def _ensure_pump(self, worker_id: UUID, *, replace: bool = False) -> None:
         """One live consumer of a worker's backend events, however it was started."""
         existing = self._pumps.get(worker_id)
         if existing is not None and not existing.done():
-            return
+            if not replace:
+                return
+            existing.cancel()
         self._pumps[worker_id] = asyncio.create_task(self._pump(worker_id))
 
     def _worker_spec(
@@ -590,10 +594,23 @@ class SessionManager:
         self._set_status(worker, WorkerStatus.WORKING, waiting_for=None)
         self._unpause_run_of(worker)
 
+    def _clear_approval_gate(self, run: WorkflowRun) -> None:
+        """A run that is moving again no longer needs the gate that stopped it.
+
+        `approve_plan` retires its own items, but a gate satisfied by answering a decision
+        or by an explicit resume would otherwise stay on the board forever -- the exact
+        inverse of the silent-gate bug.
+        """
+        for item in self.store.list_attention_items():
+            if item.job_id == run.job_id and item.kind is AttentionKind.PLAN_APPROVAL:
+                item.handled = True
+                self.store.save_attention_item(item)
+
     def _unpause_run_of(self, worker: Worker) -> None:
         """Answering the worker a run stopped on puts the run back in flight."""
         run = self.store.run_for_worker(worker.id)
         if run is not None and run.status in (RunStatus.AWAITING_APPROVAL, RunStatus.BLOCKED):
+            self._clear_approval_gate(run)
             run.status = RunStatus.RUNNING
             run.detail = ""
             run.updated_at = now()
@@ -894,17 +911,30 @@ class SessionManager:
         `Nothing needs you` while the run waited on the one person who could unblock it.
         """
         paused = self._pause_run(run, RunStatus.AWAITING_APPROVAL, detail)
-        worker = self.store.get_worker(run.current_worker_id) if run.current_worker_id else None
-        if worker is None:
-            candidates = [
-                w
-                for w in self.store.list_workers(run.job_id)
-                if w.status not in TERMINAL_WORKER_STATUSES
-            ]
-            worker = candidates[-1] if candidates else None
+        worker = self._gate_worker(run)
         if worker is not None:
             self._raise_attention_once(worker, AttentionKind.PLAN_APPROVAL, detail)
         return paused
+
+    def _gate_worker(self, run: WorkflowRun) -> Worker | None:
+        """The worker whose session explains this gate, or None rather than a wrong one.
+
+        Entering an attention item opens that worker's session, so pointing the gate at an
+        unrelated worker the user happens to have started sends them somewhere that never
+        wrote the plan they are being asked to approve.
+        """
+        if run.current_worker_id is not None:
+            return self.store.get_worker(run.current_worker_id)
+        definition = self._definition(run.workflow)
+        if definition is None:
+            return None
+        produced = {step.workflow for step in definition.steps}
+        candidates = [
+            w
+            for w in self.store.list_workers(run.job_id)
+            if w.status not in TERMINAL_WORKER_STATUSES and w.workflow in produced
+        ]
+        return candidates[-1] if candidates else None
 
     def _raise_attention_once(self, worker: Worker, kind: AttentionKind, reason: str) -> None:
         """Raise attention the user has not already been shown for this worker."""
@@ -1045,6 +1075,7 @@ class SessionManager:
                 )
         if grant_approval and run.step_index not in run.approved_steps:
             run.approved_steps = [*run.approved_steps, run.step_index]
+        self._clear_approval_gate(run)
         run.status = RunStatus.RUNNING
         self.store.save_run(run)
         return await self._advance_run(run.id)
@@ -1411,13 +1442,15 @@ class SessionManager:
             force=True,
         )
         # Answering a native permission prompt by hand is the whole point of entering, so
-        # a worker whose runtime is no longer waiting must not stay BLOCKED. It would keep
-        # a stale reason on the board and, being non-terminal, make its own step
-        # unreplayable: the replay start is refused as a duplicate workflow.
+        # a worker whose runtime became ready must not stay BLOCKED. It would keep a stale
+        # reason on the board and, being non-terminal, make its own step unreplayable: the
+        # replay start is refused as a duplicate workflow. Only READY says the prompt was
+        # answered; a user who looks at a STARTING trust prompt and leaves it alone must
+        # keep the block, and a dead runtime is not this method's to reinterpret.
         if (
             worker.status is WorkerStatus.BLOCKED
             and runtime is not None
-            and runtime.process_state is not RuntimeProcessState.WAITING
+            and runtime.process_state is RuntimeProcessState.READY
         ):
             self._force_status(worker, WorkerStatus.IDLE, None)
             self._resolve_attention(worker, kinds={AttentionKind.PERMISSION_REQUIRED})

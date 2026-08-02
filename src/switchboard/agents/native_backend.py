@@ -180,7 +180,12 @@ class NativeClaudeBackend:
             if self.store.open_native_turn(runtime_id) is not None:
                 raise WorkerBusyError(str(exc)) from exc
             refreshed = self.store.get_runtime(runtime_id)
-            if refreshed is not None and refreshed.process_state is not RuntimeProcessState.READY:
+            # Only a session that has not got there yet is worth retrying. An exited or
+            # absent runtime is a real loss and must keep failing closed as a disconnect.
+            if refreshed is not None and refreshed.process_state in (
+                RuntimeProcessState.STARTING,
+                RuntimeProcessState.WAITING,
+            ):
                 raise WorkerNotReadyError(str(exc)) from exc
             raise
 

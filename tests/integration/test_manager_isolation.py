@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from switchboard.agents.manager_mcp import TOOL_SCHEMAS
 from switchboard.agents.native_backend import NativeClaudeBackend
 from switchboard.agents.native_manager import PersistentNativeManager
@@ -198,14 +200,54 @@ async def test_manager_mcp_bridge_survives_a_controller_restart(tmp_path):
 
 async def test_manager_mcp_bridge_refuses_instead_of_dying_when_the_board_is_gone(tmp_path):
     """An unreachable board is a refusal the Manager can report, not a lost tool surface."""
-    import pytest
-
     from switchboard.agents.manager_mcp import _Bridge
 
     bridge = _Bridge(tmp_path / "never-bound.sock", timeout=0.2)
     with pytest.raises(OSError):
         await bridge.exchange('{"jsonrpc":"2.0","id":1,"method":"tools/list"}\n', True)
     await bridge.close()
+
+
+async def test_a_call_the_board_accepted_before_dying_is_never_reported_as_unapplied():
+    """Its effect is unknown, and saying otherwise invites a duplicated mutation.
+
+    A board that took `create_job` and then exited leaves the Manager needing to inspect
+    state, not to retry -- so the two failures must not share one message.
+    """
+    import asyncio
+    import json as _json
+
+    from switchboard.agents.manager_mcp import _AppliedUnknownError, _Bridge, _unreachable
+
+    socket_path = Path("/private/tmp") / f"sb-applied-test-{id(object())}.sock"
+    socket_path.unlink(missing_ok=True)
+    received: list[str] = []
+
+    async def accept_then_vanish(reader, writer):
+        received.append((await reader.readline()).decode())
+        writer.close()  # the board goes away without answering
+
+    try:
+        server = await asyncio.start_unix_server(accept_then_vanish, socket_path)
+    except PermissionError:  # pragma: no cover - sandbox only
+        pytest.skip("sandbox forbids local Unix sockets")
+
+    bridge = _Bridge(socket_path, timeout=0.2)
+    try:
+        with pytest.raises(_AppliedUnknownError) as caught:
+            await bridge.exchange('{"jsonrpc":"2.0","id":7,"method":"tools/call"}\n', True)
+        assert received, "the board really did receive the call"
+
+        applied = _json.loads(_unreachable(7, caught.value))["error"]["message"]
+        assert "effect is unknown" in applied
+        assert "Nothing was applied" not in applied
+
+        unreached = _json.loads(_unreachable(7, ConnectionRefusedError("no socket")))
+        assert "Nothing was applied" in unreached["error"]["message"]
+    finally:
+        await bridge.close()
+        server.close()
+        socket_path.unlink(missing_ok=True)
 
 
 def test_configured_wrapper_and_environment_are_shared_with_native_runtime(

@@ -266,6 +266,37 @@ async def test_permission_and_busy_lane_are_normalized_without_prompt_corruption
     assert "SECOND_PROMPT_MUST_NOT_APPEAR" not in prompts[0]
 
 
+async def test_only_a_starting_or_waiting_runtime_makes_a_send_retryable(
+    native_services, git_repo
+):
+    """The backend, not the caller, decides that a refusal is worth retrying.
+
+    Classifying every non-ready state as retryable would stop a genuinely dead session
+    from ever being recorded as a disconnect.
+    """
+    from switchboard.agents.backend import WorkerNotReadyError
+
+    manager, backend, _ = native_services
+    repo = manager.register_repository(git_repo("native-not-ready"))
+    worker = await manager.create_worker(
+        role=WorkerRole.GENERAL, title="native", prompt="", repository_id=repo.id
+    )
+    runtime = manager.store.current_runtime(worker.id)
+
+    for state in (RuntimeProcessState.STARTING, RuntimeProcessState.WAITING):
+        runtime.process_state = state
+        manager.store.save_runtime(runtime)
+        with pytest.raises(WorkerNotReadyError):
+            await backend.send(worker.id, "hello")
+
+    for state in (RuntimeProcessState.EXITED, RuntimeProcessState.ABSENT):
+        runtime.process_state = state
+        manager.store.save_runtime(runtime)
+        with pytest.raises(Exception) as caught:
+            await backend.send(worker.id, "hello")
+        assert not isinstance(caught.value, WorkerNotReadyError), state
+
+
 async def test_human_entry_taints_active_managed_turn_and_notification_blocks(
     native_services, git_repo
 ):

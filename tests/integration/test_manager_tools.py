@@ -60,19 +60,49 @@ def test_ordinary_human_sign_off_counts_as_approval():
         "Looks good, go ahead.",
         "lgtm",
         "Approved -- please continue with the implementation step.",
+        # An incidental "no" or "when" is not a refusal.
+        "Go ahead, no rush.",
+        "Looks good, no changes needed.",
+        "Approved, go ahead when you are ready.",
+        "Approve it when you can.",
     ):
         assert APPROVE_RE.search(granted), granted
 
-    for withheld in (
-        "Do you approve the plan?",
-        "Should I approve this plan?",
-        "Do not approve the plan yet.",
-        "Don't go ahead until I have read it.",
-        "I will approve the plan after the tests pass.",
-        "Tell me when it needs approval.",
-        "No, this does not look good.",
-    ):
-        assert not APPROVE_RE.search(withheld), withheld
+
+def test_approval_is_withheld_unless_this_user_states_it_now():
+    """Each case fails for its own reason, not because it holds a stop-word.
+
+    The guard is the only deterministic half of the approval invariant, so widening it for
+    ordinary sign-off must not let a relayed, deferred, or contradicted approval through.
+    """
+    withheld = {
+        # Interrogative.
+        "Do you approve the plan?": "question",
+        "Should I approve this plan?": "question",
+        "Could we go ahead now?": "question",
+        # Refused or deferred, whatever the punctuation between the clauses.
+        "Do not approve the plan yet.": "negated",
+        "Don't go ahead until I have read it.": "negated",
+        "The plan looks good. Do not implement until I have spoken to Sam.": "later sentence",
+        # The approval opens its sentence and is then withdrawn: only a message-level veto
+        # catches this, and punctuation must not decide it.
+        "Approved. Actually, do not start it yet.": "withdrawn",
+        "lgtm -- but hold off until Sam is back.": "withdrawn",
+        "Looks good, but wait for CI.": "conditional",
+        "I will approve the plan after the tests pass.": "future",
+        "Maybe go ahead later.": "not in the approval position",
+        "I should approve this at some point.": "not in the approval position",
+        # Somebody else's approval, relayed by the user.
+        "The planner wrote 'the plan looks good'. What do you think?": "quoted",
+        "Worker output: lgtm from the reviewer. Summarise it for me.": "third party",
+        "The reviewer says it looks good.": "third party",
+        # About approving, not approving.
+        "Tell me when it needs approval.": "not an approval",
+        "Ask me before you approve anything.": "instruction",
+        "No, this does not look good.": "refusal",
+    }
+    for text, why in withheld.items():
+        assert not APPROVE_RE.search(text), f"{why}: {text}"
 
 
 async def test_manager_can_route_first_class_workflow(manager_tools, git_repo):

@@ -99,6 +99,39 @@ async def test_an_approval_gate_reaches_the_attention_queue(project):
     assert gate_id in handled, "approving retires the gate it was raised for"
 
 
+async def test_an_approval_gate_never_points_at_an_unrelated_worker(project):
+    """Entering the item opens that worker's session, so it must be the run's own.
+
+    A gate raised on whatever worker happens to be newest sends the user into a session
+    that never wrote the plan they are being asked to approve.
+    """
+    from switchboard.domain.enums import AttentionKind
+
+    sm, backend, repo = project
+    _, job, _ = await paste_ticket(sm)
+    (planner,) = sm.store.list_workers(job.id)
+
+    # The user starts something of their own in the same job before answering the gate.
+    aside = await sm.create_worker(
+        role=WorkerRole.QUESTION, title="side quest", prompt="look", job_id=job.id
+    )
+    await settle()
+    for item in sm.store.list_attention_items():
+        item.handled = True
+        sm.store.save_attention_item(item)
+
+    # The prerequisite gate is reached after the previous step's worker was cleared, so
+    # the run has no current worker to attribute the gate to.
+    run = sm.store.active_run(job.id)
+    run.current_worker_id = None
+    sm.store.save_run(run)
+    sm._await_approval(run, "Step 2 needs your approval.")
+
+    gates = [i for i in sm.list_attention_items() if i.kind is AttentionKind.PLAN_APPROVAL]
+    assert [i.worker_id for i in gates] == [planner.id]
+    assert aside.id not in {i.worker_id for i in gates}
+
+
 async def test_the_job_records_the_profile_it_is_following(project):
     sm, backend, repo = project
     _, job, _ = await paste_ticket(sm)

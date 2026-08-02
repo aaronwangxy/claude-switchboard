@@ -343,6 +343,10 @@ async def serve_connection(
 RECONNECT_TIMEOUT = 30.0
 
 
+class _AppliedUnknownError(ConnectionResetError):
+    """The board took the request and vanished, so its effect cannot be assumed either way."""
+
+
 class _Bridge:
     """A stdio-to-socket bridge that outlives the board controller.
 
@@ -393,8 +397,10 @@ class _Bridge:
                 await writer.drain()
             except OSError:
                 self._drop()
-                # A reused connection that fails to write never delivered the request,
-                # so resending it cannot duplicate a mutation.
+                # A reused connection that fails to write has almost certainly delivered
+                # nothing, so one resend is worth it rather than failing a whole turn.
+                # `drain` can in principle report a loss after the bytes were flushed, so
+                # this is the one place the bridge is not provably exactly-once.
                 if attempt == 0 and reused:
                     continue
                 raise
@@ -403,10 +409,13 @@ class _Bridge:
             response = await reader.readline()
             if response:
                 return response.decode()
-            # The board accepted the request and then vanished. Never resend: it may
-            # already have been applied. The Manager contract re-inspects state anyway.
+            # The board accepted the request and then vanished, so it may already have been
+            # applied. Never resend, and say so: telling the Manager this never reached
+            # Switchboard would invite it to retry a mutation that already happened.
             self._drop()
-            raise ConnectionResetError("the Switchboard board closed the connection")
+            raise _AppliedUnknownError(
+                "the Switchboard board closed the connection after accepting this call"
+            )
         raise ConnectionResetError("the Switchboard board is unreachable")
 
     async def close(self) -> None:
@@ -420,7 +429,17 @@ class _Bridge:
 
 
 def _unreachable(ident: Any, exc: Exception) -> str:
-    message = f"Switchboard is not reachable: {exc}. Retry once the board is running."
+    if isinstance(exc, _AppliedUnknownError):
+        message = (
+            f"Switchboard accepted this call and then became unreachable: {exc}. Its effect "
+            "is unknown. Inspect authoritative state before retrying; do not assume it "
+            "failed."
+        )
+    else:
+        message = (
+            f"Switchboard is not reachable: {exc}. Nothing was applied; retry once the "
+            "board is running."
+        )
     return json.dumps({"jsonrpc": "2.0", "id": ident, "error": {"code": -32000, "message": message}})
 
 

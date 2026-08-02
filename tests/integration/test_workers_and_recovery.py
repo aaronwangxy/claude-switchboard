@@ -300,6 +300,23 @@ async def test_handback_clears_a_permission_block_the_user_just_answered(
     open_kinds = {i.kind for i in sm.store.attention_items_for_worker(worker.id) if not i.handled}
     assert AttentionKind.PERMISSION_REQUIRED not in open_kinds
 
+    # Only READY means the prompt was answered. A user who looks at a trust prompt and
+    # leaves it alone, or whose session died, must keep the block and its reason.
+    for unresolved in (
+        RuntimeProcessState.STARTING,
+        RuntimeProcessState.EXITED,
+        RuntimeProcessState.WAITING,
+    ):
+        sm._force_status(worker, WorkerStatus.BLOCKED, "Press Ctrl+E to handle the prompt.")
+        await sm.attach(worker.id)
+        runtime = sm.store.current_runtime(worker.id)
+        runtime.process_state = unresolved
+        sm.store.save_runtime(runtime)
+        sm.detach(worker.id, composer_cleared=True)
+        still = sm.store.get_worker(worker.id)
+        assert still.status is WorkerStatus.BLOCKED, unresolved
+        assert still.waiting_for == "Press Ctrl+E to handle the prompt.", unresolved
+
     # A worker still waiting on its runtime keeps its block.
     still_waiting = await sm.start_workflow("plan-feature", job_id=job.id, target_worker_id=worker.id)
     sm._force_status(still_waiting, WorkerStatus.BLOCKED, "Permission required for Bash.")
