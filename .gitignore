@@ -10,3 +10,4 @@ dist/
 .ruff_cache/
 .switchboard-home/
 .claude/settings.local.json
+.DS_Store
