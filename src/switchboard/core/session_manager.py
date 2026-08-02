@@ -409,10 +409,13 @@ class SessionManager:
             except Exception:
                 observation = None
             startup_alive = observation is not None and observation.exists
-            current_runtime = self.store.get_runtime(runtime.id) or runtime
+            # The launch persists the substrate identity before it can time out waiting
+            # for SessionStart, so the pre-launch snapshot is stale. Writing it back would
+            # erase the tmux target and refuse the very Ctrl+E this failure asks for.
+            runtime = self.store.get_runtime(runtime.id) or runtime
             runtime.process_state = (
-                current_runtime.process_state
-                if current_runtime.process_state is RuntimeProcessState.READY
+                runtime.process_state
+                if runtime.process_state is RuntimeProcessState.READY
                 else RuntimeProcessState.STARTING
                 if startup_alive
                 else RuntimeProcessState.EXITED

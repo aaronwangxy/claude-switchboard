@@ -158,6 +158,11 @@ async def test_live_native_startup_failure_requests_entry_and_prevents_duplicate
     job = session_manager.create_job("Trust prompt", repo.id)
 
     async def timed_out(spec):
+        # The real supervisor binds and persists the tmux target before it starts waiting
+        # for SessionStart, so a trust prompt times out with the substrate already durable.
+        runtime = session_manager.store.get_runtime(spec.runtime_id)
+        runtime.substrate = {"kind": "tmux", "session_name": "switchboard-trust", "pane_id": "%3"}
+        session_manager.store.save_runtime(runtime)
         raise RuntimeError("Timed out waiting for native Claude SessionStart.")
 
     async def still_alive(worker_id):
@@ -172,10 +177,10 @@ async def test_live_native_startup_failure_requests_entry_and_prevents_duplicate
     worker = session_manager.store.list_workers(job.id)[0]
     assert worker.status is WorkerStatus.BLOCKED
     assert "Ctrl+E to enter this session" in worker.waiting_for
-    assert (
-        session_manager.store.current_runtime(worker.id).process_state
-        is RuntimeProcessState.STARTING
-    )
+    blocked_runtime = session_manager.store.current_runtime(worker.id)
+    assert blocked_runtime.process_state is RuntimeProcessState.STARTING
+    # Without the durable target, the Ctrl+E this very message asks for is refused.
+    assert blocked_runtime.substrate.get("session_name") == "switchboard-trust"
     assert session_manager.list_attention_items()[0].kind is AttentionKind.PERMISSION_REQUIRED
 
     with pytest.raises(Exception, match="instead of starting a duplicate"):
