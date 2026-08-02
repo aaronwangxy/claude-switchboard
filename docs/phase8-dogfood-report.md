@@ -45,24 +45,30 @@ Evidence:
 The Manager pane rendered only two wrapped recovery lines. A longer observation showed generation
 rotation did succeed, but only after roughly a minute with no early visible acknowledgement.
 
-Reproducibility: Once; deterministic replay pending.
+Reproducibility: Once.
 
 Workaround: Submit `fresh manager` and wait through the full native startup boundary.
 
-Diagnosis: Pending implementation inspection.
+Diagnosis:
+The mismatch itself failed closed correctly; what failed was visibility. The Manager pane painted
+entries oldest-first into a short fixed-height region, so a long recovery message was clipped before
+its remedy. The unacknowledged minute is the cost of launching a real native Claude process, which
+Switchboard cannot make faster.
 
 Resolution:
-On recovery, a ready runtime now resolves only obsolete native `permission required` attention;
-workflow decisions and plan approvals remain actionable.
+The Manager pane paints newest-first and the current goal is compacted, so the recovery message and
+the latest outcome own the visible rows (`d5b8f6e` and the compact-goal fix). Rotation latency was
+deliberately not changed. A single message longer than the pane is still clipped at the bottom;
+`#manager-log` has no scrollback.
 
 Regression coverage:
-Recovery integration coverage seeds both permission and plan-approval items, adopts the ready
-runtime, and asserts only plan approval survives. The full real-tmux suite passes.
+The 80x24 UI tests assert the latest Manager outcome stays visible after an older note.
 
 Replay result:
-The first public replay exposed and rejected an over-broad implementation that cleared approval
-too. The narrowed fix passes deterministic and real-tmux replay; a fresh public approval-boundary
-replay remains pending.
+Latest objective/status visibility passed after controller restart. The mismatch scenario itself was
+not re-run live. Note for the reader: this slot previously held the recovery/attention resolution
+text belonging to the stale-native-attention finding below — a copy-paste error at the time of
+writing, corrected at closeout rather than left to imply a fix this finding never had.
 
 ### Fresh Manager rotation leaves the submitted command in the composer (rejected)
 
@@ -88,7 +94,7 @@ Evidence:
 The 80x24 PTY capture shows generation 2 ready while row 10 still contains the focused
 `fresh manager` value.
 
-Reproducibility: Once; deterministic UI replay pending.
+Reproducibility: Once; not reproducible through ordinary separated submissions.
 
 Workaround:
 Use the input's line-edit command to clear the stale value before typing another request.
@@ -100,9 +106,9 @@ immediately, including after exact-session entry and controller recovery.
 
 Resolution: No product change.
 
-Regression coverage: Pending.
+Regression coverage: Not applicable; nothing was changed.
 
-Replay result: Pending.
+Replay result: Not applicable; the reproduction itself was rejected as an artefact of the harness.
 
 ### Startup trust instruction conflicts with focused Manager composer
 
@@ -137,7 +143,10 @@ Reproducibility: Always on this fresh-state launch.
 Workaround:
 Press `Ctrl+E` instead of Enter.
 
-Diagnosis: Pending until black-box reproduction is complete.
+Diagnosis:
+The startup note named Enter, but Enter belongs to whatever widget holds focus; on the board that is
+the Manager composer, so the documented remedy submitted an empty message instead of entering the
+session.
 
 Resolution:
 The startup note now tells the user to press `Ctrl+E`, whose meaning does not depend on composer
@@ -394,7 +403,7 @@ The recovered board showed two sessions and one attention item. The exact worker
 Claude Code 2.1.220, Haiku 4.5, the same disposable repository and an empty `❯` composer. No runtime
 was duplicated.
 
-Reproducibility: Once; deterministic replay pending.
+Reproducibility: Once; covered deterministically by the recovery test named below.
 
 Workaround:
 Enter the worker, verify its composer is empty, detach, and confirm handback.
@@ -408,13 +417,13 @@ On recovery, a ready runtime now resolves only obsolete native `permission requi
 workflow decisions and plan approvals remain actionable.
 
 Regression coverage:
-Recovery integration coverage seeds both permission and plan-approval items, adopts the ready
-runtime, and asserts only plan approval survives. The full real-tmux suite passes.
+`test_recovery_adopts_an_exact_live_runtime` seeds both permission and plan-approval items, adopts
+the ready runtime, and asserts only plan approval survives. It passes at `2e3fcd9`.
 
 Replay result:
 The first public replay exposed and rejected an over-broad implementation that cleared approval
-too. The narrowed fix passes deterministic and real-tmux replay; a fresh public approval-boundary
-replay remains pending.
+too. The narrowed fix passes deterministic and real-tmux replay. The live approval-boundary replay
+is the same one still owed by the finding above; see the reconciliation section.
 
 ### Incomplete workflow looks complete after controller recovery
 
@@ -522,9 +531,11 @@ UI tests cover a native-ready/board-busy title and latest-outcome visibility aft
 80x24.
 
 Replay result:
-Latest objective/status visibility passed after controller restart. A clean rapid-follow-up replay
-remains pending because the live controller cannot be restarted again after the environment's
-approval quota was exhausted.
+Latest objective/status visibility passed after controller restart.
+`test_manager_title_does_not_claim_ready_while_board_turn_is_busy` covers the native-ready/board-busy
+title deterministically and passes at `2e3fcd9`. The clean *live* rapid-follow-up replay was blocked
+in the first session by an exhausted approval quota and was not re-attempted in the second, which
+had no slow Manager turn to race; it is still owed. See the reconciliation section.
 
 ### Manager does not resume a naturally referenced interrupted composite
 
@@ -825,9 +836,10 @@ conditions, and negations. Destructive-operation confirmation stays deliberately
 the friction there is worth keeping. Commit `29a23bd`.
 
 Regression coverage:
-Five phrasings that must grant approval and seven that must not, including
-`Do you approve the plan?`, `Do not approve the plan yet.`, and
-`I will approve the plan after the tests pass.`
+Nine phrasings that must grant approval and eighteen that must not, the withheld set grouped by why
+each is withheld — question, negated, withdrawn, conditional, future, quoted, third party,
+instruction, refusal — after the independent review showed the first version of this test was
+tautological.
 
 Replay result:
 Passed live: `Yes, I approve the inventory plan. Please continue that run...` was accepted and the
@@ -1122,20 +1134,117 @@ Observations from this session, which is the first where the last step was actua
   where to look, tolerates friction a real user would not, and is tempted to explain away rough
   edges. The friction findings above are the ones most likely to be understated.
 
+## Independent review
+
+A fresh agent reviewed `5560f9b..HEAD` with no knowledge of how the fixes were reached, briefed
+only to hunt regressions, races, safety-invariant weakening, subprocess edge cases, and tests that
+do not prove what they claim. It ran the suite, ruff and mypy itself, and wrote standalone probes
+against the real `SessionManager` and `_Bridge`.
+
+Verdict: no blocking findings. Four important, five minor, and a specific critique of five tests.
+All four important findings were in code this session had just added, and all were valid:
+
+1. **`detach` cleared a block the user never answered.** The condition was "runtime is not
+   WAITING", but `STARTING`, `EXITED` and `ABSENT` all satisfy that. A user who pressed `Ctrl+E`,
+   looked at the trust prompt, decided not to deal with it and left had the block *and* its
+   instructions silently wiped — reintroducing the invisible-stall class the rest of the stack
+   fixes, and letting the step be replayed while the first session still held its worktree. Now
+   only `READY` reconciles.
+2. **The widened approval matcher failed in both directions.** It granted on
+   `"The plan looks good. Do not implement until I have spoken to Sam."` (sentence-scoped negation
+   meant punctuation decided whether an explicit refusal counted), on relayed third-party approval
+   such as `"Worker output: lgtm from the reviewer."`, and on `"Looks good, but wait for CI."`; it
+   withheld on `"Go ahead, no rush."` and `"Approve it when you can."` because `no` and `when` were
+   in the stop-list. The guard is the only deterministic half of the approval invariant, so this
+   mattered. Rewritten: the approval must open its own sentence in the user's voice, quoted text is
+   somebody else relaying an approval, and any withholding instruction vetoes the whole message
+   however it is punctuated.
+3. **An approval gate could point at an unrelated worker.** With no current worker, the fallback was
+   the newest non-terminal worker of the job. The reviewer's probe raised the gate on a reviewer the
+   user had started themselves, so pressing Enter on the attention item opened a session that never
+   wrote the plan. Now it matches a worker belonging to the run's own workflow, or raises nothing.
+4. **The MCP bridge misreported an applied-then-vanished call.** The retry logic was confirmed
+   exactly-once in all three realistic cases, but both failure branches returned "not reachable…
+   retry once the board is running" — including the branch whose own comment says the call may
+   already have been applied, inviting the Manager to duplicate a mutation. The two branches now say
+   different things.
+
+Minor findings accepted and fixed: `WorkerNotReadyError` was classified from "not READY", which
+swallowed genuinely dead runtimes (now `STARTING`/`WAITING` only); `_ensure_pump` could keep a pump
+bound to a superseded backend session after a re-launch; and a gate satisfied by resuming rather
+than approving stayed open forever — the exact inverse of the bug that raised it.
+
+Not fixed, recorded instead: the manager socket path is visible in `ps` and the reconnect loop
+widens a pre-existing local-squat window on a multi-user host from a one-shot startup race to a
+recurring 30-second one. Out of scope for a single-user tool; noted as a limitation.
+
+The test critique was the most useful part. The reviewer showed that
+`test_ordinary_human_sign_off_counts_as_approval`'s withheld half was tautological — every case
+contained a literal stop-word, so it restated the keyword list rather than probing it, and none of
+the real failures were covered. Also that the not-ready test monkeypatched the error rather than
+exercising the code that decides to raise it, that the handback test covered only the two states
+that worked, and that the bridge's interesting branches were untested. All four gaps are now closed,
+and the withheld cases are grouped by *why* each is withheld.
+
+Verifying the fixes exposed one more thing worth recording: the first version of the gate-worker
+regression test passed against the buggy code, because the run still had a `current_worker_id` and
+never reached the fallback. It only became evidence once the test set that field to `None`, which is
+the state the real path is reached in.
+
+## Reconciliation of first-session items at closeout
+
+Three first-session findings were still carrying `pending` replay markers when the report was
+otherwise complete. Their current status, established at `2e3fcd9` rather than from memory:
+
+- **Recovery must preserve a plan approval** (`5560f9b`). Deterministic
+  coverage is `test_recovery_adopts_an_exact_live_runtime`, which passes. The second session restarted
+  the controller onto a live Manager repeatedly — that is how the dead MCP bridge was found — but
+  never with an approval outstanding, so the live approval-boundary replay was **not** performed. The
+  claim is deterministic, not live.
+- **`turn active` while the native process is already idle** (`d5b8f6e`). Deterministic coverage is
+  `test_manager_title_does_not_claim_ready_while_board_turn_is_busy`, which passes. The live
+  rapid-follow-up race was never replayed: blocked by quota in the first session, and the second
+  session produced no slow Manager turn to race against. Still owed.
+- **The composer-retention finding** was rejected as a harness artefact, so it has no coverage to
+  owe; its `Pending` markers were bookkeeping noise and are now marked not applicable.
+
+One further bookkeeping error was found and corrected while reconciling: the configuration-mismatch
+finding had the recovery/attention resolution of a different finding pasted into it, which would
+have read as a fix it never received. Its diagnosis, resolution and coverage now describe the
+visibility fix that actually applies to it.
+
+Both outstanding items are live replays of fixes that already have passing deterministic coverage.
+Neither blocks Phase 8; both are carried forward as owed evidence rather than quietly closed.
+
 ## Final validation
 
-Run at `38fd5f7` unless noted.
+Run at `2e3fcd9`, the final code commit, and re-run at closeout with only this document modified.
 
-- Full suite including real-tmux integration tests: **369 passed** (`./.venv/bin/python -m pytest -q`).
-  The tmux-backed tests are not gated by any environment variable; they ran as part of this.
+- Full suite including real-tmux integration tests: **373 passed**
+  (`./.venv/bin/python -m pytest -q`). The tmux-backed tests are not gated by any environment
+  variable; they ran as part of this.
 - `./.venv/bin/ruff check src tests` — All checks passed.
 - `./.venv/bin/mypy` — Success, no issues in 46 source files.
 - `git diff --check` — clean.
-- Every fix verified to fail without its change by reverting the source file and rerunning the
-  specific test.
+- Every fix, including all of the review fixes, verified to fail without its change by reverting
+  only that change and rerunning the specific test.
 - Live native/tmux replays of the resume, trust-prompt entry, blind-run, approval-gate, and
   approval-phrasing fixes, each from a clean isolated state.
 - Worktree, branch, and repository isolation verified directly on disk after the session.
+- The working tree is clean and this checkout has exactly one worktree, still on `main`.
+
+Process cleanup, measured at closeout rather than asserted. The second session's own runtimes under
+`/tmp/sbdog` are stopped: nothing holds that socket. But **11 tmux servers and 21 native Claude
+sessions from earlier Phase 8 runs are still alive**, across `/private/tmp/switchboard-native-phase3*`,
+five ad-hoc `/private/tmp/switchboard-tmux-*.sock` servers, three `/tmp/switchboard-phase8.zxh2GV`
+states, and the default `~/.local/share/switchboard` state. That default state holds one registered
+repository (this checkout), one job, and one idle **read-only** planner with no worktree, so nothing
+wrote to the checkout — but its Manager runtime is orphaned exactly like the rest.
+
+This is the reclamation finding reproducing itself during its own closeout, which is the strongest
+evidence in this report that it is real: an agent that had just written the finding down, and had
+`sb` in front of it, still had no product-level way to see or stop these. They are left running
+deliberately rather than killed by hand, so the next phase starts from the honest state.
 
 ## Known remaining limitations
 
@@ -1143,17 +1252,30 @@ Run at `38fd5f7` unless noted.
   question above). This is the most consequential item left.
 - `Ctrl+Space` does not reach the application in a real terminal; deferred, with two workarounds.
 - `sb` still has no way to list or reclaim orphaned runtimes. The self-hosting experiment planned
-  this feature but did not land it; the finding stands.
+  this feature but did not land it; the finding stands, and 11 tmux servers with 21 native Claude
+  sessions were still alive at closeout.
+- Two live replays are owed rather than closed (recovery across a pending plan approval, and the
+  rapid Manager follow-up race). Both fixes have passing deterministic coverage; see the
+  reconciliation section.
 - The status summary describes an approval-gated run as an "idle incomplete job". The attention
   queue is now correct, but that sentence is still imprecise.
+- A single Manager message longer than the (fixed-height, scrollback-free) Manager pane is still
+  clipped at the bottom. Newest-first painting guarantees its beginning is visible, not its end.
 - Read-only workers keep Bash, so read-only remains a tool-policy and prompt guarantee rather than
   a sandbox (pre-existing; `docs/mvp-evidence.md` limitation 1).
+- The manager MCP socket path is visible in `ps`, and the bridge's reconnect loop widens the
+  pre-existing local socket-squat window on a multi-user host into a recurring 30-second one.
+  Accepted for a single-user tool.
+- The approval matcher is a heuristic over English. It is now tested against twenty-seven phrasings,
+  eighteen of them adversarial, but it stays a lexical guard: the durable property it enforces is that the approval
+  appeared in the user's own current turn, not that a model understood it.
 - Deferred as low-value under this session's scope: chaos and crash matrices, slow-hook timing
   permutations, combinatorial dependency graphs, and pathological terminal sizes.
 
 ## Environment notes
 
 Nothing in this session was blocked by the environment. Real tmux, real native Claude Code 2.1.220,
-real subprocess entry and handback, and atomic commits were all available. The previous session's
-report attributed several `Pending` replays to an exhausted escalation quota; those replays were
-performed here.
+real subprocess entry and handback, and atomic commits were all available. The first session
+attributed several `Pending` replays to an exhausted escalation quota; the resume, trust-prompt
+entry, blind-run, approval-gate and approval-phrasing replays were all performed live here, and the
+two that were not are named in the reconciliation section above rather than left as `Pending`.
