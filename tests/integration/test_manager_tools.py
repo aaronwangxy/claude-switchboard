@@ -41,6 +41,8 @@ def test_manager_mcp_exposes_only_orchestration_semantics():
         "inspect_contracts",
         "approve_plan",
         "status_summary",
+        "trust_repository_worktrees",
+        "unblock_worker_startup",
     }
     assert not ({"bash", "read", "write", "edit", "create_worker"} & set(TOOL_SCHEMAS))
 

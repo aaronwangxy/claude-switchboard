@@ -27,6 +27,8 @@ RUN_PAUSED = "run.paused"
 RUN_COMPLETED = "run.completed"
 #: The job's workflow definition of done is satisfied, for the first time.
 JOB_COMPLETE = "job.complete"
+#: A native workspace-trust prompt was answered under recorded per-repository consent.
+WORKSPACE_TRUSTED = "workspace.trusted"
 ARTIFACT_INVALIDATED = "artifact.invalidated"
 CLEANUP_REFUSED = "cleanup.refused"
 CLEANUP_COMPLETED = "cleanup.completed"

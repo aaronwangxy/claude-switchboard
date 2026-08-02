@@ -209,6 +209,22 @@ class NativeClaudeBackend:
             return
         self.runtime.interrupt(turn.runtime_id, turn.id)
 
+    def capture(self, worker_id: UUID) -> str:
+        session = self._require(worker_id)
+        return self.supervisor.capture(self._runtime_id(session.spec))
+
+    async def answer_startup_dialog(self, worker_id: UUID) -> None:
+        session = self._require(worker_id)
+        self.supervisor.answer_startup_dialog(self._runtime_id(session.spec))
+
+    async def wait_ready(self, worker_id: UUID, timeout: float = 30.0) -> bool:
+        session = self._require(worker_id)
+        try:
+            await self._wait_ready(self._runtime_id(session.spec), timeout=timeout)
+        except RuntimeError:
+            return False
+        return True
+
     async def stop(self, worker_id: UUID) -> None:
         session = self._sessions.pop(worker_id, None)
         runtime = self.store.current_runtime(worker_id)

@@ -110,6 +110,18 @@ class TmuxRuntimeSupervisor:
         runtime.updated_at = now()
         return self.store.save_runtime(runtime)
 
+    def capture(self, runtime_id: UUID) -> str:
+        runtime = self._runtime(runtime_id)
+        return self.controller.capture(self._binding(runtime), self._required_target(runtime))
+
+    def answer_startup_dialog(self, runtime_id: UUID) -> None:
+        runtime = self._runtime(runtime_id)
+        if runtime.owner is not RuntimeOwner.MANAGER:
+            raise TmuxError("Runtime input is human-controlled; programmatic input is refused.")
+        self.controller.answer_startup_dialog(
+            self._binding(runtime), self._required_target(runtime)
+        )
+
     def interrupt(self, runtime_id: UUID) -> None:
         runtime = self._runtime(runtime_id)
         if runtime.owner is not RuntimeOwner.MANAGER:

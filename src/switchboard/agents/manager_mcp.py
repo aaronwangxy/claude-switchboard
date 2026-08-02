@@ -101,6 +101,27 @@ TOOL_SCHEMAS: dict[str, tuple[str, dict[str, Any]]] = {
             "properties": {"worker_id": {"type": "string"}, "confirmed": {"type": "boolean"}},
         },
     ),
+    "trust_repository_worktrees": (
+        "Record that the user vouches for Switchboard's worktrees of a repository, so "
+        "its workers stop asking about workspace trust. Needs explicit user confirmation.",
+        {
+            "type": "object",
+            "required": ["repository_id", "confirmed"],
+            "properties": {
+                "repository_id": {"type": "string"},
+                "confirmed": {"type": "boolean"},
+            },
+        },
+    ),
+    "unblock_worker_startup": (
+        "Answer a worker's native workspace-trust prompt, if that is what it is waiting "
+        "on and the user has vouched for the repository.",
+        {
+            "type": "object",
+            "required": ["worker_id"],
+            "properties": {"worker_id": {"type": "string"}, "confirmed": {"type": "boolean"}},
+        },
+    ),
     "inspect_contracts": (
         "Inspect bounded contracts and evidence for a job.",
         {"type": "object", "required": ["job_id"], "properties": {"job_id": {"type": "string"}}},
@@ -186,6 +207,21 @@ class ManagerTools:
                 raise ValueError("Explicit confirmation is required.")
             await self.sm.stop_worker(UUID(args["worker_id"]))
             return {"stopped": True}
+        if name == "trust_repository_worktrees":
+            turn = self.sm.store.open_native_turn(self.runtime_id)
+            confirmed_turn = self.sm.store.get_preference("manager.confirmed_turn", "")
+            if not args.get("confirmed") or turn is None or confirmed_turn != str(turn.id):
+                raise ValueError(
+                    "Trusting a repository's worktrees needs the user's confirmation in "
+                    "their current message."
+                )
+            self.sm.grant_repository_trust(UUID(args["repository_id"]), confirmed=True)
+            return {"trusted": True}
+        if name == "unblock_worker_startup":
+            answered = await self.sm.answer_workspace_trust(
+                UUID(args["worker_id"]), confirmed=bool(args.get("confirmed"))
+            )
+            return {"answered": answered}
         if name == "inspect_contracts":
             job_id = UUID(args["job_id"])
             return [

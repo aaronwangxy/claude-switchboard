@@ -213,6 +213,17 @@ class ScriptedWorkerBackend:
         session.interrupts += 1
         await session.outbox.put(WorkerEvent(worker_id, "result", "Interrupted."))
 
+    def capture(self, worker_id: UUID) -> str:
+        """No screen to read: this backend has no interactive session."""
+        return ""
+
+    async def answer_startup_dialog(self, worker_id: UUID) -> None:
+        """No startup dialog exists offline."""
+        return None
+
+    async def wait_ready(self, worker_id: UUID, timeout: float = 30.0) -> bool:
+        return worker_id in self._sessions
+
     async def stop(self, worker_id: UUID) -> None:
         session = self._sessions.pop(worker_id, None)
         self.stopped.append(worker_id)

@@ -103,6 +103,18 @@ class WorkerBackend(Protocol):
 
     async def interrupt(self, worker_id: UUID) -> None: ...
 
+    def capture(self, worker_id: UUID) -> str:
+        """The worker session's visible screen, for guards only. "" when unsupported."""
+        return ""
+
+    async def answer_startup_dialog(self, worker_id: UUID) -> None:
+        """Accept a pre-session dialog. Backends without one may do nothing."""
+        return None
+
+    async def wait_ready(self, worker_id: UUID, timeout: float = 30.0) -> bool:
+        """Whether the session reached the point where it can take a prompt."""
+        return True
+
     async def stop(self, worker_id: UUID) -> None: ...
 
     async def resume(self, spec: WorkerSpec) -> WorkerHandle: ...

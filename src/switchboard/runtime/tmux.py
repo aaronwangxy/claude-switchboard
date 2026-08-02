@@ -243,6 +243,31 @@ class TmuxController:
                 self._run(["delete-buffer", "-b", buffer_name], check=False)
             self._run(["send-keys", "-t", target.pane_id, "Enter"])
 
+    def capture(self, binding: RuntimeBinding, target: TmuxTarget) -> str:
+        """The visible pane text of an exact live runtime.
+
+        Read-only, and used only as a guard: nothing decides orchestration state from
+        screen scraping. Hooks remain the source of truth for what a session is doing.
+        """
+        self._require_exact(binding, target, allow_exited=False)
+        result = self._run(["capture-pane", "-p", "-t", target.pane_id], check=False)
+        return result.stdout if result.returncode == 0 else ""
+
+    def answer_startup_dialog(self, binding: RuntimeBinding, target: TmuxTarget) -> None:
+        """Choose the first option of a pre-session dialog, then confirm it.
+
+        Deliberately not `send_literal`: that pastes into Claude's composer, which does
+        not exist yet while a startup dialog is up.
+        """
+        with self._runtime_lock(binding):
+            observation = self._require_exact(binding, target, allow_exited=False)
+            if observation.owner is not RuntimeOwner.MANAGER:
+                raise TmuxError("Runtime is human-controlled; programmatic input is refused.")
+            if observation.attached_clients:
+                raise TmuxError("A tmux client is viewing this runtime; input is refused.")
+            self._run(["send-keys", "-t", target.pane_id, "1"])
+            self._run(["send-keys", "-t", target.pane_id, "Enter"])
+
     def interrupt(self, binding: RuntimeBinding, target: TmuxTarget) -> None:
         """Send the terminal's normal Ctrl-C interrupt key to an owned live pane."""
         with self._runtime_lock(binding):

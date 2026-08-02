@@ -110,6 +110,23 @@ class WorktreeService:
         worker_part = f"{slug(worker.role.value, 16)}-{str(worker.id)[:8]}"
         return self.root / slug(repository.name) / f"{job_part}-{worker_part}"
 
+    def is_managed_or_repository_path(self, path: Path, repository) -> bool:
+        """Whether a directory is one Switchboard made, or the repository root itself.
+
+        Used before answering a workspace-trust prompt on the user's behalf: a directory
+        this is false for is somewhere the user never pointed Switchboard at.
+        """
+        resolved = Path(path).expanduser().resolve()
+        if repository is not None:
+            repo_root = Path(repository.root_path).expanduser().resolve()
+            if resolved == repo_root or repo_root in resolved.parents:
+                return True
+        try:
+            self.validate_path(resolved)
+        except WorktreeSafetyError:
+            return False
+        return True
+
     def validate_path(self, path: Path) -> Path:
         """Refuse any path outside the application worktree root."""
         resolved = Path(path).expanduser().resolve()

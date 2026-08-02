@@ -377,6 +377,26 @@ class SessionManager:
                 WorkerStatus.BLOCKED if startup_alive else WorkerStatus.FAILED,
                 waiting_for=waiting_for,
             )
+            if startup_alive and await self._auto_answer_trust(worker):
+                # The user already vouched for this repository's worktrees, so the dialog
+                # that stopped the launch is answered and the worker carries on. Without
+                # this, every writable worker stops on the same question about a fresh
+                # worktree path Switchboard created itself.
+                runtime = self.store.get_runtime(runtime.id) or runtime
+                if handle_session_id := runtime.claude_session_id:
+                    worker.session_id = handle_session_id
+                    self.store.save_worker(worker)
+                self._resolve_attention(worker, kinds={AttentionKind.PERMISSION_REQUIRED})
+                self._force_status(worker, WorkerStatus.WORKING, None)
+                self._ensure_pump(worker.id, replace=True)
+                self.emit(
+                    ev.WORKER_STARTED,
+                    worker_id=worker.id,
+                    job_id=worker.job_id,
+                    summary=worker.title,
+                )
+                await self.resume_startup(worker.id)
+                return
             if startup_alive:
                 self.raise_attention(worker, AttentionKind.PERMISSION_REQUIRED, waiting_for)
                 # The native session is live and already emitting events. Without a pump
@@ -409,6 +429,18 @@ class SessionManager:
         # A completed launch means a new backend session object, and a pump binds the one
         # it started with, so an inherited pump would consume nothing. Always replace here.
         self._ensure_pump(worker.id, replace=True)
+
+    async def _auto_answer_trust(self, worker: Worker) -> bool:
+        """Answer a trust dialog when the user already vouched for this repository."""
+        if not self.repository_trust_granted(worker.repository_id):
+            return False
+        try:
+            await self.answer_workspace_trust(worker.id)
+        except SessionManagerError as exc:
+            log.info("not auto-answering startup for %s: %s", worker.title, exc)
+            return False
+        # The dialog is answered; the session still has to reach SessionStart.
+        return await self.backend.wait_ready(worker.id)
 
     def _ensure_pump(self, worker_id: UUID, *, replace: bool = False) -> None:
         """One live consumer of a worker's backend events, however it was started."""
@@ -1256,6 +1288,77 @@ class SessionManager:
         return path
 
     # ------------------------------------------------------------ interruption
+
+    # ------------------------------------------------------- workspace trust
+
+    #: Text native Claude puts on screen while asking whether a directory is trusted.
+    #: Only used to refuse when the pane is showing something else -- never to decide
+    #: what a session is doing, which remains a hook's job.
+    TRUST_DIALOG_MARKERS = ("I trust this folder", "Is this a project you created")
+
+    def repository_trust_granted(self, repository_id: UUID) -> bool:
+        return self.store.get_preference(f"trust.repository:{repository_id}", "") == "granted"
+
+    def grant_repository_trust(self, repository_id: UUID, *, confirmed: bool) -> None:
+        """Record that the user vouches for worktrees Switchboard makes from this repo.
+
+        Claude stores workspace trust per exact directory, and every writable worker gets
+        a fresh worktree path, so without this each new worker stops on the same dialog
+        about a directory Switchboard created itself from a repository the user
+        registered. This does not weaken the question -- it records the user's answer to
+        it once, for a specific repository, instead of asking per worktree.
+        """
+        if not confirmed:
+            raise SessionManagerError(
+                "Trusting a repository's Switchboard worktrees needs explicit confirmation."
+            )
+        if self.store.get_repository(repository_id) is None:
+            raise SessionManagerError(f"Repository {repository_id} is not registered.")
+        self.store.set_preference(f"trust.repository:{repository_id}", "granted")
+
+    async def answer_workspace_trust(self, worker_id: UUID, *, confirmed: bool = False) -> bool:
+        """Answer a startup trust dialog for a worker, if that is genuinely what it is.
+
+        Refuses unless the directory is one Switchboard owns for a registered repository
+        and the user has vouched for that repository, so this can never accept a dialog
+        about somewhere the user never pointed Switchboard at.
+        """
+        worker = self._require_worker(worker_id)
+        if not (confirmed or self.repository_trust_granted(worker.repository_id)):
+            raise SessionManagerError(
+                "This repository's worktrees are not trusted yet. Confirm once, or enter "
+                "the session with Ctrl+E and answer the prompt yourself."
+            )
+        if not self.worktrees.is_managed_or_repository_path(
+            worker.cwd, self.store.get_repository(worker.repository_id)
+        ):
+            raise SessionManagerError(
+                f"{worker.cwd} is neither this repository nor a worktree Switchboard made; "
+                "answer that prompt yourself."
+            )
+        runtime = self.store.current_runtime(worker_id)
+        if runtime is None or runtime.process_state is not RuntimeProcessState.STARTING:
+            raise SessionManagerError(
+                f"{worker.title!r} is not waiting on a startup prompt."
+            )
+        try:
+            pane = self.backend.capture(worker_id)
+        except Exception as exc:
+            raise SessionManagerError(f"Could not read that session: {exc}") from exc
+        if not any(marker in pane for marker in self.TRUST_DIALOG_MARKERS):
+            raise SessionManagerError(
+                "That session is not showing a workspace-trust prompt. Enter it with "
+                "Ctrl+E to see what it is waiting for."
+            )
+        self.grant_repository_trust(worker.repository_id, confirmed=True)
+        await self.backend.answer_startup_dialog(worker_id)
+        self.emit(
+            ev.WORKSPACE_TRUSTED,
+            worker_id=worker.id,
+            job_id=worker.job_id,
+            summary=f"Answered the workspace-trust prompt for {worker.cwd}.",
+        )
+        return True
 
     async def interrupt_worker(self, worker_id: UUID) -> None:
         """Stop the current turn. The worker stays alive and can be messaged again.
