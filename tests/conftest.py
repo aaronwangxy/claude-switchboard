@@ -1,5 +1,17 @@
 """Shared fixtures.
 
+The suite has four tiers, and a test belongs to exactly one:
+
+- `unit/` -- deterministic and in-process: routing, attention, transitions, freshness,
+  prompts, workflow specs, hook payloads, and the native launch adapter over a recorded
+  supervisor.
+- `integration/` -- real SQLite, real Git repositories, real worktrees, and the whole
+  orchestration path driven through `ScriptedWorkerBackend`, so no model is called.
+- `native/` -- a real tmux server and a Claude-shaped fixture executable, for the
+  substrate claims nothing else can prove: exact-generation adoption, hook delivery,
+  entry and handback.
+- `ui/` -- the Textual board driven headlessly through its pilot.
+
 Everything is rooted in a per-test temporary `SB_HOME`, and every git operation runs
 against a real temporary repository -- git is never mocked.
 """

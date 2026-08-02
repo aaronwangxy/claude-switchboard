@@ -1,4 +1,4 @@
-"""The session-first UI, driven headlessly through Textual's pilot."""
+"""The session-first board, driven headlessly through Textual's pilot."""
 
 from __future__ import annotations
 

@@ -1,4 +1,8 @@
-"""The native Claude prototype stays outside production worker routing."""
+"""How a native Claude process is launched, fingerprinted, and driven.
+
+Deterministic: the tmux supervisor is recorded rather than run. The real substrate is
+covered by tests/native.
+"""
 
 from __future__ import annotations
 
