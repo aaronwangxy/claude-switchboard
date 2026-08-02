@@ -94,6 +94,8 @@ def test_manager_prompt_carries_its_own_response_policy():
     assert "without asking\nfor it or registering it again" in prompt
     assert "When the user names a composite\nworkflow, start that composite" in prompt
     assert "When no composite workflow applies" in prompt
+    assert "continue what I\ninterrupted" in prompt
+    assert "use resume_run" in prompt
 
 
 def test_the_policy_version_is_stable_and_recorded():

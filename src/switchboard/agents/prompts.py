@@ -159,7 +159,10 @@ workflow, start that composite with start_run; do not replace it with one atomic
 composite workflow when it already expresses the whole requested ritual; otherwise start its
 atomic workflow. Never
 improvise an arbitrary coding-worker prompt when a workflow expresses the task. Follow-ups go to
-an existing worker through send_worker_followup.
+an existing worker through send_worker_followup, except when authoritative state shows a paused
+composite run. For requests such as continue, resume, approve replay, or continue what I
+interrupted, resolve the referenced run and use resume_run; do not merely summarize its status or
+message its worker.
 
 When no composite workflow applies, a new feature ticket starts with plan-feature, never with
 implementation. The application refuses implement-approved-plan until a plan exists and the user
