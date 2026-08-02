@@ -61,9 +61,7 @@ class TmuxRuntimeSupervisor:
         discovered = self.controller.observe(binding, None)
         if discovered.status is TmuxRuntimeStatus.ALIVE:
             assert discovered.target is not None
-            runtime.substrate = discovered.target.as_substrate()
-            runtime.updated_at = now()
-            self.store.save_runtime(runtime)
+            runtime = self._bind_target(runtime_id, discovered.target)
             return self._record(runtime, discovered, adopted=True)
         if discovered.status is TmuxRuntimeStatus.STALE:
             raise TmuxError("A stale tmux runtime occupies this runtime identity.")
@@ -76,18 +74,9 @@ class TmuxRuntimeSupervisor:
             raced = self._observe_launch_race(binding)
             if raced.status is not TmuxRuntimeStatus.ALIVE or raced.target is None:
                 raise
-            target = raced.target
-            runtime.substrate = target.as_substrate()
-            runtime.updated_at = now()
-            self.store.save_runtime(runtime)
+            runtime = self._bind_target(runtime_id, raced.target)
             return self._record(runtime, raced, adopted=True)
-        runtime.substrate = target.as_substrate()
-        # Tmux proves the process exists, not that an interactive agent is semantically
-        # ready for a turn. A future backend signal owns the STARTING -> READY transition.
-        runtime.process_state = RuntimeProcessState.STARTING
-        runtime.owner = RuntimeOwner.MANAGER
-        runtime.updated_at = now()
-        self.store.save_runtime(runtime)
+        runtime = self._bind_target(runtime_id, target)
         observation = self.controller.observe(binding, target)
         return self._record(runtime, observation, adopted=False)
 
@@ -141,9 +130,30 @@ class TmuxRuntimeSupervisor:
             raise TmuxError("Claim human ownership before entering this runtime.")
         return self.controller.view(self._binding(runtime), self._required_target(runtime))
 
+    def _bind_target(self, runtime_id: UUID, target: TmuxTarget) -> RuntimeInstance:
+        """Persist the tmux pane this generation now owns.
+
+        Read the row again first. The command hooks run in Claude's own process and start
+        firing the moment tmux reports the pane, so anything read before `create` is
+        already a stale snapshot -- writing it back loses a SessionStart that will never
+        be sent twice, and leaves a healthy session looking like one that never started.
+        """
+        runtime = self._runtime(runtime_id)
+        runtime.substrate = target.as_substrate()
+        # Tmux proves the process exists, not that an interactive agent is semantically
+        # ready for a turn -- but only advance towards STARTING, never back to it.
+        if runtime.process_state is RuntimeProcessState.ABSENT:
+            runtime.process_state = RuntimeProcessState.STARTING
+        runtime.owner = RuntimeOwner.MANAGER
+        runtime.updated_at = now()
+        return self.store.save_runtime(runtime)
+
     def _record(
         self, runtime: RuntimeInstance, observation: TmuxObservation, *, adopted: bool = False
     ) -> SupervisedRuntime:
+        # Same reason as `_bind_target`: every caller reached here through at least one
+        # tmux subprocess round trip, so its `runtime` may predate a hook write.
+        runtime = self.store.get_runtime(runtime.id) or runtime
         if observation.status is TmuxRuntimeStatus.ALIVE:
             if observation.owner is not None:
                 # Tmux metadata survives a Python/controller restart and is the substrate's
