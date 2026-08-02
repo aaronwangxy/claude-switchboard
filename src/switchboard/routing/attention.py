@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID
 
-from switchboard.domain.enums import ATTENTION_PRIORITY, AttentionKind
+from switchboard.domain.enums import ATTENTION_PRIORITY
 from switchboard.domain.models import AttentionItem, Worker
 
 
@@ -62,15 +62,3 @@ def next_actionable(
     return None
 
 
-def describe(item: AttentionItem) -> str:
-    label = item.kind.value.replace("_", " ")
-    return f"{label}: {item.reason}" if item.reason else label
-
-
-BLOCKING_KINDS = frozenset(
-    {
-        AttentionKind.HUMAN_DECISION,
-        AttentionKind.PERMISSION_REQUIRED,
-        AttentionKind.PLAN_APPROVAL,
-    }
-)

@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 from uuid import UUID
 
-from switchboard.domain.enums import JobStage, WorkerRole, WorkerStatus
+from switchboard.domain.enums import WorkerRole, WorkerStatus
 from switchboard.domain.models import Job, Repository, Worker
 
 TICKET_RE = re.compile(r"\b([A-Z][A-Z0-9]{1,9}-\d{1,6})\b")
@@ -572,7 +572,3 @@ def validate(proposal: RouteProposal, state: RoutingState) -> RouteProposal:
 
 class RouteError(ValueError):
     """A proposed route is not permitted."""
-
-
-def job_is_open(job: Job) -> bool:
-    return job.stage not in (JobStage.COMPLETED, JobStage.FAILED)

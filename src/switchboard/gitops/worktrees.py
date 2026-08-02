@@ -164,18 +164,6 @@ class WorktreeService:
         except GitError:
             return WorktreeState(worktree=worktree, exists=False)
 
-    def get_head(self, worktree: Worktree) -> str | None:
-        try:
-            return runner.head_commit(worktree.path)
-        except GitError:
-            return None
-
-    def get_dirty_state(self, worktree: Worktree) -> list[str]:
-        try:
-            return runner.dirty_files(worktree.path)
-        except GitError:
-            return []
-
     def get_unpushed_commits(self, worktree: Worktree) -> list[str]:
         """Commits on the worktree branch that are not reachable from its base ref."""
         try:

@@ -17,27 +17,16 @@ HOME_ENV = "SB_HOME"
 WORKFLOWS_ENV = "SB_WORKFLOWS_DIR"
 
 
-class CommunicationConfig(BaseModel):
-    style: str = "concise_plain_english"
-    default_verbosity: str = "concise"
-    status_max_sentences: int = 2
-    default_expand_details: bool = False
-    plan_max_lines: int = 10
-    collapse_tool_output: bool = True
-
-
 class SubagentConfig(BaseModel):
+    """Whether workers may spawn Claude's own bounded helper subagents, and how many."""
+
     enabled: bool = True
     max_concurrent_per_worker: int = 3
-    prefer_read_only: bool = True
-    allow_nested: bool = False
 
 
 class CommitConfig(BaseModel):
+    #: Implementation may not start without an approved implementation contract.
     require_plan: bool = True
-    atomic_by_default: bool = True
-    allow_wip_commits: bool = False
-    test_before_commit: bool = True
 
 
 class ModelConfig(BaseModel):
@@ -102,7 +91,6 @@ class WorktreeBootstrapConfig(BaseModel):
 
 
 class Config(BaseModel):
-    communication: CommunicationConfig = Field(default_factory=CommunicationConfig)
     subagents: SubagentConfig = Field(default_factory=SubagentConfig)
     commits: CommitConfig = Field(default_factory=CommitConfig)
     models: ModelConfig = Field(default_factory=ModelConfig)

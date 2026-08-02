@@ -164,7 +164,6 @@ def test_every_entity_round_trips_across_a_reopen(store: Store, reopen, tmp_path
     assert loaded_repo.registered_at == at(0)
     assert loaded_repo.default_branch == "trunk"
     assert reopened.get_repository_by_path(repo.root_path) == repo
-    assert reopened.get_repository_by_name("DEMO") == repo
     assert reopened.list_repositories() == [repo]
 
     loaded_job = reopened.get_job(job.id)
@@ -173,7 +172,6 @@ def test_every_entity_round_trips_across_a_reopen(store: Store, reopen, tmp_path
     assert loaded_job.repository_id == repo.id
     assert loaded_job.ticket_text == "Users need to log in."
     assert reopened.list_jobs(JobStage.IMPLEMENTING) == [job]
-    assert reopened.active_jobs() == [job]
 
     loaded_worktree = reopened.get_worktree(worktree.id)
     assert loaded_worktree == worktree
@@ -203,7 +201,7 @@ def test_every_entity_round_trips_across_a_reopen(store: Store, reopen, tmp_path
     assert reopened.transcript(worker.id) == [message]
     assert reopened.list_decisions(job.id) == [decision]
 
-    loaded_artifact = reopened.get_artifact(artifact.id)
+    loaded_artifact = reopened.latest_artifact(job.id, ArtifactType.IMPLEMENTATION_CONTRACT)
     assert loaded_artifact == artifact
     assert isinstance(loaded_artifact.type, ArtifactType)
     assert loaded_artifact.body == {"steps": ["one", "two"], "risk": {"level": "low"}}
@@ -397,26 +395,8 @@ def test_runtime_generations_and_ownership_round_trip(store: Store, reopen):
     assert fresh.list_runtimes(agent_id) == [first, second]
 
 
-def test_deleting_a_worker_removes_its_transcript_and_attention(store: Store, tmp_path: Path):
-    repo = Repository(name="demo", root_path=tmp_path / "demo")
-    store.add_repository(repo)
-    worker = Worker(title="w", repository_id=repo.id, cwd=tmp_path / "demo")
-    store.save_worker(worker)
-    store.add_transcript(TranscriptMessage(worker_id=worker.id, role="user", text="hi"))
-    store.save_attention_item(
-        AttentionItem(worker_id=worker.id, kind=AttentionKind.WORKER_FAILED, reason="boom")
-    )
-
-    store.delete_worker(worker.id)
-
-    assert store.get_worker(worker.id) is None
-    assert store.transcript(worker.id) == []
-    assert store.list_attention_items() == []
-
-
 def test_unknown_ids_return_none(store: Store):
     assert store.get_repository(uuid4()) is None
     assert store.get_job(uuid4()) is None
     assert store.get_worker(uuid4()) is None
     assert store.get_worktree(uuid4()) is None
-    assert store.get_artifact(uuid4()) is None

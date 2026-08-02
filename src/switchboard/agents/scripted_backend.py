@@ -23,8 +23,6 @@ from switchboard.agents.backend import (
     WorkerSpec,
 )
 
-Responder = Callable[[WorkerSpec, str], list[WorkerEvent]]
-
 
 def _plan_response(spec: WorkerSpec, message: str) -> str:
     contract = {

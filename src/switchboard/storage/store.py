@@ -102,12 +102,6 @@ class Store:
         ).fetchone()
         return _load(Repository, row) if row else None
 
-    def get_repository_by_name(self, name: str) -> Repository | None:
-        row = self.conn.execute(
-            "SELECT data FROM repositories WHERE name=? COLLATE NOCASE", (name,)
-        ).fetchone()
-        return _load(Repository, row) if row else None
-
     def list_repositories(self) -> list[Repository]:
         rows = self.conn.execute("SELECT data FROM repositories ORDER BY name").fetchall()
         return [_load(Repository, r) for r in rows]
@@ -141,13 +135,6 @@ class Store:
             ).fetchall()
         else:
             rows = self.conn.execute("SELECT data FROM jobs ORDER BY updated_at DESC").fetchall()
-        return [_load(Job, r) for r in rows]
-
-    def active_jobs(self) -> list[Job]:
-        closed = (JobStage.COMPLETED.value, JobStage.FAILED.value)
-        rows = self.conn.execute(
-            "SELECT data FROM jobs WHERE stage NOT IN (?,?) ORDER BY updated_at DESC", closed
-        ).fetchall()
         return [_load(Job, r) for r in rows]
 
     # --------------------------------------------------------------- worktrees
@@ -227,12 +214,6 @@ class Store:
             f"SELECT data FROM workers{where} ORDER BY created_at, rowid", params
         ).fetchall()
         return [_load(Worker, r) for r in rows]
-
-    def delete_worker(self, worker_id: UUID) -> None:
-        self.conn.execute("DELETE FROM workers WHERE id=?", (str(worker_id),))
-        self.conn.execute("DELETE FROM transcript WHERE worker_id=?", (str(worker_id),))
-        self.conn.execute("DELETE FROM attention_items WHERE worker_id=?", (str(worker_id),))
-        self._commit()
 
     # --------------------------------------------------------------- runtimes
 
@@ -531,12 +512,6 @@ class Store:
         )
         self._commit()
         return artifact
-
-    def get_artifact(self, artifact_id: UUID) -> Artifact | None:
-        row = self.conn.execute(
-            "SELECT data FROM artifacts WHERE id=?", (str(artifact_id),)
-        ).fetchone()
-        return _load(Artifact, row) if row else None
 
     def list_artifacts(self, job_id: UUID, type_: ArtifactType | None = None) -> list[Artifact]:
         if type_:

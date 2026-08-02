@@ -1,25 +1,15 @@
 # Copy to ~/.config/switchboard/config.yaml to override the defaults.
 # Every key is optional; anything omitted keeps the built-in default.
 
-communication:
-  style: concise_plain_english
-  default_verbosity: concise
-  status_max_sentences: 2
-  default_expand_details: false
-  plan_max_lines: 10
-  collapse_tool_output: true
-
+# Whether workers may spawn Claude's own bounded helper subagents, and how many at once.
 subagents:
   enabled: true
   max_concurrent_per_worker: 3
-  prefer_read_only: true
-  allow_nested: false
 
+# require_plan is a safety gate: implementation cannot start without an approved
+# implementation contract carrying no unanswered blocking decisions.
 commits:
   require_plan: true
-  atomic_by_default: true
-  allow_wip_commits: false
-  test_before_commit: true
 
 # Model IDs are your configuration, not a product default baked into the code.
 # Leaving a value unset falls back to $SB_STRONG_MODEL / $SB_FAST_MODEL, and then

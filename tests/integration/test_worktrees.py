@@ -123,7 +123,7 @@ def test_uncommitted_changes_block_cleanup_and_survive(
     scratch = worktree.path / "work-in-progress.txt"
     scratch.write_text("precious unsaved work\n")
 
-    dirty = worktree_service.get_dirty_state(worktree)
+    dirty = worktree_service.inspect_worktree(worktree).dirty_files
     assert any("work-in-progress.txt" in line for line in dirty)
 
     decision = worktree_service.can_cleanup(worktree)
@@ -161,7 +161,7 @@ def test_commits_ahead_of_base_block_cleanup_unless_acknowledged(
     worktree = worktree_service.create_worktree(repository, job, make_worker(repository), "main")
     commit_file(worktree.path, "feature.py", "print('hi')\n", "add feature")
 
-    assert worktree_service.get_dirty_state(worktree) == []
+    assert worktree_service.inspect_worktree(worktree).dirty_files == []
 
     refused = worktree_service.can_cleanup(worktree)
     assert refused.safe is False
@@ -262,7 +262,7 @@ def test_inspect_worktree_reports_a_missing_directory(
     state = worktree_service.inspect_worktree(worktree)
     assert state.exists is False
     assert state.dirty is False
-    assert worktree_service.get_head(worktree) is None
+    assert state.head is None
 
 
 def test_creating_a_worktree_bootstraps_the_configured_files(
