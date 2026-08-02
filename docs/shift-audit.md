@@ -184,6 +184,12 @@ fixed with a regression test.
     retired when its replacement starts. Writable sessions never are: one owns a worktree
     and *is* the job's change.
 
+11. **A session could be entered and never left.** Attaching claims through the durable
+    runtime, but releasing required a live session controller, which a disconnected
+    worker does not have. Entering one flipped ownership to the human, paused its run and
+    then raised on the way out, so the run stayed paused with no way back. Release now
+    resolves the runtime exactly as the claim does.
+
 Points 1, 2, 4, 8 and 9 have the same shape, and it is the shape that matters for this
 product: **the fleet interrupting the user for something that did not need them, or
 stopping without telling them.** Neither is visible from reading the code. Both are

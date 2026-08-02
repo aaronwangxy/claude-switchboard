@@ -266,11 +266,16 @@ class NativeClaudeBackend:
         )
 
     def release_human(self, worker_id: UUID, *, composer_cleared: bool) -> None:
-        session = self._require(worker_id)
-        self.runtime.release_human(
-            self._runtime_id(session.spec), composer_cleared=composer_cleared
-        )
-        runtime_id = self._runtime_id(session.spec)
+        # Resolved from durable state, exactly as `attachment` claims it. Requiring a live
+        # session controller here made leaving harder than entering: a worker whose
+        # controller had gone -- a disconnected one, or any worker after a board restart --
+        # could be entered and then never released, stranding ownership on the human and
+        # its run paused with no way back.
+        runtime = self.store.current_runtime(worker_id)
+        if runtime is None:
+            raise KeyError(f"Worker {worker_id} has no durable runtime to release.")
+        runtime_id = runtime.id
+        self.runtime.release_human(runtime_id, composer_cleared=composer_cleared)
         turns = self.store.list_native_turns(runtime_id)
         if (
             turns

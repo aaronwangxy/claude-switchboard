@@ -26,6 +26,7 @@ from switchboard.domain.enums import (
     ArtifactType,
     NativeTurnOrigin,
     RunStatus,
+    RuntimeOwner,
     RuntimeProcessState,
     WorkerRole,
     WorkerStatus,
@@ -275,6 +276,35 @@ async def test_atomic_workflow_consumes_only_managed_stop_and_returns_ready(
     )
     manager.detach(worker.id, composer_cleared=True)
     assert manager.store.current_runtime(worker.id).process_state is RuntimeProcessState.READY
+
+
+async def test_a_worker_can_always_be_left_even_with_no_session_controller(
+    native_services, git_repo
+):
+    """Leaving must never be harder than entering.
+
+    `attachment` claims through the durable runtime, so a worker with no live controller
+    can still be entered -- a disconnected one, or any worker after a board restart.
+    Release used to require the controller, so detach raised and ownership stayed on the
+    human with the run paused and no way back.
+    """
+    manager, backend, _ = native_services
+    repo = manager.register_repository(git_repo("native-detach"))
+    worker = await manager.create_worker(
+        role=WorkerRole.GENERAL,
+        title="native",
+        prompt="hello",
+        repository_id=repo.id,
+    )
+    await manager.attach(worker.id)
+    assert manager.store.current_runtime(worker.id).owner is RuntimeOwner.HUMAN
+
+    session = backend._sessions.pop(worker.id)
+    if session.task is not None:
+        session.task.cancel()
+
+    manager.detach(worker.id, composer_cleared=True)
+    assert manager.store.current_runtime(worker.id).owner is RuntimeOwner.MANAGER
 
 
 async def test_permission_and_busy_lane_are_normalized_without_prompt_corruption(
