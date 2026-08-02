@@ -3,7 +3,7 @@ description: Summarise branch, commits, evidence, and limitations for handoff.
 role: implementer
 allowed_roles: [implementer, general]
 mutates_code: false
-context: [implementation_contract, behavior_contract, verification, review]
+context: [implementation_contract, goal, findings, verification, review]
 stage: ready
 worker: existing
 prompt: |

@@ -1,0 +1,5 @@
+name: answer-question
+description: Answer a question about a codebase and record the answer as durable evidence.
+aliases: [question]
+steps:
+  - workflow: ask-question

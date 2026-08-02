@@ -1,0 +1,5 @@
+name: review-only
+description: Review a change that already exists, without planning or implementing anything.
+steps:
+  - workflow: independent-review
+    worker: fresh

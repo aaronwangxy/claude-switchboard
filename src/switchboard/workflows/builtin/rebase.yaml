@@ -1,0 +1,6 @@
+name: rebase
+description: Rebase a job's stack onto its base ref and verify the result still holds.
+steps:
+  - workflow: rebase-stack
+  - workflow: verify-checks
+    worker: fresh

@@ -41,7 +41,7 @@ def test_complete_ticket_still_demands_exactly_what_it_always_did():
     assert required == frozenset(
         {
             ArtifactType.IMPLEMENTATION_CONTRACT,
-            ArtifactType.BEHAVIOR_CONTRACT,
+            ArtifactType.GOAL,
             ArtifactType.VERIFICATION,
             ArtifactType.REVIEW,
         }
@@ -107,13 +107,13 @@ async def test_a_verification_only_workflow_completes_without_a_plan_or_a_review
     sm.store.save_artifact(
         Artifact(
             job_id=created.id,
-            type=ArtifactType.BEHAVIOR_CONTRACT,
+            type=ArtifactType.GOAL,
             body={
                 "criteria": [
                     {
                         "id": "AC1",
-                        "behavior": "it boots",
-                        "verification_method": "run it",
+                        "statement": "it boots",
+                        "established_by": "run it",
                         "status": "passed",
                     }
                 ]

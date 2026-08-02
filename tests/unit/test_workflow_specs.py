@@ -20,9 +20,19 @@ from switchboard.workflows.registry import (
 from switchboard.workflows.spec import Approval, StepCondition, WorkerMode, WorkflowDefinition
 
 #: Every workflow the goal requires Switchboard to ship.
+#: Every workflow the goal requires Switchboard to ship. The composites are peers:
+#: `complete-ticket` is one recipe among several, not the architecture.
 REQUIRED_BUILTINS = [
     "complete-ticket",
+    "lightweight-feature",
+    "diagnose-and-fix",
+    "investigate",
+    "answer-question",
+    "rebase",
+    "review-only",
     "ask-question",
+    "investigate-issue",
+    "implement-fix",
     "rebase-stack",
     "address-review-comments",
     "smoke-test",
@@ -132,7 +142,7 @@ name: post-rebase-verify
 description: Rebase, regenerate snapshots, then smoke test.
 role: verifier
 mutates_code: false
-requires: [behavior_contract]
+requires: [goal]
 produces: [smoke_verification]
 prompt: |
   Re-run the snapshot regeneration and the smoke test.

@@ -3,7 +3,7 @@ description: Exercise the deepest practical end-to-end behavior of the current c
 role: verifier
 allowed_roles: [verifier]
 mutates_code: false
-requires: [behavior_contract]
+requires: [goal]
 produces: [smoke_verification]
 stage: verifying
 worker: fresh

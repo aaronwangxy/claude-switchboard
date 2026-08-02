@@ -105,9 +105,9 @@ async def test_plan_produces_all_three_contracts(project):
     assert decision["options"] and decision["recommendation"], "decisions offer options and advice"
     assert decision["blocking"] is True
 
-    behavior = sm.store.latest_artifact(job.id, ArtifactType.BEHAVIOR_CONTRACT)
+    behavior = sm.store.latest_artifact(job.id, ArtifactType.GOAL)
     criterion = behavior.body["criteria"][0]
-    assert criterion["verification_method"] and criterion["evidence_required"]
+    assert criterion["established_by"] and criterion["evidence_required"]
 
 
 async def test_blocking_plan_raises_a_prioritised_attention_item(project):
@@ -167,10 +167,10 @@ async def test_implementation_cannot_start_without_an_approved_plan(project):
     assert worker.writable
 
 
-async def test_verification_cannot_run_without_a_behavior_contract(project):
+async def test_verification_cannot_run_without_a_goal(project):
     sm, backend, repo = project
     job = sm.create_job("No criteria", sm.store.list_repositories()[0].id)
-    with pytest.raises(Exception, match="needs a current behavior_contract"):
+    with pytest.raises(Exception, match="needs a current goal"):
         await sm.start_workflow("full-verify", job_id=job.id)
 
 

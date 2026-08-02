@@ -1,8 +1,9 @@
 name: ask-question
-description: Answer a question about the codebase read-only, without touching any files.
+description: Answer a question about the codebase read-only, and record the answer.
 role: question
-allowed_roles: [question, general, implementer, planner]
+allowed_roles: [question, general, implementer, planner, investigator]
 mutates_code: false
+produces: [findings]
 aliases: [answer-codebase-question]
 prompt: |
   Answer this question about the codebase in your working directory. You are read-only.
@@ -10,3 +11,16 @@ prompt: |
   {request}
 
   Answer directly first. Add explanation only where it changes the answer.
+
+  Then end your reply with exactly one fenced ```json block recording the answer, so it
+  survives this session and can be given to later work without anybody retyping it. The
+  application parses that block deterministically -- prose outside it is for the user.
+  Schema:
+  {
+    "question": "what you were asked",
+    "answer": "the answer, standing on its own",
+    "findings": [{"id":"F1","claim","evidence","confidence":"confirmed|likely|speculative"}],
+    "open_questions": []
+  }
+  Evidence is a file and line, a command and its output, or an observed behaviour. If the
+  answer is short and self-evident, one finding carrying its evidence is enough.

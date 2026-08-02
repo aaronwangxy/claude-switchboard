@@ -1,0 +1,37 @@
+name: verify-checks
+description: Run the repository's own checks and record what passed, with no stated criteria.
+role: verifier
+allowed_roles: [verifier]
+mutates_code: false
+produces: [verification]
+stage: verifying
+worker: fresh
+prompt: |
+  Verify that the repository in your working directory is still sound after this change.
+
+  What was done:
+  {request}
+
+  Context:
+  {artifacts}
+
+  There are no stated acceptance criteria for this job, so establish the repository's own
+  standard: find and run its tests, linters, type checks, and build, whatever it actually
+  has. Record the exact commands and exit codes. Do not change any code.
+
+  End your reply with exactly one fenced ```json block. The application parses that block
+  deterministically -- prose outside it is for the user, the block is the artifact.
+  Schema:
+  {
+    "scope": "full",
+    "evidence": [{
+      "criterion_id": "<the check, e.g. 'tests' or 'lint'>",
+      "status": "passed|failed|not_tested|blocked",
+      "commands": [{"command","exit_code","output_excerpt"}],
+      "observed_behavior": "",
+      "artifacts": [],
+      "limitations": []
+    }]
+  }
+  Report a check as passed only with output you actually saw. If the repository has no
+  checks of a given kind, say so as a limitation rather than inventing one.

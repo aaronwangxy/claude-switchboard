@@ -11,7 +11,7 @@ import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_meta (version INTEGER NOT NULL);
@@ -190,6 +190,8 @@ def migrate(conn: sqlite3.Connection) -> None:
         _reconcile_open_native_turns(conn)
     if row is not None and row["version"] < 7:
         _rename_ready_to_push(conn)
+    if row is not None and row["version"] < 8:
+        _rename_behavior_contract(conn)
     conn.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_native_turn_one_open "
         "ON native_turns(runtime_id) "
@@ -229,6 +231,23 @@ def _rename_ready_to_push(conn: sqlite3.Connection) -> None:
                 "UPDATE jobs SET stage=?, data=? WHERE id=?",
                 (new, json.dumps(data, separators=(",", ":")), row["id"]),
             )
+
+
+def _rename_behavior_contract(conn: sqlite3.Connection) -> None:
+    """`behavior_contract` became `goal` when criteria stopped being only about code.
+
+    The body is untouched: the fields did not move, and `Goal` accepts the old criterion
+    key names. Only the artifact's type changes, in the column and in the stored model.
+    """
+    for row in conn.execute(
+        "SELECT id, data FROM artifacts WHERE type='behavior_contract'"
+    ).fetchall():
+        data = json.loads(row["data"])
+        data["type"] = "goal"
+        conn.execute(
+            "UPDATE artifacts SET type='goal', data=? WHERE id=?",
+            (json.dumps(data, separators=(",", ":")), row["id"]),
+        )
 
 
 def _reconcile_open_native_turns(conn: sqlite3.Connection) -> None:

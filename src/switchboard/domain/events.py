@@ -16,6 +16,8 @@ WORKER_ATTACHED = "worker.attached"
 PLAN_CREATED = "plan.created"
 PLAN_REQUIRES_INPUT = "plan.requires_input"
 PLAN_APPROVED = "plan.approved"
+#: A question or investigation left a durable answer rather than only a transcript.
+FINDINGS_RECORDED = "findings.recorded"
 VERIFICATION_STARTED = "verification.started"
 VERIFICATION_PASSED = "verification.passed"
 VERIFICATION_FAILED = "verification.failed"

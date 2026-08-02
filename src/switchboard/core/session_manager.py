@@ -34,8 +34,9 @@ from switchboard.core.runs import condition_holds, has_blocking_decisions
 from switchboard.core.transitions import assert_worker_transition
 from switchboard.domain import events as ev
 from switchboard.domain.contracts import (
-    BehaviorContract,
     CommentResolutionReport,
+    FindingsReport,
+    Goal,
     ImplementationContract,
     ReviewReport,
     VerificationReport,
@@ -1799,37 +1800,45 @@ class SessionManager:
             return
         head = lineage.worker_head(self.store, worker)
         tree = lineage.worker_tree(self.store, worker)
-        produces = self._produced_artifacts(worker)
+        # One turn's block can carry more than one artifact: a planner states the goal and
+        # the implementation contract together, an investigator states the goal it was
+        # given and the findings that answer it. Harvest each type the workflow declared.
+        for type_ in sorted(self._produced_artifacts(worker), key=lambda t: t.value):
+            handler = self._HARVESTERS.get(type_)
+            if handler is not None:
+                handler(self, worker, job, block, head, tree, type_)
 
-        if ArtifactType.IMPLEMENTATION_CONTRACT in produces:
-            self._store_plan(worker, job, block, head, tree)
-        elif produces & {ArtifactType.VERIFICATION, ArtifactType.SMOKE_VERIFICATION}:
-            type_ = (
-                ArtifactType.SMOKE_VERIFICATION
-                if ArtifactType.SMOKE_VERIFICATION in produces
-                else ArtifactType.VERIFICATION
+    def _store_goal(self, worker, job, block, head, tree, type_) -> None:
+        goal = Goal.model_validate(
+            {"goal": block.get("goal", ""), "criteria": block.get("criteria", [])}
+        )
+        self._save_artifact(job, type_, worker, goal.model_dump(mode="json"), head, tree)
+
+    def _store_findings(self, worker, job, block, head, tree, type_) -> None:
+        report = FindingsReport.model_validate(block)
+        self._save_artifact(job, type_, worker, report.model_dump(mode="json"), head, tree)
+        self.emit(
+            ev.FINDINGS_RECORDED,
+            job_id=job.id,
+            worker_id=worker.id,
+            summary=report.answer[:300] or "Findings recorded with no answer.",
+        )
+
+    def _store_resolutions(self, worker, job, block, head, tree, type_) -> None:
+        report = CommentResolutionReport.model_validate(block)
+        self._save_artifact(job, type_, worker, report.model_dump(mode="json"), head, tree)
+
+    def _store_proposals(self, worker, job, block, head, tree, type_) -> None:
+        proposals = WorkflowProposals.model_validate(block)
+        self._save_artifact(job, type_, worker, proposals.model_dump(mode="json"), head, tree)
+        if proposals.proposals:
+            names = ", ".join(p.name for p in proposals.proposals)
+            self.raise_attention(
+                worker,
+                AttentionKind.HUMAN_DECISION,
+                f"Proposed workflows awaiting your decision: {names}.",
+                "Accept, edit, or reject each proposal.",
             )
-            self._store_verification(worker, job, block, head, tree, type_)
-        elif ArtifactType.REVIEW in produces:
-            self._store_review(worker, job, block, head, tree)
-        elif ArtifactType.COMMENT_RESOLUTIONS in produces:
-            report = CommentResolutionReport.model_validate(block)
-            self._save_artifact(
-                job, ArtifactType.COMMENT_RESOLUTIONS, worker, report.model_dump(mode="json"), head, tree
-            )
-        elif ArtifactType.WORKFLOW_PROPOSALS in produces:
-            proposals = WorkflowProposals.model_validate(block)
-            self._save_artifact(
-                job, ArtifactType.WORKFLOW_PROPOSALS, worker, proposals.model_dump(mode="json"), head, tree
-            )
-            if proposals.proposals:
-                names = ", ".join(p.name for p in proposals.proposals)
-                self.raise_attention(
-                    worker,
-                    AttentionKind.HUMAN_DECISION,
-                    f"Proposed workflows awaiting your decision: {names}.",
-                    "Accept, edit, or reject each proposal.",
-                )
 
     def _produced_artifacts(self, worker: Worker) -> frozenset[ArtifactType]:
         """What this worker's turn may produce: its workflow's declaration, else its role."""
@@ -1838,21 +1847,15 @@ class SessionManager:
             return definition.produces
         return ROLE_ARTIFACTS.get(worker.role, frozenset())
 
-    def _store_plan(self, worker: Worker, job: Job, block: dict, head: str | None, tree: str | None) -> None:
+    def _store_plan(self, worker, job, block: dict, head, tree, type_) -> None:
         contract = ImplementationContract.model_validate(
-            {k: v for k, v in block.items() if k != "criteria"}
+            {k: v for k, v in block.items() if k not in ("criteria", "goal")}
         )
         if not contract.base_commit:
             contract.base_commit = head or ""
         max_lines = self.config.workflows.plan_feature.max_plan_lines
         contract.summary_lines = contract.summary_lines[:max_lines]
-        self._save_artifact(
-            job, ArtifactType.IMPLEMENTATION_CONTRACT, worker, contract.model_dump(mode="json"), head, tree
-        )
-        behavior = BehaviorContract.model_validate({"criteria": block.get("criteria", [])})
-        self._save_artifact(
-            job, ArtifactType.BEHAVIOR_CONTRACT, worker, behavior.model_dump(mode="json"), head, tree
-        )
+        self._save_artifact(job, type_, worker, contract.model_dump(mode="json"), head, tree)
         self.emit(ev.PLAN_CREATED, job_id=job.id, worker_id=worker.id, summary="Contracts recorded.")
         if contract.blocking_decisions():
             self.emit(ev.PLAN_REQUIRES_INPUT, job_id=job.id, worker_id=worker.id)
@@ -1888,12 +1891,12 @@ class SessionManager:
                 f"Verification failed for {', '.join(failed)}.",
             )
 
-    def _store_review(self, worker: Worker, job: Job, block: dict, head: str | None, tree: str | None) -> None:
+    def _store_review(self, worker, job, block: dict, head, tree, type_) -> None:
         report = ReviewReport.model_validate(block)
         report.reviewed_head = head or ""
         for finding in report.findings:
             finding.reviewed_head = head or ""
-        self._save_artifact(job, ArtifactType.REVIEW, worker, report.model_dump(mode="json"), head, tree)
+        self._save_artifact(job, type_, worker, report.model_dump(mode="json"), head, tree)
         blocking = report.unresolved_blocking(set(self.config.workflows.review_change.blocking_severities))
         if blocking:
             self.emit(
@@ -1912,12 +1915,12 @@ class SessionManager:
             self.emit(ev.REVIEW_PASSED, job_id=job.id, worker_id=worker.id)
 
     def _sync_criteria_status(self, job: Job, report: VerificationReport) -> None:
-        artifact = self.store.latest_artifact(job.id, ArtifactType.BEHAVIOR_CONTRACT)
+        artifact = self.store.latest_artifact(job.id, ArtifactType.GOAL)
         if artifact is None:
             return
-        behavior = BehaviorContract.model_validate(artifact.body)
+        goal = Goal.model_validate(artifact.body)
         by_id = {e.criterion_id: e for e in report.evidence}
-        for criterion in behavior.criteria:
+        for criterion in goal.criteria:
             item = by_id.get(criterion.id)
             if item is None:
                 continue
@@ -1926,8 +1929,22 @@ class SessionManager:
             )
             if item.limitations:
                 criterion.accepted_limitation = "; ".join(item.limitations)
-        artifact.body = behavior.model_dump(mode="json")
+        artifact.body = goal.model_dump(mode="json")
         self.store.save_artifact(artifact)
+
+    #: Which method turns a turn's JSON block into each artifact type. This is the whole
+    #: extension point: a new artifact type needs a schema in `domain/contracts.py`, an
+    #: entry here, and optionally a completion check in `core/evidence.py`.
+    _HARVESTERS = {
+        ArtifactType.IMPLEMENTATION_CONTRACT: _store_plan,
+        ArtifactType.GOAL: _store_goal,
+        ArtifactType.FINDINGS: _store_findings,
+        ArtifactType.VERIFICATION: _store_verification,
+        ArtifactType.SMOKE_VERIFICATION: _store_verification,
+        ArtifactType.REVIEW: _store_review,
+        ArtifactType.COMMENT_RESOLUTIONS: _store_resolutions,
+        ArtifactType.WORKFLOW_PROPOSALS: _store_proposals,
+    }
 
     def _save_artifact(
         self,

@@ -26,8 +26,9 @@ from switchboard.config import Config
 from switchboard.core import lineage
 from switchboard.core.errors import SessionManagerError
 from switchboard.domain.contracts import (
-    BehaviorContract,
     CommentResolutionReport,
+    FindingsReport,
+    Goal,
     ImplementationContract,
     ReviewReport,
     VerificationReport,
@@ -75,15 +76,26 @@ def _contract_blockers(artifact: Artifact, config: Config) -> list[str]:
     return blockers
 
 
-def _behavior_blockers(artifact: Artifact, config: Config) -> list[str]:
-    criteria = BehaviorContract.model_validate(artifact.body).criteria
-    if not criteria:
+def _goal_blockers(artifact: Artifact, config: Config) -> list[str]:
+    goal = Goal.model_validate(artifact.body)
+    if not goal.criteria:
         return ["No acceptance criteria recorded."]
     return [
         f"Criterion {criterion.id} is {criterion.status}."
-        for criterion in criteria
+        for criterion in goal.criteria
         if criterion.status != "passed" and not criterion.accepted_limitation
     ]
+
+
+def _findings_blockers(artifact: Artifact, config: Config) -> list[str]:
+    """A findings report with no answer is a transcript, not evidence."""
+    report = FindingsReport.model_validate(artifact.body)
+    if not report.answer.strip():
+        return ["The findings report states no answer."]
+    unevidenced = [f.id for f in report.findings if f.confidence != "speculative" and not f.evidence]
+    if unevidenced:
+        return [f"Finding(s) {', '.join(unevidenced)} are asserted without evidence."]
+    return []
 
 
 def _verification_blockers(artifact: Artifact, config: Config) -> list[str]:
@@ -109,7 +121,8 @@ def _resolution_blockers(artifact: Artifact, config: Config) -> list[str]:
 #: A type with no entry only has to exist and be current.
 COMPLETION_CHECKS: dict[ArtifactType, Callable[[Artifact, Config], list[str]]] = {
     ArtifactType.IMPLEMENTATION_CONTRACT: _contract_blockers,
-    ArtifactType.BEHAVIOR_CONTRACT: _behavior_blockers,
+    ArtifactType.GOAL: _goal_blockers,
+    ArtifactType.FINDINGS: _findings_blockers,
     ArtifactType.VERIFICATION: _verification_blockers,
     ArtifactType.SMOKE_VERIFICATION: _verification_blockers,
     ArtifactType.REVIEW: _review_blockers,

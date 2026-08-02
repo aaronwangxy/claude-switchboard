@@ -5,7 +5,7 @@ allowed_roles: [implementer, review_comments]
 mutates_code: true
 produces: [comment_resolutions]
 invalidates: [verification, smoke_verification, review]
-context: [implementation_contract, behavior_contract, verification, review]
+context: [implementation_contract, goal, verification, review]
 stage: fixing
 worker: existing
 prompt: |

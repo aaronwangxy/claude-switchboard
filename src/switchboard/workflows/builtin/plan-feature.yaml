@@ -1,9 +1,9 @@
 name: plan-feature
-description: Produce implementation, behavior, and evidence contracts for a request.
+description: State the goal and acceptance criteria for a change, and the plan that meets them.
 role: planner
 allowed_roles: [planner]
 mutates_code: false
-produces: [implementation_contract, behavior_contract]
+produces: [implementation_contract, goal]
 stage: planning
 prompt: |
   Plan this work for the repository in your working directory.
@@ -20,12 +20,14 @@ prompt: |
   deterministically -- prose outside it is for the user, the block is the artifact.
   Schema:
   {
+    "goal": "one sentence: what this request is actually trying to achieve",
+    "criteria": [{"id":"AC1","statement","established_by","evidence_required":[]}],
     "summary_lines": ["<=10 short lines"],
     "decisions": [{"id","question","options":[],"recommendation","blocking":true}],
     "commit_stack": [{"order":1,"message","purpose"}],
     "risks": [],
-    "base_commit": "<git rev-parse HEAD>",
-    "criteria": [{"id":"AC1","behavior","verification_method","evidence_required":[]}]
+    "base_commit": "<git rev-parse HEAD>"
   }
-  "criteria" are the behavior contract: externally observable behavior, not implementation
-  activity. Include the deepest practical end-to-end or smoke test this environment permits.
+  "criteria" are what would establish the goal: externally observable behavior, not
+  implementation activity. "established_by" is how each one will be shown to hold. Include
+  the deepest practical end-to-end or smoke test this environment permits.

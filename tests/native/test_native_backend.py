@@ -140,8 +140,8 @@ def native_services(store: Store, worktree_service, tmp_path: Path):
         "criteria": [
             {
                 "id": "AC1",
-                "behavior": "Native Stop reaches artifact extraction.",
-                "verification_method": "hook fixture",
+                "statement": "Native Stop reaches artifact extraction.",
+                "established_by": "hook fixture",
                 "evidence_required": ["Stop.last_assistant_message"],
             }
         ],
@@ -218,7 +218,7 @@ async def test_atomic_workflow_consumes_only_managed_stop_and_returns_ready(
 
     runtime = manager.store.current_runtime(worker.id)
     artifact = manager.store.latest_artifact(job.id, ArtifactType.IMPLEMENTATION_CONTRACT)
-    behavior = manager.store.latest_artifact(job.id, ArtifactType.BEHAVIOR_CONTRACT)
+    behavior = manager.store.latest_artifact(job.id, ArtifactType.GOAL)
     turns = manager.store.list_native_turns(runtime.id)
     assert runtime.process_state is RuntimeProcessState.READY
     assert artifact is not None

@@ -3,7 +3,7 @@ description: Verify every acceptance criterion against current HEAD.
 role: verifier
 allowed_roles: [verifier]
 mutates_code: false
-requires: [behavior_contract]
+requires: [goal]
 produces: [verification]
 stage: verifying
 worker: fresh

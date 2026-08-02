@@ -3,10 +3,9 @@ description: Fresh independent review of the commit range against the contracts.
 role: reviewer
 allowed_roles: [reviewer]
 mutates_code: false
-requires: [implementation_contract]
 produces: [review]
 aliases: [review-change, rereview]
-context: [behavior_contract, verification]
+context: [implementation_contract, goal, findings, verification]
 stage: reviewing
 worker: fresh
 prompt: |

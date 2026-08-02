@@ -1,0 +1,7 @@
+name: investigate
+description: >
+  Diagnose a problem and report an evidenced root cause. Changes nothing: the output is a
+  findings artifact that a fix job can be given directly.
+aliases: [diagnose, root-cause]
+steps:
+  - workflow: investigate-issue

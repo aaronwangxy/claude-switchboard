@@ -1,4 +1,15 @@
-"""The three contracts (implementation / behavior / evidence) plus review artifacts."""
+"""The schemas a worker's structured output is validated into.
+
+The spine is the same for every kind of request, whatever the workflow:
+
+    goal  ->  acceptance criteria  ->  evidence
+
+`Goal` states what the request is trying to achieve and what would establish that it has
+been. The other models are the evidence: a verification report for code that must behave a
+certain way, a findings report for a question or an investigation, a review report for a
+change someone had to judge. A workflow declares which of these it produces, and the
+completion gate reads them.
+"""
 
 from __future__ import annotations
 
@@ -7,7 +18,7 @@ import re
 from datetime import UTC, datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 
 _FENCE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
 
@@ -41,17 +52,35 @@ class ImplementationContract(BaseModel):
 
 
 class AcceptanceCriterion(BaseModel):
-    """What must observably work?"""
+    """One thing that must be true before the request counts as satisfied.
+
+    Deliberately not phrased in terms of code behaviour: an implementation's criterion is
+    "the dispatcher honours the preference", an investigation's is "the mechanism is
+    identified with a file and line", a question's is "the answer names the call site".
+    """
+
+    model_config = {"populate_by_name": True}
 
     id: str
-    behavior: str
-    verification_method: str
+    #: `behavior` is the name this had when criteria only described code.
+    statement: str = Field(validation_alias=AliasChoices("statement", "behavior"))
+    #: `verification_method` is the name this had for the same reason.
+    established_by: str = Field(
+        default="", validation_alias=AliasChoices("established_by", "verification_method")
+    )
     evidence_required: list[str] = Field(default_factory=list)
     status: Literal["pending", "passed", "failed", "blocked"] = "pending"
     accepted_limitation: str | None = None
 
 
-class BehaviorContract(BaseModel):
+class Goal(BaseModel):
+    """What this request is trying to achieve, and what would establish that it has been.
+
+    `behavior_contract` is the name this artifact had when only implementation work had
+    one; stored rows load unchanged because the field names did not move.
+    """
+
+    goal: str = ""
     criteria: list[AcceptanceCriterion] = Field(default_factory=list)
 
 
@@ -84,6 +113,31 @@ class VerificationReport(BaseModel):
         return bool(self.evidence) and all(
             e.status == "passed" or e.limitations for e in self.evidence
         )
+
+
+class Finding(BaseModel):
+    """One evidenced claim from a question or an investigation."""
+
+    id: str
+    claim: str
+    #: Where the claim comes from: a file and line, a command and its output, an observed
+    #: behaviour. A finding with no evidence is a guess, and is labelled one.
+    evidence: str = ""
+    confidence: Literal["confirmed", "likely", "speculative"] = "likely"
+
+
+class FindingsReport(BaseModel):
+    """The durable result of asking a Claude something, rather than a lost transcript.
+
+    `answer` is the part a person reads: the root cause, or the direct answer. It is what
+    makes this artifact usable as the input to a later job -- a fix worker is given the
+    findings, not a summary somebody retyped.
+    """
+
+    question: str = ""
+    answer: str = ""
+    findings: list[Finding] = Field(default_factory=list)
+    open_questions: list[str] = Field(default_factory=list)
 
 
 class ReviewFinding(BaseModel):

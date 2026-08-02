@@ -1,0 +1,21 @@
+name: diagnose-and-fix
+description: >
+  Firefighting: one session diagnoses the problem, a second fixes what it found, a third
+  verifies the fix independently, and a fourth reviews it. No plan-and-approve ritual.
+aliases: [firefight, fix-bug, fix-ci]
+steps:
+  - workflow: investigate-issue
+    worker: fresh
+  - workflow: implement-fix
+    worker: fresh
+  - workflow: full-verify
+    worker: fresh
+  - workflow: independent-review
+    worker: fresh
+  - workflow: implement-fix
+    when: blocking-findings
+    max_iterations: 2
+  - workflow: full-verify
+    when: code-changed
+    worker: fresh
+  - workflow: finalize-change

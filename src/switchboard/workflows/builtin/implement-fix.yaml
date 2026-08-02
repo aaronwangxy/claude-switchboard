@@ -1,0 +1,26 @@
+name: implement-fix
+description: Fix a diagnosed problem, working from evidenced findings rather than a plan.
+role: implementer
+allowed_roles: [implementer]
+mutates_code: true
+requires: [findings]
+invalidates: [verification, smoke_verification, review]
+context: [goal]
+stage: fixing
+prompt: |
+  Fix the problem diagnosed below, in your working directory.
+
+  Original request:
+  {request}
+
+  The investigation's goal, findings, and evidence:
+  {artifacts}
+
+  Fix the mechanism the findings identify, not the symptom. If the findings are wrong or
+  incomplete -- say the root cause is somewhere else, or the fix would need a decision
+  nobody has made -- stop and end your reply with [NEEDS INPUT] and one concrete question
+  rather than guessing. Add a regression test that fails without your change.
+
+  Commit as you go, one purpose per commit. Never force-push, merge, or delete a branch.
+  When you finish, report in one or two sentences: what changed, the commits you created,
+  and anything the findings did not cover.

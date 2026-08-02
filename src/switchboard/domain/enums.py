@@ -233,8 +233,17 @@ DEFAULT_WRITABLE_ROLES = frozenset(
 
 
 class ArtifactType(str, Enum):
+    """The evidence a workflow may promise.
+
+    `GOAL` is the spine every kind of request shares -- what it is trying to achieve and
+    what would establish that. The rest is evidence for it: findings for a question or an
+    investigation, verification for code that must behave a certain way, a review for a
+    change somebody had to judge.
+    """
+
+    GOAL = "goal"
     IMPLEMENTATION_CONTRACT = "implementation_contract"
-    BEHAVIOR_CONTRACT = "behavior_contract"
+    FINDINGS = "findings"
     VERIFICATION = "verification"
     SMOKE_VERIFICATION = "smoke_verification"
     REVIEW = "review"
