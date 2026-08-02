@@ -52,6 +52,29 @@ def test_negated_language_never_grants_confirmation_or_approval():
     assert not APPROVE_RE.search("do not approve this")
 
 
+def test_ordinary_human_sign_off_counts_as_approval():
+    """Refusing a plainly stated approval left the user re-approving in a loop."""
+    for granted in (
+        "Yes, I approve the plan. Continue the run.",
+        "I approve the plan.",
+        "Looks good, go ahead.",
+        "lgtm",
+        "Approved -- please continue with the implementation step.",
+    ):
+        assert APPROVE_RE.search(granted), granted
+
+    for withheld in (
+        "Do you approve the plan?",
+        "Should I approve this plan?",
+        "Do not approve the plan yet.",
+        "Don't go ahead until I have read it.",
+        "I will approve the plan after the tests pass.",
+        "Tell me when it needs approval.",
+        "No, this does not look good.",
+    ):
+        assert not APPROVE_RE.search(withheld), withheld
+
+
 async def test_manager_can_route_first_class_workflow(manager_tools, git_repo):
     tools, _ = manager_tools
     repo = tools.sm.register_repository(git_repo("manager-route"))
