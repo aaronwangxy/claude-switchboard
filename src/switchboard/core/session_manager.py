@@ -18,7 +18,13 @@ import yaml
 from pydantic import ValidationError
 
 from switchboard.agents.attach import AttachError, Attachment
-from switchboard.agents.backend import WorkerBackend, WorkerBusyError, WorkerEvent, WorkerSpec
+from switchboard.agents.backend import (
+    WorkerBackend,
+    WorkerBusyError,
+    WorkerEvent,
+    WorkerNotReadyError,
+    WorkerSpec,
+)
 from switchboard.agents.prompts import PROMPT_POLICY_VERSION, compose_worker_prompt
 from switchboard.config import Config, user_workflows_dir
 from switchboard.core.runs import condition_holds, has_blocking_decisions
@@ -563,6 +569,14 @@ class SessionManager:
             await self.backend.send(worker_id, message)
         except WorkerBusyError as exc:
             raise SessionManagerError(str(exc)) from exc
+        except WorkerNotReadyError as exc:
+            # Input raced the runtime rather than failing in flight: the send was refused
+            # by a precondition and delivered nothing. Recording WAITING here made that
+            # refusal self-fulfilling -- the runtime then failed its own readiness check
+            # on every later send, stalling the job for good.
+            raise SessionManagerError(
+                f"Worker {worker.title!r} is not ready for input yet: {exc}"
+            ) from exc
         except Exception as exc:
             self._set_runtime_state(worker.id, RuntimeProcessState.WAITING)
             self._force_status(

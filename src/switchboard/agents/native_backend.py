@@ -18,6 +18,7 @@ from switchboard.agents.backend import (
     WorkerBusyError,
     WorkerEvent,
     WorkerHandle,
+    WorkerNotReadyError,
     WorkerSpec,
 )
 from switchboard.config import Config
@@ -178,6 +179,9 @@ class NativeClaudeBackend:
         except TmuxError as exc:
             if self.store.open_native_turn(runtime_id) is not None:
                 raise WorkerBusyError(str(exc)) from exc
+            refreshed = self.store.get_runtime(runtime_id)
+            if refreshed is not None and refreshed.process_state is not RuntimeProcessState.READY:
+                raise WorkerNotReadyError(str(exc)) from exc
             raise
 
     async def stream(self, worker_id: UUID) -> AsyncIterator[WorkerEvent]:

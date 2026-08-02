@@ -6,7 +6,7 @@ import asyncio
 
 import pytest
 
-from switchboard.agents.backend import RuntimeObservation
+from switchboard.agents.backend import RuntimeObservation, WorkerNotReadyError
 from switchboard.agents.scripted_backend import ScriptedWorkerBackend
 from switchboard.config import Config
 from switchboard.core.session_manager import SessionManager
@@ -243,6 +243,34 @@ async def test_a_run_blocked_at_native_startup_recovers_once_the_prompt_is_clear
 
     assert sm.store.get_run(run.id).status is RunStatus.RUNNING
     assert sm.store.get_worker(planner.id).status is WorkerStatus.WORKING
+
+
+async def test_input_racing_startup_is_retryable_and_not_a_disconnect(
+    session_manager, git_repo, backend, monkeypatch
+):
+    """A live session that is not ready yet must stay usable.
+
+    Recording WAITING on this refusal made it self-fulfilling: the runtime then failed
+    its own readiness check on every later send, so one early retry stalled a job for
+    good while the native session sat there perfectly healthy.
+    """
+    sm = session_manager
+    repo = sm.register_repository(git_repo("not-ready"), "not-ready")
+    job = sm.create_job("Greeting", repo.id)
+    worker = await sm.start_workflow("plan-feature", job_id=job.id)
+    runtime = sm.store.current_runtime(worker.id)
+    runtime.process_state = RuntimeProcessState.STARTING  # input arrives during startup
+    sm.store.save_runtime(runtime)
+
+    async def not_ready(worker_id, message):
+        raise WorkerNotReadyError("Native Claude runtime is starting, not ready.")
+
+    monkeypatch.setattr(backend, "send", not_ready)
+    with pytest.raises(Exception, match="not ready for input yet"):
+        await sm.send(worker.id, "carry on")
+
+    assert sm.store.get_worker(worker.id).status is not WorkerStatus.DISCONNECTED
+    assert sm.store.current_runtime(worker.id).process_state is RuntimeProcessState.STARTING
 
 
 async def test_handback_clears_a_permission_block_the_user_just_answered(

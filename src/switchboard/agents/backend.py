@@ -28,6 +28,14 @@ class WorkerBusyError(RuntimeError):
     """The exact runtime exists but its single managed input lane is occupied."""
 
 
+class WorkerNotReadyError(RuntimeError):
+    """The runtime is alive but not accepting a managed turn yet.
+
+    A precondition refusal that delivered nothing, so it is retryable and must never be
+    recorded as a failed delivery.
+    """
+
+
 @dataclass
 class WorkerSpec:
     worker_id: UUID
