@@ -431,3 +431,45 @@ async def test_transcript_survives_selection_and_restart(session_manager, git_re
     restored = [m.text for m in reopened.transcript(worker.id)]
     assert restored == texts
     reopened.close()
+
+
+async def test_a_blocked_session_is_never_reported_as_nothing_needing_you(
+    session_manager, git_repo
+):
+    """The attention queue is a view of blocked work, not the record of it.
+
+    Entering a worker clears its attention so auto-advance does not bounce back. Leaving
+    it still blocked used to leave the board saying "nothing needs you" about a session
+    sitting on a permission prompt.
+    """
+    sm = session_manager
+    repo = sm.register_repository(git_repo("alpha"), "alpha")
+    job = sm.create_job("ENG-7", repo.id)
+    worker = await sm.create_worker(
+        role=WorkerRole.IMPLEMENTER, title="impl", prompt="", job_id=job.id, writable=True
+    )
+    sm._force_status(worker, WorkerStatus.BLOCKED, "Permission required for Bash.")
+
+    summary = sm.status_summary()
+    assert "blocked and cannot move" in summary
+    assert "Permission required for Bash." in summary
+
+
+async def test_leaving_a_still_blocked_session_puts_it_back_on_the_queue(
+    session_manager, git_repo
+):
+    sm = session_manager
+    repo = sm.register_repository(git_repo("alpha"), "alpha")
+    job = sm.create_job("ENG-8", repo.id)
+    worker = await sm.create_worker(
+        role=WorkerRole.IMPLEMENTER, title="impl", prompt="", job_id=job.id, writable=True
+    )
+    sm._force_status(worker, WorkerStatus.BLOCKED, "Permission required for Bash.")
+    sm.raise_attention(worker, AttentionKind.PERMISSION_REQUIRED, "Permission required for Bash.")
+
+    await sm.attach(worker.id)
+    assert sm.list_attention_items() == [], "entering clears it so auto-advance settles"
+
+    sm.detach(worker.id, composer_cleared=True)
+    kinds = {item.kind for item in sm.list_attention_items()}
+    assert AttentionKind.PERMISSION_REQUIRED in kinds

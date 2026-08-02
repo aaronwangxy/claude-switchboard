@@ -1557,6 +1557,23 @@ class SessionManager:
             self._raise_attention_once(
                 worker, AttentionKind.PLAN_APPROVAL, run.detail or "This run needs your approval."
             )
+        fresh = self.store.get_worker(worker.id) or worker
+        if fresh.status is WorkerStatus.BLOCKED and not [
+            item for item in self.store.attention_items_for_worker(worker.id) if not item.handled
+        ]:
+            # Entering cleared this worker's attention so auto-advance would not bounce
+            # straight back. Leaving it still blocked, with nothing else on the queue for
+            # it, has to put something back -- otherwise the board reports "nothing needs
+            # you" about a session that cannot move. Runs past the gate above, so an
+            # approval that was restored counts.
+            reason = fresh.waiting_for or "This session is still waiting for you."
+            self.raise_attention(
+                worker,
+                AttentionKind.PERMISSION_REQUIRED
+                if "permission" in reason.lower()
+                else AttentionKind.HUMAN_DECISION,
+                reason,
+            )
         self._record(worker, "system", "[the user left this session]")
         return worker
 
@@ -2372,10 +2389,17 @@ class SessionManager:
     def status_summary(self) -> str:
         items = self.list_attention_items()
         if not items:
+            workers = self.store.list_workers()
+            # A blocked worker is a durable fact; the attention queue is a transient view
+            # of it. Reporting only the queue once said "nothing needs you" about a
+            # session sitting on a permission prompt nobody was going to answer.
+            stuck = [w for w in workers if w.status is WorkerStatus.BLOCKED]
+            if stuck:
+                names = ", ".join(f"{w.title} ({w.waiting_for or 'blocked'})" for w in stuck[:2])
+                suffix = "" if len(stuck) <= 2 else f" and {len(stuck) - 2} more"
+                return f"{len(stuck)} session(s) are blocked and cannot move: {names}{suffix}."
             active = [
-                w
-                for w in self.store.list_workers()
-                if w.status in (WorkerStatus.WORKING, WorkerStatus.STARTING)
+                w for w in workers if w.status in (WorkerStatus.WORKING, WorkerStatus.STARTING)
             ]
             incomplete = [job for job in self.store.list_jobs() if job.completed_at is None]
             if incomplete and not active:
