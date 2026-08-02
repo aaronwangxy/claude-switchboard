@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import nullcontext
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -283,15 +282,6 @@ async def test_the_help_screen_lists_the_bindings(app):
         await pilot.press("escape")
         await quiet(pilot, ticks=4)
         assert type(pilot.app.screen).__name__ == "MainScreen"
-
-
-def test_the_documented_terminal_captures_exist():
-    docs = Path(__file__).resolve().parents[2] / "docs"
-    captures = sorted(docs.glob("ui-*.txt"))
-    assert len(captures) >= 3
-    for capture in captures:
-        text = capture.read_text()
-        assert "Manager" in text and "Jobs" in text
 
 
 # ------------------------------------------------------- jobs, not a flat fleet

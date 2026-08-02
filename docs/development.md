@@ -15,10 +15,9 @@ python3 -m venv .venv && ./.venv/bin/pip install -e ".[dev]"
 ## Commands
 
 ```bash
-./.venv/bin/python -m pytest -q          # full suite, 1-2 minutes
+./.venv/bin/python -m pytest -q   # full suite, 1-2 minutes
 ./.venv/bin/ruff check src tests
 ./.venv/bin/mypy
-./.venv/bin/python scripts/capture_ui.py # regenerate docs/ui-*.txt
 git diff --check
 ```
 
