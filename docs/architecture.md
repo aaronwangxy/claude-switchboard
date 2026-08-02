@@ -50,13 +50,13 @@ Switchboard
 
 | Module | Responsibility |
 | --- | --- |
-| `domain/` | Pydantic models, enums (the worker-transition table, attention priority), the three contracts, event kinds |
+| `domain/` | Pydantic models, enums (the worker-transition table, attention priority), the contract and report schemas, event kinds |
 | `storage/` | SQLite schema and `Store`, the system of record |
 | `gitops/` | `runner` (argv-only git) and `WorktreeService` |
 | `workflows/` | The `WORKFLOWS` registry, YAML loading, and deterministic artifact freshness |
 | `agents/` | Worker backends, the persistent native manager, the manager MCP, prompt composition |
 | `runtime/` | Substrate-neutral runtime supervision, the tmux controller, the Claude hook bridge |
-| `routing/` | The deterministic router and attention-queue ordering |
+| `routing/` | Attention-queue ordering, plus the deterministic router used by the offline manager |
 | `core/` | `SessionManager`, the composite-run conditions, Git lineage, the evidence gate, guarded transitions |
 | `ui/` | The session list, orchestration detail, and Manager input — presentation only |
 | `app.py` | Bootstrap and the `sb` / `sb workflows` / `sb config` command surface |
@@ -130,14 +130,21 @@ Enforced in ordinary Python, never by asking a model to behave:
 3. One writable owner per worktree; each writable worker gets a distinct path.
 4. Cleanup requires explicit confirmation and refuses to discard uncommitted or unmerged
    work. Branches are never deleted; nothing pushes, force-pushes, or merges.
-5. Destructive requests are gated by the router *before* the model is consulted.
+5. Stopping a worker and cleaning up a worktree each require an explicit confirmation
+   in the user's own current message, checked in Python before the operation runs.
 6. Worker status changes must satisfy `ALLOWED_WORKER_TRANSITIONS`.
 7. Workflow prerequisites and `ready_to_push` are computed from stored state, not judgment.
-8. Workers run with `mcp_servers={}`, so manager tools are structurally unreachable.
+8. Workers never receive the manager's MCP configuration, socket, or launch arguments,
+   so orchestration authority is unreachable from a worker rather than merely discouraged.
+   (Workers do perform normal MCP discovery, so a user's or repository's own MCP servers
+   are available to them, exactly as in an ordinary `claude` session.)
 9. A malformed manager tool call returns a refusal, never an exception that kills the turn.
 10. A user or repository workflow may not redefine a built-in, so declared prerequisites
     and `mutates_code` cannot be stripped by a file inside the repository being worked on.
 11. While the user is attached to a worker, Switchboard refuses to send to it.
+12. Only a `MANAGED` turn that no human touched may harvest an artifact or advance a run.
+13. Reserving a worker and sending it a prompt do not complete a composite step; only a
+    successfully applied, manager-owned terminal event does.
 
 Read-only workers keep `Bash`, because reviewers and verifiers need it, so read-only is a
 tool-policy and prompt guarantee rather than a sandbox. See
@@ -150,7 +157,9 @@ tool-policy and prompt guarantee rather than a sandbox. See
 - `WORKFLOWS` — add a workflow by dropping YAML in `~/.switchboard/workflows` or a
   repository's `.switchboard/workflows`; no core change, no privileged built-in path.
 - `ArtifactType` + `domain/contracts.py` — add an artifact type with its Pydantic schema.
-- `routing/router.py` — routing rules stay deterministic and testable without a model.
+- `routing/router.py` — the offline routing rules stay deterministic and testable without
+  a model. The production native Manager routes through its MCP instead, so this is the
+  reference implementation and the validator, not the production path.
 - `AttentionKind` ordering — the enum order *is* the priority.
 - `storage/database.py` — bump `SCHEMA_VERSION` and extend `migrate()` on a schema change.
 - The UI holds no Git, SQLite, or worktree logic. Keep it that way.

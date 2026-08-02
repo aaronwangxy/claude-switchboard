@@ -12,15 +12,17 @@ commits:
   require_plan: true
 
 # Model IDs are your configuration, not a product default baked into the code.
-# Leaving a value unset falls back to $SB_STRONG_MODEL / $SB_FAST_MODEL, and then
-# to whatever model the Claude runtime is already configured to use.
-models:
-  manager: null
-  planner: null
-  implementer: null
-  reviewer: null
-  verifier: null
-  general: null
+# OMITTING a role falls back to $SB_STRONG_MODEL / $SB_FAST_MODEL, and then to whatever
+# model the Claude runtime is already configured to use. Writing `manager: null` is NOT
+# the same thing: an explicit null pins the value and skips the environment fallback.
+# Uncomment only the roles you want to pin.
+models: {}
+  # manager: claude-opus-4-6
+  # planner: claude-opus-4-6
+  # implementer: claude-sonnet-4-6
+  # reviewer: claude-opus-4-6
+  # verifier: claude-sonnet-4-6
+  # general: claude-sonnet-4-6
 
 # The composite workflow a brand new job follows when nothing else says otherwise.
 default_composite_workflow: complete-ticket
@@ -34,3 +36,17 @@ workflows:
     max_plan_lines: 10
   review-change:
     blocking_severities: [blocking, important]
+
+# Which Claude executable to launch, for a wrapper such as `company-claude`. It must be a
+# real executable -- a shell alias or shell function cannot be launched as a process. The
+# parent environment is always inherited; `env` only adds to it.
+claude:
+  executable: null
+  env: {}
+
+# Gitignored files to copy from the repository root into each new worktree. Empty by
+# default: a worktree gets exactly what Git puts there, so something like CLAUDE.local.md
+# is missing unless it is named here. Only plain files directly inside the repository root
+# are copied -- nothing is swept up by pattern, because this is where credentials live.
+worktree_bootstrap:
+  files: []

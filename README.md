@@ -55,11 +55,15 @@ evidence that decide whether a change is actually finished.
 What makes delegation reliable is not a better prompt; it is an executable contract around
 the agent.
 
-| Contract | Question | Produced by |
+| Artifact | Question | Produced by |
 | --- | --- | --- |
-| Implementation | What shape should the solution take? | planner |
-| Behavior | What must observably work? | planner |
-| Evidence | What proof demonstrates each behavior? | verifier |
+| Implementation contract | What shape should the solution take? | planner |
+| Behavior contract | What must observably work, and what proof would show it? | planner |
+| Verification report | What proof was actually observed, at which commit? | verifier |
+
+The behavior contract carries each acceptance criterion's `evidence_required`; the
+verification report carries the commands, exit codes, and observed behaviour that answer
+it. Nothing is finished until the second matches the first at the current commit.
 
 They are stored as structured artifacts, not prose in a transcript, and the application
 enforces them. Implementation cannot start without an approved plan. A code change
@@ -90,10 +94,10 @@ For engineers who want to know how the interesting parts are actually achieved:
   manager identity and generation.
 - **Workers get no orchestration authority at all** — never the manager's MCP config,
   socket, or launch arguments. It is structurally unreachable, not merely discouraged.
-- **Claude's lifecycle hooks supply the semantics.** `SessionStart`, `UserPromptSubmit`,
-  `PermissionRequest`, `Stop`. Terminal contents are never scraped to guess what an agent is
-  doing. A turn carries a durable provenance token, so a prompt you type by hand cannot
-  complete a managed turn or advance a workflow.
+- **Claude's lifecycle hooks supply the semantics** — eleven of them, including
+  `SessionStart`, `UserPromptSubmit`, `PermissionRequest` and `Stop`. Terminal contents are
+  never scraped to guess what an agent is doing. A turn carries a durable provenance token,
+  so a prompt you type by hand cannot complete a managed turn or advance a workflow.
 - **SQLite holds the orchestration state,** independently of any Claude history. Losing a
   transcript cannot change whether a plan was approved.
 - **Git worktrees isolate writable work.** One per writable worker, always under the managed
@@ -186,7 +190,7 @@ or merges. The full list is in
 
 ## Configuration
 
-Nothing is required. `sb config` shows the effective settings and every path;
+Nothing is required. `sb config` shows the effective settings and the main paths;
 [`docs/configuration.md`](docs/configuration.md) explains them, and
 [`config.example.yaml`](config.example.yaml) is a starting point.
 

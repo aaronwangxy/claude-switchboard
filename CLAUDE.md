@@ -60,10 +60,14 @@ Enforced in ordinary Python, never by asking a model to behave:
 3. One writable owner per worktree; each writable worker gets a distinct path.
 4. Cleanup requires explicit confirmation and refuses to discard uncommitted or unmerged
    work. Branches are never deleted; nothing pushes, force-pushes, or merges.
-5. Destructive requests are gated by the router *before* the model is consulted.
+5. Stopping a worker and cleaning up a worktree each require an explicit confirmation
+   in the user's own current message, checked in Python before the operation runs.
 6. Worker status changes must satisfy `ALLOWED_WORKER_TRANSITIONS`.
 7. Workflow prerequisites and `ready_to_push` are computed from stored state, not judgment.
-8. Workers run with `mcp_servers={}`, so manager tools are structurally unreachable.
+8. Workers never receive the manager's MCP configuration, socket, or launch arguments,
+   so orchestration authority is unreachable from a worker rather than merely discouraged.
+   (Workers do perform normal MCP discovery, so a user's or repository's own MCP servers
+   are available to them, exactly as in an ordinary `claude` session.)
 9. A malformed manager tool call returns a refusal, never an exception that kills the turn.
 10. A user or repository workflow may not redefine a built-in.
 11. While the user is attached to a worker, Switchboard refuses to send to it.
@@ -88,7 +92,7 @@ sb --log-file /tmp/switchboard.log                             # logs (otherwise
 SB_BACKEND=scripted sb                                         # offline: no model calls
 
 python3 -m venv .venv && ./.venv/bin/pip install -e ".[dev]"   # dev tooling
-./.venv/bin/python -m pytest -q                                # full suite, ~85s
+./.venv/bin/python -m pytest -q                                # full suite, 1-2 min
 ./.venv/bin/ruff check src tests
 ./.venv/bin/mypy
 ./.venv/bin/python scripts/capture_ui.py                       # regenerate docs/ui-*.txt

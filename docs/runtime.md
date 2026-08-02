@@ -26,8 +26,9 @@ records substrate-neutral process and turn state, whether the manager or a human
 input lane, the Claude session UUID, the launch fingerprint, opaque substrate identity,
 and the Git baseline for an active writable turn.
 
-The launch fingerprint hashes the executable, cwd, model, worker prompt, environment
-additions, hook interpreter/event set/database, and state directory. It is what decides
+The launch fingerprint hashes the executable, cwd, model, permission mode, read-only
+flag, system-prompt append, any extra launch arguments, environment additions, hook
+interpreter/event set/database, and state directory. It is what decides
 whether a live process may be adopted, so it is a hash input rather than a name: the
 adapter string inside it is frozen deliberately.
 

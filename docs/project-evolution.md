@@ -121,8 +121,8 @@ blocks rather than resends; a failed turn never grants authority; human interven
 the attempt and requires an explicit resume, which replays the same bounded step from the
 durable contracts without consuming an iteration.
 
-`a62e559` is where "human intervention taints the attempt" became real, and Phase 8 later
-showed that this correct rule has an uncomfortable consequence — see §8.
+`9398e15` introduced the taint, and `a62e559` made an explicit resume replay the tainted
+step. Phase 8 later showed that this correct rule has an uncomfortable consequence — see §8.
 
 **Authoritative lineage** landed here too. A job may have several writable workers, but
 exactly one worktree *is* the change. Without that, a reviewer could be handed a different

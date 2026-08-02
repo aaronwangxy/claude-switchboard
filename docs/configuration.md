@@ -10,13 +10,15 @@ Everything is optional. Switchboard runs with no configuration file at all.
 | `~/.local/share/switchboard/` | Data directory | `SB_HOME` |
 | `~/.local/share/switchboard/switchboard.db` | Durable state | follows `SB_HOME` |
 | `~/.local/share/switchboard/worktrees/` | Managed worktrees, never inside your repo | follows `SB_HOME` |
-| `~/.local/share/switchboard/runtime/` | tmux socket, hook overlays, MCP configs | follows `SB_HOME` |
+| `~/.local/share/switchboard/runtime/` | tmux socket and per-runtime hook overlays | follows `SB_HOME` |
+| `~/.local/share/switchboard/manager/` | The Manager's generation-bound MCP config | follows `SB_HOME` |
 | `~/.local/share/switchboard/manager-workspace/` | The Manager's non-repository cwd | follows `SB_HOME` |
 | `~/.switchboard/workflows/` | Your own workflow definitions | `SB_WORKFLOWS_DIR`, else `SB_HOME/workflows` |
 | `<repo>/.switchboard/workflows/` | Workflows that travel with a repository | — |
 
-`sb config` prints all of these plus the effective configuration, with `claude.env`
-redacted.
+`sb config` prints the first five of these plus the effective configuration, with
+`claude.env` redacted. The Manager's MCP socket is not in this table: AF_UNIX paths are
+length-limited on macOS, so it always lives at `/tmp/sb-manager-<runtime-id>.sock`.
 
 Set `SB_HOME` to an isolated directory for any run that should not touch real state. That
 is what the test suite does, and it is what you want for experiments.
@@ -43,13 +45,10 @@ subagents:
 commits:
   require_plan: true            # implementation needs an approved implementation contract
 
-models:                         # null falls back to $SB_STRONG_MODEL / $SB_FAST_MODEL,
-  manager: null                 # and then to whatever model Claude is already using
-  planner: null
-  implementer: null
-  reviewer: null
-  verifier: null
-  general: null
+# Omit a role entirely to fall back to $SB_STRONG_MODEL / $SB_FAST_MODEL and then to
+# whatever model Claude is already using. Writing `null` is not the same as omitting it:
+# an explicit null pins the value and skips the environment fallback.
+models: {}
 
 default_composite_workflow: complete-ticket
 
@@ -84,14 +83,14 @@ Notes on the ones with sharp edges:
   there, so something like `CLAUDE.local.md` is missing unless it is copied. Only files
   named here are copied, and only plain files directly inside the repository root — nothing
   is swept up by pattern, because these files are exactly where credentials tend to live.
-- **`default_composite_workflow`** was called `default_profile` before Phase 10. The old key
+- **`default_composite_workflow`** was previously called `default_profile`. The old key
   still loads.
 
 ## Model selection
 
 A worker's model comes from its role, resolved through `models.<role>` and falling back to
-`models.general`. Leaving everything `null` means Switchboard passes no `--model` at all and
-Claude uses whatever it is already configured to use — which is usually what you want.
+`models.general`. Setting nothing at all means Switchboard passes no `--model` and Claude
+uses whatever it is already configured to use — which is usually what you want.
 
 ## Claude settings inheritance
 

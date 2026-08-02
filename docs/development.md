@@ -15,7 +15,7 @@ python3 -m venv .venv && ./.venv/bin/pip install -e ".[dev]"
 ## Commands
 
 ```bash
-./.venv/bin/python -m pytest -q          # full suite, ~85s
+./.venv/bin/python -m pytest -q          # full suite, 1-2 minutes
 ./.venv/bin/ruff check src tests
 ./.venv/bin/mypy
 ./.venv/bin/python scripts/capture_ui.py # regenerate docs/ui-*.txt
@@ -28,7 +28,7 @@ A test belongs to exactly one tier.
 
 | Tier | What it may use | What it proves |
 | --- | --- | --- |
-| `tests/unit/` | Nothing outside the process | Routing, attention, transitions, freshness, prompts, workflow specs, hook payloads, launch-argument composition |
+| `tests/unit/` | No subprocess, no git, no tmux | Routing, attention, transitions, freshness, prompts, workflow specs and loading, hook payloads, launch-argument composition, worktree path safety and bootstrap, schema migration, Claude-executable resolution |
 | `tests/integration/` | Real SQLite, real Git repositories, real worktrees, `ScriptedWorkerBackend` | The whole orchestration path with no model call: workflows, composites, contracts, lineage, recovery, cleanup, the manager MCP |
 | `tests/native/` | A real tmux server and a Claude-shaped fixture executable | Substrate claims nothing else can prove: exact-generation adoption, hook delivery and idempotency, entry and handback, rotation |
 | `tests/ui/` | Textual's headless pilot | Board rendering, key bindings, auto-advance, entry from the board |

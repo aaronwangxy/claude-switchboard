@@ -71,18 +71,22 @@ merely reusing a built-in name — stating nothing — would silently strip both
 loader refuses it and reports the problem. A malformed file is reported and skipped, never
 raised: one broken user workflow must not stop Switchboard from starting.
 
-`sb workflows` lists everything this installation loaded, including where each came from.
+`sb workflows` lists everything this installation loaded.
 
-## The three contracts
+## Contracts and evidence
 
 What makes delegation reliable is not a better prompt; it is an executable contract around
 the agent.
 
-| Contract | Question | Produced by |
+| Artifact | Question | Produced by |
 | --- | --- | --- |
-| Implementation | What shape should the solution take? | planner |
-| Behavior | What must observably work? | planner |
-| Evidence | What proof demonstrates each behavior? | verifier |
+| Implementation contract | What shape should the solution take? | planner |
+| Behavior contract | What must observably work, and what proof would show it? | planner |
+| Verification report | What proof was actually observed, at which commit? | verifier |
+
+The behavior contract carries each acceptance criterion's `evidence_required`; the
+verification report carries the commands, exit codes, and observed behaviour that answer
+it. Nothing is finished until the second matches the first at the current commit.
 
 They are stored as structured artifacts, not prose in a transcript. A worker emits a
 fenced ```json block; `extract_json_block` plus Pydantic validation turn it into an

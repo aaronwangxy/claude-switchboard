@@ -4,9 +4,9 @@
 > Switchboard was used adversarially on real work, written at the time. Findings are
 > recorded from public, user-facing behaviour *before* any implementation inspection or
 > repair; diagnosis, resolution, regression coverage, and replay results were appended
-> only after the original reproduction existed. Fixes named here have since landed, and
-> the limitations that survived are maintained in
-> [troubleshooting.md](troubleshooting.md#known-limitations) rather than here.
+> only after the original reproduction existed. Fixes named here have since landed. Its
+> own limitations section is frozen as written; the maintained list, which is a superset,
+> is [troubleshooting.md](troubleshooting.md#known-limitations).
 >
 > It is kept because the failures are the evidence. The narrative of how the architecture
 > got here is in [project-evolution.md](project-evolution.md).
