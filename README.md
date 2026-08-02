@@ -1,9 +1,13 @@
 # Switchboard
 
-A conversational manager for durable workflows across many independent Claude Code
-sessions. You give one Manager a request; it decides what sessions to run, hands each one's
-output to the next, and tells you — from stored evidence, not from an opinion — when the
-work is actually done. Every worker stays an ordinary Claude session you can walk into.
+I already get a lot done by running many independent Claude Code sessions at once.
+Switchboard automates *my* side of that — choosing the workflow, feeding one session's
+output to the next, noticing which one needs me — without taking away my ability to drop
+into any session myself.
+
+You give one Manager a request. It decides what sessions to run, hands each one's output to
+the next, and tells you — from stored evidence, not from an opinion — when the work is
+actually done. Every worker stays an ordinary Claude session you can walk into.
 
 ```
 +------------------------------+----------------------------------------+
@@ -17,8 +21,13 @@ work is actually done. Every worker stays an ordinary Claude session you can wal
 
 ## Why this exists
 
-The workflow I wanted was not "launch several agents". Plenty of tools do that. It was this,
-across multiple long-running sessions:
+The bottleneck was never the agents. It was me. For each piece of work I would open a fresh
+session, give it the task, pick the ritual, watch it, answer its questions, and keep track
+of which of ten sessions was working, blocked, finished, or waiting on me. That is fine for
+three sessions and tedious at ten.
+
+So the job to automate is the *operator's*, not the agent's — and the ritual being operated
+is this one, across multiple long-running sessions:
 
 ```
 goal → plan → approval → implementation → verification → independent review → iteration → done
@@ -252,5 +261,9 @@ The complete list, with symptoms and workarounds, is in
 | [configuration.md](docs/configuration.md) | Every setting, path, and environment variable |
 | [development.md](docs/development.md) | Setup, the four test tiers, commit expectations |
 | [troubleshooting.md](docs/troubleshooting.md) | Symptoms, workarounds, known limitations |
-| [project-evolution.md](docs/project-evolution.md) | How the architecture got here, and how it was built |
-| [dogfood-report.md](docs/dogfood-report.md) | A dated field record of using it adversarially |
+
+Those seven describe the system as it is. Two more are dated records kept deliberately
+unedited, so they describe moments rather than the current build:
+[project-evolution.md](docs/project-evolution.md) for how the architecture got here and how
+it was built, and [dogfood-report.md](docs/dogfood-report.md) for two sessions of using it
+adversarially on real work.

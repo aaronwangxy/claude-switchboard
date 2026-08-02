@@ -49,9 +49,14 @@ manager act through.
 | Anything that mutates orchestration state | `core/session_manager.py` |
 
 Adding a workflow — including its role, that role's policy, and its permission mode —
-must never require a change to Python. If it does, that is the bug.
+must never require a change to Python. If it does, that is the bug. Built-ins are YAML in
+`src/switchboard/workflows/builtin/`; user and repository workflows layer over them.
 
 The UI holds no Git, SQLite, or worktree logic. Keep it that way.
+
+A schema change bumps `SCHEMA_VERSION` and extends `migrate()` in `storage/database.py`.
+Renaming a persisted field is a compatibility question, not a rename: stored rows carry the
+old key, so it needs a pydantic `AliasChoices` and a test that loads the old shape.
 
 Full module map and rationale: [`docs/architecture.md`](docs/architecture.md).
 
@@ -106,7 +111,6 @@ python3 -m venv .venv && ./.venv/bin/pip install -e ".[dev]"   # dev tooling
 ./.venv/bin/python -m pytest -q                                # full suite, 1-2 min
 ./.venv/bin/ruff check src tests
 ./.venv/bin/mypy
-./.venv/bin/python scripts/capture_ui.py                       # regenerate docs/ui-*.txt
 ```
 
 Set `SB_HOME` to an isolated directory for any manual run that should not touch real state.
@@ -164,11 +168,16 @@ verification.
 
 ## Docs
 
-`docs/` describes the finished system, not its history: architecture, runtime, workflows,
-manager, configuration, development, troubleshooting. Keep it that way. Known limitations
-belong in `docs/troubleshooting.md`; narrative and rationale belong in
-`docs/project-evolution.md`; `docs/dogfood-report.md` is a dated field record and is not
-edited to match new code.
+`docs/` is exactly seven documents describing the finished system — architecture, runtime,
+workflows, manager, configuration, development, troubleshooting — plus two dated records,
+`project-evolution.md` (narrative and rationale) and `dogfood-report.md` (a field record).
+The records are never edited to match new code. Do not add a tenth document; a design or
+migration note belongs in the commit message or in `project-evolution.md`.
+
+Write the seven in the present tense, describing only what is true now. No "used to", no
+"now does", no was/now tables, no phase or shift language — a reader must not have to know
+the project's history to read its documentation. Known limitations go in
+`troubleshooting.md`, stated as properties of the build rather than as outstanding work.
 
 ## Maintaining this file
 
