@@ -1,0 +1,106 @@
+# Configuration
+
+Everything is optional. Switchboard runs with no configuration file at all.
+
+## Paths
+
+| Path | Purpose | Override |
+| --- | --- | --- |
+| `~/.config/switchboard/config.yaml` | Preferences and model policy | `SB_CONFIG` |
+| `~/.local/share/switchboard/` | Data directory | `SB_HOME` |
+| `~/.local/share/switchboard/switchboard.db` | Durable state | follows `SB_HOME` |
+| `~/.local/share/switchboard/worktrees/` | Managed worktrees, never inside your repo | follows `SB_HOME` |
+| `~/.local/share/switchboard/runtime/` | tmux socket, hook overlays, MCP configs | follows `SB_HOME` |
+| `~/.local/share/switchboard/manager-workspace/` | The Manager's non-repository cwd | follows `SB_HOME` |
+| `~/.switchboard/workflows/` | Your own workflow definitions | `SB_WORKFLOWS_DIR`, else `SB_HOME/workflows` |
+| `<repo>/.switchboard/workflows/` | Workflows that travel with a repository | — |
+
+`sb config` prints all of these plus the effective configuration, with `claude.env`
+redacted.
+
+Set `SB_HOME` to an isolated directory for any run that should not touch real state. That
+is what the test suite does, and it is what you want for experiments.
+
+## Environment variables
+
+| Variable | Effect |
+| --- | --- |
+| `SB_HOME` | Relocate the whole data directory |
+| `SB_CONFIG` | Use an alternate config file |
+| `SB_WORKFLOWS_DIR` | Relocate the user workflow directory |
+| `SB_BACKEND=scripted` | Use the deterministic in-process backend; no model is called |
+| `SB_STRONG_MODEL` / `SB_FAST_MODEL` | Default model per role, when config says nothing |
+
+## The configuration file
+
+See [`config.example.yaml`](../config.example.yaml). Every key is optional.
+
+```yaml
+subagents:
+  enabled: true                 # may workers spawn Claude's own helper subagents
+  max_concurrent_per_worker: 3
+
+commits:
+  require_plan: true            # implementation needs an approved implementation contract
+
+models:                         # null falls back to $SB_STRONG_MODEL / $SB_FAST_MODEL,
+  manager: null                 # and then to whatever model Claude is already using
+  planner: null
+  implementer: null
+  reviewer: null
+  verifier: null
+  general: null
+
+default_composite_workflow: complete-ticket
+
+workflows:
+  rebase-stack:
+    preserve_merges: false
+    autosquash_fixups: true
+    never_force_push: true
+  plan-feature:
+    max_plan_lines: 10
+  review-change:
+    blocking_severities: [blocking, important]
+
+claude:
+  executable: null              # a wrapper such as `company-claude` instead of `claude`
+  env: {}                       # extra environment, merged over the inherited one
+
+worktree_bootstrap:
+  files: []                     # gitignored files to copy into a new worktree
+```
+
+Notes on the ones with sharp edges:
+
+- **`commits.require_plan`** is a safety gate, not a preference. Turning it off lets
+  implementation start with no approved contract.
+- **`claude.executable`** must be a real executable. A shell alias or shell function cannot
+  be launched directly, and the error says so, because that is the mistake it most often
+  catches. The parent environment is always inherited, so whatever a wrapper configures
+  still applies; `claude.env` only adds to it. Nothing here can bypass managed policy — the
+  wrapper is still the Claude CLI, and Switchboard only chooses which one to launch.
+- **`worktree_bootstrap.files`** is empty by default. A worktree gets exactly what Git puts
+  there, so something like `CLAUDE.local.md` is missing unless it is copied. Only files
+  named here are copied, and only plain files directly inside the repository root — nothing
+  is swept up by pattern, because these files are exactly where credentials tend to live.
+- **`default_composite_workflow`** was called `default_profile` before Phase 10. The old key
+  still loads.
+
+## Model selection
+
+A worker's model comes from its role, resolved through `models.<role>` and falling back to
+`models.general`. Leaving everything `null` means Switchboard passes no `--model` at all and
+Claude uses whatever it is already configured to use — which is usually what you want.
+
+## Claude settings inheritance
+
+Workers launch in their repository or worktree and perform **normal** native Claude
+discovery: user, managed/company, project, and project-local configuration all apply.
+Switchboard deliberately omits `--setting-sources`. It adds one mode-0600 settings overlay
+carrying its lifecycle hooks; it never replaces your settings and never selects a bypass
+permission mode.
+
+The Manager uses the same configured executable and environment, and the same native user
+and managed discovery, from a dedicated non-repository workspace — so it inherits your
+authentication and company policy but no project context. See [manager.md](manager.md).

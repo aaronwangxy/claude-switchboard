@@ -1,8 +1,15 @@
-# Phase 8 adversarial dogfood report
+# Adversarial dogfood report — August 2026
 
-This is the durable record for Phase 8. Findings are recorded from public, user-facing
-behavior before implementation inspection or repair. Diagnosis, resolution, regression
-coverage, and replay results are appended only after the original reproduction exists.
+> **A dated field record, not current documentation.** This is what happened when
+> Switchboard was used adversarially on real work, written at the time. Findings are
+> recorded from public, user-facing behaviour *before* any implementation inspection or
+> repair; diagnosis, resolution, regression coverage, and replay results were appended
+> only after the original reproduction existed. Fixes named here have since landed, and
+> the limitations that survived are maintained in
+> [troubleshooting.md](troubleshooting.md#known-limitations) rather than here.
+>
+> It is kept because the failures are the evidence. The narrative of how the architecture
+> got here is in [project-evolution.md](project-evolution.md).
 
 ## Test environment
 
@@ -1262,7 +1269,7 @@ deliberately rather than killed by hand, so the next phase starts from the hones
 - A single Manager message longer than the (fixed-height, scrollback-free) Manager pane is still
   clipped at the bottom. Newest-first painting guarantees its beginning is visible, not its end.
 - Read-only workers keep Bash, so read-only remains a tool-policy and prompt guarantee rather than
-  a sandbox (pre-existing; `docs/mvp-evidence.md` limitation 1).
+  a sandbox (pre-existing; see `troubleshooting.md`).
 - The manager MCP socket path is visible in `ps`, and the bridge's reconnect loop widens the
   pre-existing local socket-squat window on a multi-user host into a recurring 30-second one.
   Accepted for a single-user tool.
