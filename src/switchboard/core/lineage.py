@@ -238,13 +238,4 @@ def apply_invalidation(
     return Invalidation(change, head, invalidated)
 
 
-def reconcile_job(store: Store, job: Job) -> list[Invalidation]:
-    """Apply any durable, unfinished Git baselines before trusting run state."""
-    outcomes = []
-    for worker in store.list_workers(job.id):
-        if worker.writable:
-            outcome = apply_invalidation(store, worker, job)
-            if outcome is not None:
-                outcomes.append(outcome)
-    return outcomes
 

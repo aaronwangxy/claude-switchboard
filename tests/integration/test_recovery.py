@@ -15,6 +15,7 @@ from switchboard.agents.scripted_backend import ScriptedWorkerBackend
 from switchboard.config import Config
 from switchboard.core import lineage
 from switchboard.core.session_manager import SessionManager
+from switchboard.domain import events as ev
 from switchboard.domain.enums import (
     ArtifactType,
     AttentionKind,
@@ -272,6 +273,14 @@ async def test_direct_workflow_start_reconciles_every_writable_worker_for_the_jo
     )
 
     assert sm.store.latest_artifact(job.id, ArtifactType.REVIEW).stale
+    # Staling an artifact is only half of it: the invalidation is also an auditable
+    # event, and the board repaints from it. A reconciliation path that stales quietly
+    # leaves the user looking at evidence the application has already stopped trusting.
+    assert [
+        e.summary
+        for e in sm.store.recent_events(limit=50)
+        if e.kind == ev.ARTIFACT_INVALIDATED
+    ] == ["1 artifact(s) invalidated by implementation_edit."]
 
 
 async def test_job_inspection_uses_the_explicit_authoritative_worktree(

@@ -565,7 +565,7 @@ class SessionManager:
         worker = self.store.get_worker(target_worker_id) if target_worker_id else None
         if job is not None:
             job = lineage.ensure_authoritative(self.store, job)
-            lineage.reconcile_job(self.store, job)
+            self._reconcile_job_git(job)
         self._assert_prerequisites(definition, job)
 
         if worker is not None:
@@ -733,7 +733,7 @@ class SessionManager:
             return run
         job = self.store.get_job(run.job_id)
         if job is not None:
-            lineage.reconcile_job(self.store, job)
+            self._reconcile_job_git(job)
         definition = find_workflow(run.workflow)
         if job is None or definition is None or not definition.is_composite:
             return self._pause_run(run, RunStatus.FAILED, "Its workflow or job no longer exists.")
@@ -1802,14 +1802,14 @@ class SessionManager:
         behavior = BehaviorContract.model_validate(artifact.body)
         by_id = {e.criterion_id: e for e in report.evidence}
         for criterion in behavior.criteria:
-            evidence = by_id.get(criterion.id)
-            if evidence is None:
+            item = by_id.get(criterion.id)
+            if item is None:
                 continue
-            criterion.status = "passed" if evidence.status == "passed" else (
-                "blocked" if evidence.status in ("blocked", "not_tested") else "failed"
+            criterion.status = "passed" if item.status == "passed" else (
+                "blocked" if item.status in ("blocked", "not_tested") else "failed"
             )
-            if evidence.limitations:
-                criterion.accepted_limitation = "; ".join(evidence.limitations)
+            if item.limitations:
+                criterion.accepted_limitation = "; ".join(item.limitations)
         artifact.body = behavior.model_dump(mode="json")
         self.store.save_artifact(artifact)
 
@@ -1838,6 +1838,11 @@ class SessionManager:
     def _apply_invalidation(
         self, worker: Worker, job: Job | None, *, force: bool = False
     ) -> None:
+        """Consume this worker's Git baseline, and announce what the change outdated.
+
+        `lineage` decides and persists; emitting stays here, so every path that
+        invalidates an artifact leaves the same audit trail and repaints the board.
+        """
         outcome = lineage.apply_invalidation(self.store, worker, job, force=force)
         if outcome is not None and outcome.invalidated and job is not None:
             self.emit(
@@ -1846,6 +1851,12 @@ class SessionManager:
                 worker_id=worker.id,
                 summary=f"{outcome.invalidated} artifact(s) invalidated by {outcome.change.value}.",
             )
+
+    def _reconcile_job_git(self, job: Job) -> None:
+        """Apply any durable, unfinished Git baselines before trusting run state."""
+        for worker in self.store.list_workers(job.id):
+            if worker.writable:
+                self._apply_invalidation(worker, job)
 
     # ------------------------------------------------------------ ready to push
 
