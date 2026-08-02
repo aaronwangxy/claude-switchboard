@@ -28,6 +28,7 @@ from switchboard.domain.enums import (
 )
 from switchboard.runtime.hook_bridge import handle_hook
 from switchboard.runtime.hook_bridge import main as hook_main
+from switchboard.runtime.tmux import TmuxError
 from switchboard.storage.store import Store
 
 FAKE = Path(__file__).parents[1] / "fixtures" / "fake_native_claude.py"
@@ -77,6 +78,20 @@ async def test_native_manager_human_entry_uses_same_process(native_services, tmp
     assert "--resume" not in attachment.argv
     assert sm.store.get_runtime(runtime.id).owner.value == "human"
     manager.release_human(composer_cleared=True)
+    assert sm.store.get_runtime(runtime.id).owner.value == "manager"
+
+
+async def test_native_manager_entry_refuses_foreign_tmux_without_stranding_ownership(
+    native_services, tmp_path, monkeypatch
+):
+    sm, backend, _ = native_services
+    manager = PersistentNativeManager(sm, backend, tmp_path / "manager-nested")
+    runtime = await manager.start_or_recover()
+    monkeypatch.setenv("TMUX", "/tmp/a-different-tmux.sock,1,0")
+
+    with pytest.raises(TmuxError, match="separate terminal"):
+        await manager.enter()
+
     assert sm.store.get_runtime(runtime.id).owner.value == "manager"
 
 

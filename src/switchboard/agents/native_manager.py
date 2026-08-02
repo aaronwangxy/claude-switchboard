@@ -138,10 +138,15 @@ class PersistentNativeManager(Manager):
     async def enter(self) -> Attachment:
         runtime = await self.start_or_recover()
         view = self.backend.runtime.claim_human(runtime.id)
+        try:
+            argv = list(view.argv())
+        except Exception:
+            self.backend.runtime.release_human(runtime.id, composer_cleared=True)
+            raise
         return Attachment(
             cwd=self.workspace,
             session_id=runtime.claude_session_id or "",
-            argv=list(view.external_argv),
+            argv=argv,
             note="Entered the same live native Manager Claude process.",
         )
 

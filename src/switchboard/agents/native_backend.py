@@ -209,11 +209,16 @@ class NativeClaudeBackend:
 
     def attachment(self, spec: WorkerSpec, note: str = "") -> Attachment:
         view = self.runtime.claim_human(self._runtime_id(spec))
+        try:
+            argv = list(view.argv())
+        except Exception:
+            self.runtime.release_human(self._runtime_id(spec), composer_cleared=True)
+            raise
         runtime = self.store.get_runtime(self._runtime_id(spec))
         return Attachment(
             cwd=spec.cwd,
             session_id=(runtime.claude_session_id if runtime else None) or "",
-            argv=list(view.external_argv),
+            argv=argv,
             note=note,
         )
 

@@ -1297,13 +1297,7 @@ class SessionManager:
         return runtime is not None and runtime.owner is RuntimeOwner.HUMAN
 
     def _attach_note(self, worker: Worker) -> str:
-        """What the user should know before taking this session over, if anything.
-
-        Attaching starts an ordinary interactive Claude, which has none of the tool
-        restrictions Switchboard gave the worker. That is the user's prerogative -- but a
-        read-only worker usually sits in *another* worker's worktree, so it is worth
-        saying that the session they are about to drive can write there.
-        """
+        """Explain shared lineage when entering a read-only observer session."""
         if worker.writable or worker.worktree_id is not None:
             return ""
         owner = next(
@@ -1316,12 +1310,13 @@ class SessionManager:
         )
         if owner is None:
             return (
-                f"This worker is read-only, but {worker.cwd} is the repository itself. "
-                "An interactive session there is not restricted."
+                f"This read-only worker observes the repository at {worker.cwd}. "
+                "Human interaction pauses automatic workflow advancement."
             )
         return (
-            f"This worker is read-only and observes {owner.title}'s worktree. An "
-            "interactive session there can write to it, and that worker still owns it."
+            f"This read-only worker observes {owner.title}'s authoritative worktree. "
+            "Human interaction pauses automatic workflow advancement; that worker retains "
+            "lineage ownership."
         )
 
     # ----------------------------------------------------------------- cleanup

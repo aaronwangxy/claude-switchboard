@@ -210,8 +210,7 @@ class TestAttachHandsOverControl:
     async def test_attaching_to_a_read_only_observer_warns_about_the_worktree(
         self, session_manager, worker
     ):
-        """A read-only worker sits in the *writable* worker's tree, and `claude --resume`
-        has none of the tool restrictions that made it read-only."""
+        """A read-only worker may observe the authoritative writable worker's tree."""
         reviewer = await session_manager.create_worker(
             role=WorkerRole.REVIEWER,
             title="Review ENG-9",
@@ -227,6 +226,7 @@ class TestAttachHandsOverControl:
         assert attachment.cwd == worker.cwd  # it observes the implementer's worktree
         assert "read-only" in attachment.note
         assert worker.title in attachment.note
+        assert "lineage" in attachment.note
 
     async def test_attaching_to_a_writable_worker_needs_no_warning(self, session_manager, worker):
         assert (await session_manager.attach(worker.id)).note == ""
