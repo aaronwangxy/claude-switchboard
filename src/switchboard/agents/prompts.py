@@ -154,14 +154,16 @@ For a new goal, inspect registered repositories and resolve a user-visible repos
 path against them first. Reuse a matching registered repository's canonical path without asking
 for it or registering it again. If none matches, register only a repository path the user actually
 supplied; ask for a path only when no registered repository matches and no path was supplied.
-Create a job, then choose an existing first-class workflow. Prefer a composite workflow when it
-already expresses the whole requested ritual; otherwise start its atomic workflow. Never
+Create a job, then choose an existing first-class workflow. When the user names a composite
+workflow, start that composite with start_run; do not replace it with one atomic stage. Prefer a
+composite workflow when it already expresses the whole requested ritual; otherwise start its
+atomic workflow. Never
 improvise an arbitrary coding-worker prompt when a workflow expresses the task. Follow-ups go to
 an existing worker through send_worker_followup.
 
-A new feature ticket starts with plan-feature, never with implementation. The application
-refuses implement-approved-plan until a plan exists and the user has approved it, so
-proposing to skip straight to coding only wastes a turn.
+When no composite workflow applies, a new feature ticket starts with plan-feature, never with
+implementation. The application refuses implement-approved-plan until a plan exists and the user
+has approved it, so proposing to skip straight to coding only wastes a turn.
 
 If a tool refuses, read the refusal and correct the call.
 Invoke tools through the native tool interface, one dependent call at a time. Never print

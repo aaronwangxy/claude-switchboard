@@ -171,7 +171,7 @@ async def test_live_native_startup_failure_requests_entry_and_prevents_duplicate
 
     worker = session_manager.store.list_workers(job.id)[0]
     assert worker.status is WorkerStatus.BLOCKED
-    assert "Enter this session" in worker.waiting_for
+    assert "Ctrl+E to enter this session" in worker.waiting_for
     assert (
         session_manager.store.current_runtime(worker.id).process_state
         is RuntimeProcessState.STARTING
@@ -344,6 +344,7 @@ async def test_recovery_adopts_an_exact_live_runtime(session_manager, git_repo, 
         role=WorkerRole.GENERAL, title="w", prompt="hi", repository_id=repo.id
     )
     await settle()
+    sm.raise_attention(worker, AttentionKind.PERMISSION_REQUIRED, "Permission required for tool.")
     sm._pumps.pop(worker.id).cancel()
 
     restarted = SessionManager(sm.store, backend, Config(), sm.worktrees)
@@ -351,6 +352,19 @@ async def test_recovery_adopts_an_exact_live_runtime(session_manager, git_repo, 
 
     assert any("adopted" in note for note in notes)
     assert len(restarted.store.list_runtimes(worker.id)) == 1
+    assert restarted.store.get_worker(worker.id).status is WorkerStatus.IDLE
+    assert restarted.list_attention_items() == []
+
+
+def test_status_summary_exposes_an_idle_incomplete_job(session_manager, git_repo):
+    sm = session_manager
+    repo = sm.register_repository(git_repo("idle-job"), "idle-job")
+    sm.create_job("Greeting change", repo.id)
+
+    summary = sm.status_summary()
+
+    assert "1 incomplete job(s) are idle" in summary
+    assert "Greeting change (intake)" in summary
 
 
 async def test_recovery_preserves_the_observed_live_turn_state(

@@ -2094,6 +2094,7 @@ class SessionManager:
                     )
                 else:
                     self._force_status(worker, WorkerStatus.IDLE, None)
+                    self._resolve_attention(worker)
                 notes.append(f"{worker.title}: {action}")
             except Exception as exc:
                 self._force_status(
@@ -2264,6 +2265,20 @@ class SessionManager:
                 for w in self.store.list_workers()
                 if w.status in (WorkerStatus.WORKING, WorkerStatus.STARTING)
             ]
+            incomplete = [
+                job
+                for job in self.store.list_jobs()
+                if job.stage not in (JobStage.COMPLETED, JobStage.FAILED)
+            ]
+            if incomplete and not active:
+                examples = ", ".join(
+                    f"{job.title} ({job.stage.value})" for job in incomplete[:2]
+                )
+                suffix = "" if len(incomplete) <= 2 else f" and {len(incomplete) - 2} more"
+                return (
+                    f"Nothing needs you right now, but {len(incomplete)} incomplete job(s) are "
+                    f"idle: {examples}{suffix}."
+                )
             return f"Nothing needs you. {len(active)} worker(s) still working."
         counts: dict[str, int] = {}
         for item in items:
