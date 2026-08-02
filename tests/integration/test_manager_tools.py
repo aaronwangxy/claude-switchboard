@@ -99,6 +99,9 @@ async def test_fresh_manager_reconstructs_bounded_state(manager_tools, git_repo)
     tools.sm.store.set_preference("manager.current_objective", "Coordinate this safely")
     state = await tools.call("inspect_state", {})
     assert state["objective"] == "Coordinate this safely"
+    assert state["repositories"] == [
+        {"id": str(repo.id), "name": "reconstruct", "path": str(repo.root_path)}
+    ]
     assert any(item["id"] == str(job.id) for item in state["jobs"])
     assert "transcript" not in state
 

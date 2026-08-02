@@ -204,11 +204,16 @@ class ManagerTools:
         raise ValueError(f"Unknown manager tool: {name}")
 
     def _state(self) -> dict[str, Any]:
+        repositories = self.sm.store.list_repositories()[:12]
         jobs = self.sm.store.list_jobs()[:12]
         workers = self.sm.store.list_workers()[-20:]
         runs = self.sm.store.list_runs()[-12:]
         return {
             "objective": self.sm.store.get_preference("manager.current_objective", ""),
+            "repositories": [
+                {"id": str(repo.id), "name": repo.name, "path": str(repo.root_path)}
+                for repo in repositories
+            ],
             "jobs": [{"id": str(j.id), "title": j.title, "stage": j.stage.value} for j in jobs],
             "runs": [
                 {
