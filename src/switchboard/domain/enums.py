@@ -152,7 +152,6 @@ READ_ONLY_ROLES = frozenset(
 class ArtifactType(str, Enum):
     IMPLEMENTATION_CONTRACT = "implementation_contract"
     BEHAVIOR_CONTRACT = "behavior_contract"
-    EVIDENCE_CONTRACT = "evidence_contract"
     VERIFICATION = "verification"
     SMOKE_VERIFICATION = "smoke_verification"
     REVIEW = "review"
@@ -174,7 +173,7 @@ class AttentionKind(str, Enum):
     CLEANUP_CANDIDATE = "cleanup_candidate"
 
 
-#: Section 4.3 priority order; lower number sorts first.
+#: Lower number sorts first. The enum's declaration order *is* the priority.
 ATTENTION_PRIORITY: dict[AttentionKind, int] = {
     kind: index for index, kind in enumerate(AttentionKind)
 }

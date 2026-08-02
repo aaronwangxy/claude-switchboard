@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from typing import Protocol
 
 from switchboard.agents.attach import AttachError, Attachment
-from switchboard.agents.snapshots import Exchange
 from switchboard.core.session_manager import SessionManager
 from switchboard.domain.models import RuntimeInstance
 from switchboard.routing import router
@@ -75,6 +75,14 @@ class _ApprovalPattern:
 
 
 APPROVE_RE = _ApprovalPattern()
+
+
+@dataclass
+class Exchange:
+    """One turn of the offline manager's own history."""
+
+    user: str
+    manager: str
 
 
 class Manager(Protocol):

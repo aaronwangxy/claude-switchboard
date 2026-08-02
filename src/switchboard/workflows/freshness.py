@@ -24,8 +24,8 @@ class CodeChange(str, Enum):
     caller passes had_conflicts=True. The remaining members are classified by
     artifacts_invalidated_by() and covered by unit tests, but nothing currently
     produces them -- a rebase that changes the tree is reported as an
-    IMPLEMENTATION_EDIT, which invalidates a superset, the conservative direction.
-    See docs/mvp-evidence.md limitation 5.
+    IMPLEMENTATION_EDIT, which invalidates a superset -- the conservative direction.
+    See docs/troubleshooting.md.
     """
 
     IMPLEMENTATION_EDIT = "implementation_edit"

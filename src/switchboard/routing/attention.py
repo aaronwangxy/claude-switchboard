@@ -22,7 +22,7 @@ def sort_key(item: AttentionItem) -> tuple[int, datetime]:
 def prioritize(
     items: list[AttentionItem], workers: dict[UUID, Worker], at: datetime | None = None
 ) -> list[AttentionItem]:
-    """Order actionable items by the Section 4.3 priority, dropping snoozed workers.
+    """Order actionable items by `AttentionKind` priority, dropping snoozed workers.
 
     Pins do not change ordering; they only stop auto-advance from moving away.
     """

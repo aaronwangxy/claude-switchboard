@@ -103,7 +103,8 @@ class WorkflowDefinition(BaseModel):
     worker: WorkerMode = WorkerMode.AUTO
     prompt: str = ""
     steps: tuple[WorkflowStep, ...] = ()
-    #: Set by the loader: where this definition came from, for `sb workflows`.
+    #: Set by the loader: builtin, user, or repo:<name>. Provenance for debugging
+    #: which of three sources a name resolved to.
     source: str = "builtin"
 
     @model_validator(mode="after")
