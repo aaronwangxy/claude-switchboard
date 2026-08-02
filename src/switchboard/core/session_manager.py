@@ -99,6 +99,11 @@ log = logging.getLogger(__name__)
 class SessionManagerError(RuntimeError):
     """An operation was refused because it would violate an application invariant."""
 
+    def __init__(self, *args: object, worker_id: UUID | None = None) -> None:
+        super().__init__(*args)
+        #: Set when the refusal left a real worker behind, so a caller can still own it.
+        self.worker_id = worker_id
+
 
 #: Fallback for a worker started with a role but no workflow (a bare `create_worker`).
 ROLE_ARTIFACTS: dict[WorkerRole, frozenset[ArtifactType]] = {
@@ -436,10 +441,16 @@ class SessionManager:
             )
             if startup_alive:
                 self.raise_attention(worker, AttentionKind.PERMISSION_REQUIRED, waiting_for)
+                # The native session is live and already emitting events. Without a pump
+                # nothing observes the turn the user is about to unblock, so the worker
+                # would run to completion while the board still reported it starting.
+                self._ensure_pump(worker.id)
             self.emit(
                 ev.WORKER_FAILED, worker_id=worker.id, job_id=worker.job_id, summary=str(exc)
             )
-            raise SessionManagerError(f"Could not start worker {worker.title!r}: {exc}") from exc
+            raise SessionManagerError(
+                f"Could not start worker {worker.title!r}: {exc}", worker_id=worker.id
+            ) from exc
         runtime = self.store.get_runtime(runtime.id) or runtime
         if handle.session_id:
             worker.session_id = handle.session_id
@@ -457,7 +468,14 @@ class SessionManager:
             job_id=worker.job_id,
             summary=worker.title,
         )
-        self._pumps[worker.id] = asyncio.create_task(self._pump(worker.id))
+        self._ensure_pump(worker.id)
+
+    def _ensure_pump(self, worker_id: UUID) -> None:
+        """One live consumer of a worker's backend events, however it was started."""
+        existing = self._pumps.get(worker_id)
+        if existing is not None and not existing.done():
+            return
+        self._pumps[worker_id] = asyncio.create_task(self._pump(worker_id))
 
     def _worker_spec(
         self,
@@ -830,6 +848,17 @@ class SessionManager:
                     request=run.request,
                 )
             except SessionManagerError as exc:
+                # A worker blocked at native startup is still this step's worker. Without
+                # the link the run can never be unblocked by answering it, and a resume
+                # only meets the duplicate-worker refusal again.
+                if exc.worker_id is not None:
+                    run = self.store.get_run(run.id) or run
+                    run.iterations[str(run.step_index)] = used + 1
+                    run.current_worker_id = exc.worker_id
+                    run.current_step_completed = False
+                    run.completion_turn_id = None
+                    run.human_intervened = False
+                    self.store.save_run(run)
                 return self._pause_run(run, RunStatus.BLOCKED, str(exc))
             # `start_workflow` adopts the worker into this step; only fill in if it did not.
             run = self.store.get_run(run.id) or run

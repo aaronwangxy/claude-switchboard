@@ -202,6 +202,49 @@ async def test_live_native_startup_failure_requests_entry_and_prevents_duplicate
     assert not await session_manager.resume_startup(worker.id)
 
 
+async def test_a_run_blocked_at_native_startup_recovers_once_the_prompt_is_cleared(
+    session_manager, git_repo, backend, monkeypatch
+):
+    """The documented Ctrl+E recovery must actually put the composite back in flight.
+
+    A worker created but blocked at Claude's trust prompt is still its step's worker. If
+    the run does not own it, clearing the prompt leaves the run blocked forever and the
+    board reports a worker that nothing is observing.
+    """
+    from switchboard.domain.enums import RunStatus
+
+    sm = session_manager
+    repo = sm.register_repository(git_repo("startup-run"), "startup-run")
+    job = sm.create_job("Greeting", repo.id)
+    real_start = backend.start
+
+    async def timed_out(spec):
+        await real_start(spec)  # the native session really is alive behind the prompt
+        raise RuntimeError("Timed out waiting for native Claude SessionStart.")
+
+    async def still_alive(worker_id):
+        return RuntimeObservation(exists=True, detail="native process is alive")
+
+    monkeypatch.setattr(backend, "start", timed_out)
+    monkeypatch.setattr(backend, "observe", still_alive)
+
+    run = await sm.start_run("lightweight-feature", job_id=job.id)
+    (planner,) = sm.store.list_workers(job.id)
+    run = sm.store.get_run(run.id)
+    assert run.status is RunStatus.BLOCKED
+    assert run.current_worker_id == planner.id, "the run must own the worker it created"
+    assert sm._pumps.get(planner.id) is not None, "nothing would observe the unblocked turn"
+
+    # The user enters the session, clears the trust prompt, and hands control back.
+    runtime = sm.store.current_runtime(planner.id)
+    runtime.process_state = RuntimeProcessState.READY
+    sm.store.save_runtime(runtime)
+    assert await sm.resume_startup(planner.id)
+
+    assert sm.store.get_run(run.id).status is RunStatus.RUNNING
+    assert sm.store.get_worker(planner.id).status is WorkerStatus.WORKING
+
+
 async def test_answering_a_blocked_worker_resumes_it_and_advances_the_queue(
     session_manager, git_repo, backend
 ):
