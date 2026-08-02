@@ -166,3 +166,18 @@ fixed with a regression test.
    writing to a closed connection.
 7. **The board said "nothing needs you"** about a session sitting on a permission prompt,
    because entering a worker clears its attention and leaving it put nothing back.
+8. **A blocked *run* reached nothing at all.** Conservative reconciliation had stopped a
+   `diagnose-and-fix` run, but both its sessions were idle and healthy, so the queue was
+   empty and the summary said nothing needed me. Only asking the Manager directly found
+   it. A stalled workflow being invisible is the one failure an operator replacement
+   cannot have.
+9. **A slow start was mistaken for a stuck one.** The sixth Claude in a fleet took longer
+   than the startup wait to reach `SessionStart` because it was contending with five
+   siblings; Switchboard declared it blocked and paused the run. Startup recovery now
+   reads the pane, answers a trust dialog it can answer, and otherwise waits again — the
+   cost of waiting is latency, the cost of a false "needs you" is a stalled fleet.
+
+Points 1, 2, 4, 8 and 9 have the same shape, and it is the shape that matters for this
+product: **the fleet interrupting the user for something that did not need them, or
+stopping without telling them.** Neither is visible from reading the code. Both are
+obvious within two minutes of running it.
