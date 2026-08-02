@@ -82,7 +82,9 @@ class NativeClaudeBackend:
         return self.runtime.launch_fingerprint(
             cwd=spec.cwd,
             model=spec.model,
-            permission_mode=None if spec.writable else "plan",
+            permission_mode=spec.permission_mode,
+            effort=spec.effort,
+            session_name=spec.session_name,
             read_only=not spec.writable,
             system_prompt_append=spec.system_prompt_append,
         )
@@ -103,7 +105,9 @@ class NativeClaudeBackend:
             runtime_id,
             cwd=spec.cwd,
             model=spec.model,
-            permission_mode=None if spec.writable else "plan",
+            permission_mode=spec.permission_mode,
+            effort=spec.effort,
+            session_name=spec.session_name,
             read_only=not spec.writable,
             system_prompt_append=spec.system_prompt_append,
         )
@@ -125,7 +129,9 @@ class NativeClaudeBackend:
             runtime_id,
             cwd=spec.cwd,
             model=spec.model,
-            permission_mode=None if spec.writable else "plan",
+            permission_mode=spec.permission_mode,
+            effort=spec.effort,
+            session_name=spec.session_name,
             read_only=not spec.writable,
             system_prompt_append=spec.system_prompt_append,
         )

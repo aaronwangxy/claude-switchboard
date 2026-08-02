@@ -24,6 +24,33 @@ class SubagentConfig(BaseModel):
     max_concurrent_per_worker: int = 3
 
 
+class PermissionsConfig(BaseModel):
+    """Which native Claude permission mode each kind of worker is launched with.
+
+    Delegated to Claude rather than reimplemented. A writable worker owns an isolated
+    worktree on its own branch that Switchboard never pushes, merges, or deletes, so
+    `acceptEdits` matches what it is actually allowed to do -- and it is the difference
+    between a fleet that runs and one that stops on every file write. Bash still prompts.
+    Set either to null for Claude's own default prompting.
+    """
+
+    writable_worker: str | None = "acceptEdits"
+    read_only_worker: str | None = "plan"
+
+
+class EffortConfig(BaseModel):
+    """Native Claude effort level per role. Null leaves the session default alone."""
+
+    model_config = {"extra": "allow"}
+
+    manager: str | None = None
+    planner: str | None = None
+    implementer: str | None = None
+    reviewer: str | None = None
+    verifier: str | None = None
+    general: str | None = None
+
+
 class CommitConfig(BaseModel):
     #: Implementation may not start without an approved implementation contract.
     require_plan: bool = True
@@ -101,6 +128,8 @@ class Config(BaseModel):
     subagents: SubagentConfig = Field(default_factory=SubagentConfig)
     commits: CommitConfig = Field(default_factory=CommitConfig)
     models: ModelConfig = Field(default_factory=ModelConfig)
+    permissions: PermissionsConfig = Field(default_factory=PermissionsConfig)
+    effort: EffortConfig = Field(default_factory=EffortConfig)
     workflows: WorkflowConfig = Field(default_factory=WorkflowConfig)
     #: The composite workflow a new job follows unless the job or repository says
     #: otherwise. `default_profile` is the key this had before Phase 10.
@@ -113,6 +142,14 @@ class Config(BaseModel):
 
     def model_for_role(self, role: str) -> str | None:
         return getattr(self.models, role, None) or self.models.general
+
+    def effort_for_role(self, role: str) -> str | None:
+        return getattr(self.effort, role, None) or self.effort.general
+
+    def permission_mode_for(self, *, writable: bool) -> str | None:
+        return (
+            self.permissions.writable_worker if writable else self.permissions.read_only_worker
+        )
 
 
 def home_dir() -> Path:

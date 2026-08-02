@@ -482,6 +482,9 @@ class SessionManager:
             ),
             initial_prompt=prompt,
             model=worker.model,
+            permission_mode=self._permission_mode(worker),
+            effort=self.config.effort_for_role(worker.role.value),
+            session_name=self._session_name(worker),
             writable=worker.writable,
             resume_session_id=worker.session_id if resume else None,
             max_helpers=self.config.subagents.max_concurrent_per_worker,
@@ -490,6 +493,31 @@ class SessionManager:
             runtime_id=runtime_id,
             runtime_generation=runtime_generation,
         )
+
+    def _permission_mode(self, worker: Worker) -> str | None:
+        """The native permission mode this worker runs under.
+
+        A workflow may name its own; otherwise it follows configuration, which defaults a
+        writable worker to `acceptEdits`. That is not a loosening of Switchboard's
+        guarantees: the worker owns an isolated worktree on its own branch that nothing
+        here ever pushes, merges, or deletes, and stopping on every file write is exactly
+        the operator tedium a fleet of ten sessions cannot afford.
+        """
+        definition = find_workflow(worker.workflow)
+        if definition is not None and definition.permission_mode:
+            return definition.permission_mode
+        return self.config.permission_mode_for(writable=worker.writable)
+
+    def _session_name(self, worker: Worker) -> str:
+        """A name the user can find this session by outside Switchboard entirely.
+
+        Native Claude shows it in the prompt box, the `/resume` picker and
+        `claude agents --json`, so a worker stays an ordinary session you could have
+        launched yourself rather than something only this board can see.
+        """
+        job = self.store.get_job(worker.job_id) if worker.job_id else None
+        label = (job.external_ref or job.title) if job else worker.title
+        return f"{_slug_words(label, 28)} {worker.role.value}".strip()
 
     def _new_runtime(self, worker: Worker, *, generation: int) -> RuntimeInstance:
         spec = self._worker_spec(worker, "", runtime_generation=generation)
@@ -2378,6 +2406,12 @@ class SessionManager:
         worker.waiting_for = waiting_for
         worker.updated_at = now()
         return self.store.save_worker(worker)
+
+
+def _slug_words(text: str, limit: int) -> str:
+    """A short, readable label for a native session name."""
+    flat = " ".join((text or "").split())
+    return flat if len(flat) <= limit else flat[: limit - 1] + "…"
 
 
 def _last_question(text: str) -> str:

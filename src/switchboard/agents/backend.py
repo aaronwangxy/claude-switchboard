@@ -44,6 +44,12 @@ class WorkerSpec:
     system_prompt_append: str
     initial_prompt: str
     model: str | None = None
+    #: Native Claude knobs Switchboard delegates rather than reimplements.
+    permission_mode: str | None = None
+    effort: str | None = None
+    #: Display name, so the session is findable in Agent View, `/resume` and
+    #: `claude agents --json` without going through Switchboard at all.
+    session_name: str | None = None
     writable: bool = False
     resume_session_id: str | None = None
     max_helpers: int = 3

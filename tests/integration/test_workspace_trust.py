@@ -96,3 +96,25 @@ async def test_consent_recorded_once_answers_the_prompt_for_a_later_worktree(
 
     assert await sm.answer_workspace_trust(created.id) is True
     assert answered == [created.id]
+
+
+def test_vouching_reads_as_consent_in_an_ordinary_sentence():
+    """A bare "confirm" message would make the user answer twice; the guard stays honest."""
+    from switchboard.agents.manager import TRUST_RE
+
+    for granted in (
+        "Register that path as taskq. Yes, I confirm: trust the Switchboard worktrees.",
+        "I trust the worktrees for taskq.",
+        "yes, trust it",
+        "confirm",
+    ):
+        assert TRUST_RE.search(granted), granted
+
+    for withheld in (
+        "Do not trust that repository.",
+        "Should I trust it?",
+        'The worker said "trust it".',
+        "Trust it after Sam has looked at the repo.",
+        "Never trust anything under /tmp.",
+    ):
+        assert not TRUST_RE.search(withheld), withheld

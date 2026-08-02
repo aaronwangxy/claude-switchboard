@@ -231,11 +231,11 @@ class ManagerTools:
             return {"stopped": True}
         if name == "trust_repository_worktrees":
             turn = self.sm.store.open_native_turn(self.runtime_id)
-            confirmed_turn = self.sm.store.get_preference("manager.confirmed_turn", "")
-            if not args.get("confirmed") or turn is None or confirmed_turn != str(turn.id):
+            trust_turn = self.sm.store.get_preference("manager.trust_turn", "")
+            if not args.get("confirmed") or turn is None or trust_turn != str(turn.id):
                 raise ValueError(
-                    "Trusting a repository's worktrees needs the user's confirmation in "
-                    "their current message."
+                    "Trusting a repository's worktrees needs the user to say so in their "
+                    "current message, in their own voice."
                 )
             self.sm.grant_repository_trust(UUID(args["repository_id"]), confirmed=True)
             return {"trusted": True}

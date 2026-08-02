@@ -101,6 +101,9 @@ class WorkflowDefinition(BaseModel):
     invalidates: frozenset[ArtifactType] = frozenset()
     #: Extra stored artifacts to put in the worker's prompt beyond `requires`.
     context: frozenset[ArtifactType] = frozenset()
+    #: Native Claude permission mode for this workflow's workers, overriding the
+    #: configured default. Delegated to Claude; Switchboard only chooses which to ask for.
+    permission_mode: str = ""
     #: A label this workflow moves its job to when it starts, for the user to read.
     #: Free text: `complete-ticket` says `implementing`, `rebase` says `rebasing`. Empty
     #: leaves the job's current label alone. Nothing gates on it.

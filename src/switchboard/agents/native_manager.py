@@ -11,7 +11,7 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 from switchboard.agents.attach import Attachment
-from switchboard.agents.manager import APPROVE_RE, CONFIRM_RE, Manager
+from switchboard.agents.manager import APPROVE_RE, CONFIRM_RE, TRUST_RE, Manager
 from switchboard.agents.manager_mcp import ManagerTools, serve_connection
 from switchboard.agents.native_backend import NativeClaudeBackend
 from switchboard.agents.prompts import compose_manager_prompt
@@ -123,6 +123,9 @@ class PersistentNativeManager(Manager):
             )
             self.sm.store.set_preference(
                 "manager.approval_turn", str(turn.id) if APPROVE_RE.search(text) else ""
+            )
+            self.sm.store.set_preference(
+                "manager.trust_turn", str(turn.id) if TRUST_RE.search(text) else ""
             )
             deadline = asyncio.get_running_loop().time() + 180
             while asyncio.get_running_loop().time() < deadline:

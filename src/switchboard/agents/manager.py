@@ -18,7 +18,14 @@ CONFIRM_RE = re.compile(
 )
 
 _SENTENCE = re.compile(r"[^.!?\n]+[.!?]?")
-_VERB = r"(?:approve|approved|approving|go\s+ahead|looks?\s+good|sounds?\s+good|lgtm|ship\s+it)"
+_APPROVAL_VERB = (
+    r"(?:approve|approved|approving|go\s+ahead|looks?\s+good|sounds?\s+good|lgtm|ship\s+it)"
+)
+#: Vouching for a repository is a consent, not a destructive act, so it uses the same
+#: sentence-level guard as plan approval rather than demanding a bare "confirm" message --
+#: which would make the user answer a second time in a message of its own.
+_TRUST_VERB = r"(?:trust|confirm|confirmed)"
+_VERB = _APPROVAL_VERB
 #: The user has to be the one approving. The approval has to open its sentence, after at
 #: most an assent lead-in and an optional first-person subject -- so "I approve the plan"
 #: and "lgtm" grant, while "Worker output: lgtm from the reviewer" reports someone else's.
@@ -46,6 +53,14 @@ _MESSAGE_VETO = re.compile(
 _QUOTED = re.compile(r"[\"'‘’“”`]")
 
 
+def _phrase_for(verb: str) -> re.Pattern[str]:
+    return re.compile(
+        r"^\s*(?:(?:yes|yep|ok|okay|sure|right|great|perfect|fine)\b[,.!]?\s*)*"
+        rf"(?:(?:i|we)\s+)?{verb}\b",
+        re.I,
+    )
+
+
 class _ApprovalPattern:
     """Approval this user states in their own current message.
 
@@ -60,6 +75,9 @@ class _ApprovalPattern:
     is somebody else's approval being relayed, and an interrogative never grants.
     """
 
+    def __init__(self, phrase: re.Pattern[str] = _APPROVAL_PHRASE) -> None:
+        self._phrase = phrase
+
     def search(self, text: str) -> bool:
         if _MESSAGE_VETO.search(text):
             return False
@@ -69,12 +87,14 @@ class _ApprovalPattern:
                 continue
             if _NOT_APPROVAL.search(stripped):
                 continue
-            if _APPROVAL_PHRASE.match(stripped):
+            if self._phrase.match(stripped):
                 return True
         return False
 
 
 APPROVE_RE = _ApprovalPattern()
+#: Consent to vouch for a repository's Switchboard worktrees, under the same four rules.
+TRUST_RE = _ApprovalPattern(_phrase_for(_TRUST_VERB))
 
 
 @dataclass
