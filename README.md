@@ -1,45 +1,59 @@
 # Switchboard
 
-A one-window control plane for multiple independent Claude coding sessions.
+One board for several long-running native Claude Code sessions: route the work, gate it on
+contracts and evidence, and step into any live session whenever you want to.
 
-## The problem
+```
++------------------------------+----------------------------------------+
+| Manager status + goal input  | Selected session                       |
+|                              |   workflow / lifecycle / ownership      |
++------------------------------+   worktree / lineage / run step         |
+| Sessions + attention queue   |   evidence ✓ ✓                          |
+|  ! needs you  ● working  ✓   |   Enter → the exact native Claude       |
++------------------------------+----------------------------------------+
+```
 
-Running multiple coding agents is useful. Managing them manually is tedious:
+## Why this exists
 
-- Open another terminal.
-- Find or create the correct Git worktree.
-- Start Claude in the correct directory.
-- Remember which terminal belongs to which task.
-- Check every session to see which one is blocked or complete.
-- Prevent two sessions from modifying the same files.
-- Clean up processes, branches, and worktrees safely.
+The workflow I wanted was not "launch several agents". Plenty of tools do that. It was this,
+across multiple long-running sessions:
 
-The engineering work can run in parallel, but the human becomes a process manager.
+```
+goal → plan → approval → implementation → verification → independent review → iteration → done
+```
 
-Switchboard removes that operational burden while keeping every worker
-isolated and directly interactive.
+with one property that turns out to be hard: **I have to be able to walk into any live
+session, work in it normally, walk out, and have the larger workflow carry on safely.**
 
-Paste a ticket into the Manager input and it is routed and consumed
-by the right agent — planned, implemented, verified, reviewed — surfacing to you only
-where a human decision genuinely matters.
+That combination is what was missing.
 
-Switchboard is deliberately thin. Claude Code already owns the agent loop, tools,
-session persistence, subagents, skills, and settings inheritance, and Switchboard reuses
-all of it. What Switchboard owns is the layer above: understanding a casual reference to
-work in flight, resolving it against the durable relationships between jobs,
-repositories, branches, worktrees, and sessions, choosing the development ritual you
-prefer, and holding the contracts and evidence that decide whether a change is actually
-finished.
+- **Native agents** are excellent at the individual-agent part — the loop, the tools, the
+  subagents, the permission UI. But the multi-stage state lives in a conversation. Which
+  stage a change is at, whether the plan was approved, whether the verification still
+  applies to the current commit: all of it is something a model remembers, and a context
+  that can be compacted is not a place to keep an approval gate.
+- **Session managers** can run many agents at once, but they generally manage *sessions*.
+  The dependency between stages, the evidence that a stage actually passed, the approval
+  that unlocks the next one, and the Git lineage that says which tree the reviewer should be
+  looking at are not first-class objects.
+- **Orchestrators** coordinate tasks, but this particular combination — persistent *native*
+  sessions you can take over mid-flight, deterministic engineering-workflow semantics,
+  human takeover with reconciliation afterwards, and durable Git-aware state — is the shape
+  I could not assemble from what I had.
 
-## Contracts
+So Switchboard is deliberately thin. Claude Code keeps everything it is already good at.
+Switchboard owns the layer above: understanding a casual reference to work in flight,
+resolving it against the durable relationships between jobs, repositories, branches,
+worktrees and sessions, choosing the ritual you prefer, and holding the contracts and
+evidence that decide whether a change is actually finished.
 
-What makes delegation at scale reliable is not a better prompt; it is an executable
-contract around the agent. Across Anthropic, OpenAI, and Cognition, a similar pattern is
-emerging: agree on the intended implementation shape, define observable success criteria,
-and require independent evidence that those criteria hold.
+> This section is a description of the gap I hit, not a competitive claim. A detailed
+> comparison against current tools has not been done yet.
 
-I think of these as the **implementation contract**, **behavior contract**, and
-**evidence contract**.
+## Contracts and evidence
+
+What makes delegation reliable is not a better prompt; it is an executable contract around
+the agent.
 
 | Contract | Question | Produced by |
 | --- | --- | --- |
@@ -48,95 +62,102 @@ I think of these as the **implementation contract**, **behavior contract**, and
 | Evidence | What proof demonstrates each behavior? | verifier |
 
 They are stored as structured artifacts, not prose in a transcript, and the application
-enforces them: implementation cannot start without an approved plan, a code change
-deterministically invalidates the verification and review that no longer apply, and
-"ready to push" is computed from stored evidence rather than asserted by a model.
+enforces them. Implementation cannot start without an approved plan. A code change
+deterministically invalidates the verification and review that no longer apply. "Ready to
+push" is computed from stored evidence rather than asserted by a model.
 
 ## How it works
 
-Paste a ticket, ask a question, or say "rebase this" into one manager input. The manager
-routes it: to an existing worker, to a reusable workflow, or to a new independent worker
-in its own Git worktree.
+Paste a ticket, ask a question, or say "rebase this" into one Manager input. It routes: to
+an existing worker, to a reusable workflow, or to a new independent worker in its own Git
+worktree.
 
 ```
-you  →  manager Claude  →  resolve the job/repo/change  →  select a workflow
-                                                            ↓
-                                    reuse or launch an independent Claude worker
+you → Manager Claude → resolve the job/repo/change → select a workflow
+                                                       ↓
+                            reuse or launch an independent Claude worker
 ```
 
-Manager and every worker are persistent native Claude Code sessions. Workers inherit normal
-user, managed/company, project, and project-local configuration in their repository or
-worktree. Manager uses the configured executable and native user/managed configuration from
-an isolated non-repository workspace, with only Switchboard's manager MCP. Highlight any
-session and press Enter (or `Ctrl+E`) to enter that exact live process. No resume or replacement
-process is involved.
+For engineers who want to know how the interesting parts are actually achieved:
 
-```bash
-tmux -S <switchboard socket> attach-session -t <runtime session>
-```
+- **Manager and workers are real native Claude Code processes.** Not an SDK loop, not a
+  reimplementation. Workers inherit your normal user, managed/company, project, and
+  project-local configuration in their repository or worktree.
+- **tmux provides the persistent terminals.** One dedicated server, one session per runtime
+  generation, so a process outlives the board and keeps an independent attach target.
+- **The Manager gets a constrained Switchboard MCP** over a mode-0600, generation-specific
+  Unix socket into the board's own `SessionManager`. Every call revalidates the current
+  manager identity and generation.
+- **Workers get no orchestration authority at all** — never the manager's MCP config,
+  socket, or launch arguments. It is structurally unreachable, not merely discouraged.
+- **Claude's lifecycle hooks supply the semantics.** `SessionStart`, `UserPromptSubmit`,
+  `PermissionRequest`, `Stop`. Terminal contents are never scraped to guess what an agent is
+  doing. A turn carries a durable provenance token, so a prompt you type by hand cannot
+  complete a managed turn or advance a workflow.
+- **SQLite holds the orchestration state,** independently of any Claude history. Losing a
+  transcript cannot change whether a plan was approved.
+- **Git worktrees isolate writable work.** One per writable worker, always under the managed
+  root, never inside your repository. Read-only reviewers and verifiers observe rather than
+  own.
+- **Each job has one authoritative worktree,** and that lineage is the only thing reviewers,
+  verifiers, freshness, and the ready-to-push gate inspect.
+- **Pressing Enter puts you in the exact same process.** No `--resume`, no replacement
+  process, no interrupted turn. Ownership becomes yours, Switchboard refuses to send while
+  you are there, and the run pauses in a resumable state.
+- **Restarting the board adopts surviving sessions** by exact runtime id and generation,
+  rather than recreating them — and refuses to adopt anything that does not match.
 
-Switchboard does not interrupt an active turn when you enter. It refuses to send while you are
-there and pauses any workflow run the worker belongs to. Clear any unsubmitted composer text
-before handing control back. The run stays paused until you say "resume the run"—you may have
-edited by hand, so whether the ritual should carry on is yours to decide.
-
-```
-+------------------------------+----------------------------------------+
-| Manager status + goal input  | Selected session                       |
-|                              |  workflow / lifecycle / ownership       |
-+------------------------------+  dependencies / worktree / evidence    |
-| Sessions + attention queue   |  Enter → exact native Claude           |
-+------------------------------+----------------------------------------+
-```
+Details live in [`docs/architecture.md`](docs/architecture.md) and
+[`docs/runtime.md`](docs/runtime.md).
 
 ## Install
 
-Requires `git` and the `claude` CLI on your `PATH`; [uv](https://docs.astral.sh/uv/)
-supplies the Python (3.12+).
-
-On a machine without a checkout:
+Requires `git`, `tmux`, and the `claude` CLI on your `PATH`;
+[uv](https://docs.astral.sh/uv/) supplies the Python (3.12+).
 
 ```bash
 uv tool install git+https://github.com/aaronwangxy/claude-switchboard
 ```
 
-That is the whole install — `sb` lands on your `PATH` with the built-in workflows inside
-the package. Re-run with `--reinstall` to pick up a newer `main`.
+That is the whole install — `sb` lands on your `PATH` with the built-in workflows inside the
+package. Re-run with `--reinstall` to pick up a newer `main`.
 
 From a checkout, to work on Switchboard itself:
 
 ```bash
-uv tool install --editable .    # puts `sb` on your PATH
-```
-
-`--editable` points the installed command at this checkout, so an edit here is live on
-the next `sb` — which is what you want while iterating. Drop it for a frozen copy. Either
-way, re-run with `--reinstall` after changing dependencies in `pyproject.toml`.
-
-To try it without installing anything:
-
-```bash
-uvx --from . sb
+uv tool install --editable .    # `sb` runs this checkout; source edits are live
+uvx --from . sb                 # or just try it without installing
 ```
 
 ## Run
 
 ```bash
-sb                          # launch the interface (or: sb claude)
+sb                          # launch the board (or: sb claude)
 sb --register /path/repo    # register a repository at startup
 sb workflows                # what this installation can route to
 sb config                   # effective configuration and its paths
-SB_BACKEND=scripted sb      # offline demo: no model calls
+SB_BACKEND=scripted sb      # offline demo: no model is called
 ```
 
-Press `?` in the app for the key bindings. Claude owns conversation rendering; Switchboard
-shows durable orchestration state around the sessions.
+## Using it
 
-## Workflows
+Press `?` for the key bindings. The important interaction model:
 
-A workflow is routing metadata plus a prompt: what it needs, what it produces, what it
-invalidates, and whether it needs a fresh Claude. They are YAML, and adding one requires
-no change to Switchboard:
+- **Manager** is the top-left pane and the one input. Paste a ticket, ask a question, give
+  an instruction. It is a router and a status oracle; it never writes code.
+- **Sessions** lists Manager and every worker, attention-first: `!` needs you, `●` working,
+  `✓` idle or done. `Ctrl+J` / `Ctrl+K` step through them.
+- **The detail pane** shows durable orchestration state for the selected session — workflow,
+  lifecycle, ownership, worktree and branch, which run step it is on, and which contracts and
+  evidence exist.
+- **Enter** (or `Ctrl+E`) opens the exact live Claude session. Work in it normally. When you
+  leave, confirm Claude's composer is empty so Switchboard can drive it again.
+- **Approvals and attention.** A workflow that needs you appears in the queue rather than
+  waiting silently. Approving a plan in your own words unblocks its run; a paused run stays
+  paused until you say "resume the run", because you may have edited by hand and only you
+  know whether the ritual should carry on.
+
+Workflows are YAML and adding one requires no change to Switchboard:
 
 ```yaml
 name: post-rebase-verify
@@ -149,50 +170,58 @@ steps:
 
 Drop that in `~/.switchboard/workflows/` for yourself, or in a repository's
 `.switchboard/workflows/` so the convention travels with the clone. Built-in names are
-reserved — a file in a repository must not be able to strip the prerequisites that keep
-implementation from running without an approved plan. `sb workflows` lists everything
-loaded. `mine-workflows` reads Switchboard's own record of what you have been running and
-*proposes* workflows for rituals you keep assembling by hand; a proposal changes nothing
-until you accept it.
-
-## Develop
-
-The tooling runs from a plain virtualenv, independent of the installed `sb`:
-
-```bash
-python3 -m venv .venv && ./.venv/bin/pip install -e ".[dev]"
-./.venv/bin/python -m pytest -q
-./.venv/bin/ruff check src tests
-./.venv/bin/mypy
-```
-
-## Configuration
-
-| Path / variable | Purpose |
-| --- | --- |
-| `~/.config/switchboard/config.yaml` | preferences and model policy (see `config.example.yaml`) |
-| `~/.local/share/switchboard/switchboard.db` | durable state |
-| `~/.local/share/switchboard/worktrees/` | managed worktrees, never inside your repo |
-| `SB_HOME` | relocate the data directory |
-| `SB_CONFIG` | alternate config file |
-| `SB_STRONG_MODEL` / `SB_FAST_MODEL` | default models per role |
-| `SB_BACKEND=scripted` | use the deterministic in-process backend |
-| `SB_WORKFLOWS_DIR` | relocate the user workflow directory |
-| `claude.executable` | launch a wrapper such as `company-claude` instead of `claude` |
-| `worktree_bootstrap.files` | gitignored files to copy into a new worktree (empty by default) |
+reserved, so a file inside a repository cannot strip the prerequisites that keep
+implementation from running without an approved plan. `mine-workflows` reads Switchboard's
+own record of what you keep running and *proposes* workflows for rituals you assemble by
+hand; a proposal changes nothing until you accept it.
 
 ## Safety
 
-The application, not the agent, owns every destructive path. Worktrees live outside your
-repository and only under the managed root; cleanup requires explicit confirmation and
-refuses to remove a worktree holding uncommitted or unmerged work; branches are never
-deleted; nothing pushes, force-pushes, or merges.
+The application, not the agent, owns every destructive path. Git is invoked as an argument
+array, never through a shell. Worktrees live outside your repository and only under the
+managed root. Cleanup requires explicit confirmation and refuses to remove a worktree holding
+uncommitted or unmerged work. Branches are never deleted, and nothing pushes, force-pushes,
+or merges. The full list is in
+[`docs/architecture.md`](docs/architecture.md#safety-invariants).
 
-## Status
+## Configuration
 
-Working prototype, built for personal use. Architecture and conventions are in
-[`CLAUDE.md`](CLAUDE.md). In [`docs/`](docs/): the original specification, the MVP
-verification record, and [`harness-evidence.md`](docs/harness-evidence.md) — what was
-verified for the workflow-harness milestone, including why native Dynamic Workflows do
-not back Switchboard's composite runs. [`phase7-product-integration.md`](docs/phase7-product-integration.md)
-records the current product/UI and authenticated native-Claude evidence.
+Nothing is required. `sb config` shows the effective settings and every path;
+[`docs/configuration.md`](docs/configuration.md) explains them, and
+[`config.example.yaml`](config.example.yaml) is a starting point.
+
+## Status and limitations
+
+A working prototype, built for personal use, and dogfooded on real work — see
+[`docs/dogfood-report.md`](docs/dogfood-report.md) for what that found.
+
+The ones worth knowing before you try it:
+
+- **Answering a question the agent itself asked taints the attempt.** Entering a session
+  during a managed turn is what keeps a hand-edited attempt from counting as the ritual's
+  output — but it applies even when you entered only to answer the agent, so work can be
+  discarded. This is the sharpest edge in the product today.
+- **Native prompts dominate the loop.** Every new repository and worktree costs a Claude
+  trust prompt, and a writable worker's first `Edit` and `Bash` cost permission prompts.
+- **Nothing reclaims orphaned runtimes.** Sessions deliberately survive the board quitting so
+  the next one can adopt them, but `sb` cannot yet list or stop them.
+- **Read-only is a tool policy, not a sandbox.** Read-only workers keep `Bash`, because
+  reviewers and verifiers need it.
+- **Single-process, single-user.** Two boards against one data directory could race.
+
+The complete list, with symptoms and workarounds, is in
+[`docs/troubleshooting.md`](docs/troubleshooting.md).
+
+## Documentation
+
+| | |
+| --- | --- |
+| [architecture.md](docs/architecture.md) | The system, its boundaries, and the safety invariants |
+| [runtime.md](docs/runtime.md) | tmux, runtime generations, hooks, entry, recovery |
+| [workflows.md](docs/workflows.md) | Workflows, contracts, evidence, composite runs |
+| [manager.md](docs/manager.md) | The native Manager and its constrained MCP |
+| [configuration.md](docs/configuration.md) | Every setting, path, and environment variable |
+| [development.md](docs/development.md) | Setup, the four test tiers, commit expectations |
+| [troubleshooting.md](docs/troubleshooting.md) | Symptoms, workarounds, known limitations |
+| [project-evolution.md](docs/project-evolution.md) | How the architecture got here, and how it was built |
+| [dogfood-report.md](docs/dogfood-report.md) | A dated field record of using it adversarially |
