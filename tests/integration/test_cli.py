@@ -67,4 +67,4 @@ class TestConfigCommand:
     def test_it_prints_the_effective_configuration(self, sb_home, capsys):
         main(["config"])
         printed = capsys.readouterr().out
-        assert '"default_profile": "complete-ticket"' in printed
+        assert '"default_composite_workflow": "complete-ticket"' in printed

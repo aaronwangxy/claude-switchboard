@@ -22,6 +22,9 @@ models:
   verifier: null
   general: null
 
+# The composite workflow a brand new job follows when nothing else says otherwise.
+default_composite_workflow: complete-ticket
+
 workflows:
   rebase-stack:
     preserve_merges: false

@@ -664,24 +664,26 @@ class SessionManager:
 
     # ------------------------------------------------------- composite workflows
 
-    def resolve_profile(self, repository_id: UUID | None, job: Job | None = None) -> str:
+    def resolve_composite_workflow(
+        self, repository_id: UUID | None, job: Job | None = None
+    ) -> str:
         """Which composite workflow a job should follow.
 
-        Precedence: the job's stored profile, then the repository preference, then the
-        user's configured default. A one-off instruction beats all of them by naming a
-        workflow explicitly, which never reaches this method.
+        Precedence: the job's own, then the repository preference, then the user's
+        configured default. A one-off instruction beats all of them by naming a workflow
+        explicitly, which never reaches this method.
         """
-        if job is not None and job.profile:
-            return job.profile
+        if job is not None and job.composite_workflow:
+            return job.composite_workflow
         if repository_id is not None:
-            preference = self.store.get_preference(f"profile:{repository_id}")
+            preference = self.store.get_preference(f"composite_workflow:{repository_id}")
             if preference:
                 return preference
-        return self.config.default_profile
+        return self.config.default_composite_workflow
 
-    def set_repository_profile(self, repository_id: UUID, profile: str) -> None:
-        get_workflow(profile)  # refuse to store a profile that does not exist
-        self.store.set_preference(f"profile:{repository_id}", profile)
+    def set_repository_composite_workflow(self, repository_id: UUID, name: str) -> None:
+        get_workflow(name)  # refuse to store a workflow that does not exist
+        self.store.set_preference(f"composite_workflow:{repository_id}", name)
 
     async def start_run(self, workflow_name: str, *, job_id: UUID, request: str = "") -> WorkflowRun:
         """Begin a composite workflow over a job and start its first applicable step."""
@@ -698,7 +700,7 @@ class SessionManager:
                 f"{job.title!r} is already running {existing.workflow} "
                 f"(step {existing.step_index + 1}, {existing.status.value})."
             )
-        job.profile = definition.name
+        job.composite_workflow = definition.name
         self.store.save_job(job)
         run = WorkflowRun(
             job_id=job.id,
@@ -2094,10 +2096,10 @@ class SessionManager:
                     ticket_text=proposal.message,
                 )
                 label = job.external_ref or job.title
-                # A one-off named workflow wins; otherwise the repository or user profile.
-                name = proposal.workflow or router.DEFAULT_PROFILE
-                if name == router.DEFAULT_PROFILE:
-                    name = self.resolve_profile(job.repository_id, job)
+                # A one-off named workflow wins; otherwise the repository or user default.
+                name = proposal.workflow or router.DEFAULT_COMPOSITE_WORKFLOW
+                if name == router.DEFAULT_COMPOSITE_WORKFLOW:
+                    name = self.resolve_composite_workflow(job.repository_id, job)
                 if get_workflow(name).is_composite:
                     run = await self.start_run(name, job_id=job.id, request=proposal.message)
                     return f"Started {label} on the {name} workflow. {self._run_reply(run)}"

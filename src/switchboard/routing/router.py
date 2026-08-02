@@ -30,7 +30,7 @@ DESTRUCTIVE_PATTERNS = (
 
 #: What a brand new job runs when the user has expressed no other preference. The session
 #: manager may substitute a repository or user preference before executing the route.
-DEFAULT_PROFILE = "complete-ticket"
+DEFAULT_COMPOSITE_WORKFLOW = "complete-ticket"
 
 Action = Literal[
     "message_worker",
@@ -345,7 +345,7 @@ def resolve_route(text: str, state: RoutingState) -> RouteProposal:
             title=extract_title(text, ref),
             external_ref=ref,
             message=text,
-            workflow=DEFAULT_PROFILE,
+            workflow=DEFAULT_COMPOSITE_WORKFLOW,
             priority=5,
         )
 
@@ -447,7 +447,7 @@ def resolve_route(text: str, state: RoutingState) -> RouteProposal:
         title=extract_title(text, ref),
         external_ref=ref,
         message=text,
-        workflow=DEFAULT_PROFILE,
+        workflow=DEFAULT_COMPOSITE_WORKFLOW,
         priority=5,
     )
 

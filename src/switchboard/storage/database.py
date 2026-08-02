@@ -181,7 +181,7 @@ def migrate(conn: sqlite3.Connection) -> None:
     """Bring a database up to `SCHEMA_VERSION`.
 
     Every statement is `IF NOT EXISTS`, and versions so far only add tables and columns
-    that default cleanly (a v1 job simply has no profile), so replaying the schema is the
+    that default cleanly (a v1 job simply has no composite workflow), so replaying it is the
     whole migration. Anything that needs to rewrite existing rows gets an explicit step.
     """
     conn.executescript(SCHEMA)

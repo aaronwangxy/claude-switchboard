@@ -132,10 +132,10 @@ async def test_an_approval_gate_never_points_at_an_unrelated_worker(project):
     assert aside.id not in {i.worker_id for i in gates}
 
 
-async def test_the_job_records_the_profile_it_is_following(project):
+async def test_the_job_records_the_composite_workflow_it_is_following(project):
     sm, backend, repo = project
     _, job, _ = await paste_ticket(sm)
-    assert sm.store.get_job(job.id).profile == "complete-ticket"
+    assert sm.store.get_job(job.id).composite_workflow == "complete-ticket"
 
 
 # ------------------------------------------------------------------ advancing
@@ -226,26 +226,26 @@ async def test_blocking_findings_trigger_the_bounded_fix_loop(project):
     assert sm.store.get_job(job.id).stage is JobStage.FIXING
 
 
-# -------------------------------------------------------------- profile choice
+# ------------------------------------------------- composite workflow choice
 
 
-async def test_a_repository_preference_selects_a_different_profile(project):
+async def test_a_repository_preference_selects_a_different_composite_workflow(project):
     sm, backend, repo = project
-    sm.set_repository_profile(repo.id, "lightweight-feature")
+    sm.set_repository_composite_workflow(repo.id, "lightweight-feature")
     _, job, _ = await paste_ticket(sm)
     await approve_and_run(sm, job)
 
-    assert sm.store.get_job(job.id).profile == "lightweight-feature"
+    assert sm.store.get_job(job.id).composite_workflow == "lightweight-feature"
     executions = [e.workflow for e in sm.store.list_workflow_executions(job.id)]
     assert "smoke-test" in executions
-    assert "independent-review" not in executions, "this profile has no review step"
+    assert "independent-review" not in executions, "this workflow has no review step"
 
 
-async def test_an_unknown_profile_is_refused_before_it_is_stored(project):
+async def test_an_unknown_composite_workflow_is_refused_before_it_is_stored(project):
     sm, backend, repo = project
     with pytest.raises(WorkflowError):
-        sm.set_repository_profile(repo.id, "no-such-profile")
-    assert sm.resolve_profile(repo.id) == "complete-ticket"
+        sm.set_repository_composite_workflow(repo.id, "no-such-workflow")
+    assert sm.resolve_composite_workflow(repo.id) == "complete-ticket"
 
 
 CUSTOM_PROFILE = """\
@@ -260,12 +260,12 @@ steps:
 """
 
 
-async def test_a_user_defined_profile_drives_a_real_job(project, isolated_workflows: Path):
+async def test_a_user_defined_composite_workflow_drives_a_real_job(project, isolated_workflows: Path):
     sm, backend, repo = project
     isolated_workflows.mkdir(parents=True, exist_ok=True)
     (isolated_workflows / "plan-and-smoke.yaml").write_text(CUSTOM_PROFILE)
     assert reload_workflows() == []
-    sm.set_repository_profile(repo.id, "plan-and-smoke")
+    sm.set_repository_composite_workflow(repo.id, "plan-and-smoke")
 
     _, job, _ = await paste_ticket(sm)
     await approve_and_run(sm, job)

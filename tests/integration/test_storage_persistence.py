@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
@@ -400,3 +401,28 @@ def test_unknown_ids_return_none(store: Store):
     assert store.get_job(uuid4()) is None
     assert store.get_worker(uuid4()) is None
     assert store.get_worktree(uuid4()) is None
+
+
+def test_a_job_stored_before_the_rename_still_loads_its_composite_workflow(
+    store: Store, tmp_path: Path
+):
+    """`Job.profile` became `Job.composite_workflow`; rows written before that must load.
+
+    The field decides which ritual a resumed job follows, so silently defaulting it to
+    None would restart an in-flight job on the wrong workflow.
+    """
+    repo = Repository(name="demo", root_path=tmp_path / "demo")
+    store.add_repository(repo)
+    job = Job(title="legacy", repository_id=repo.id)
+    store.save_job(job)
+    legacy = json.loads(store.conn.execute(
+        "SELECT data FROM jobs WHERE id=?", (str(job.id),)
+    ).fetchone()["data"])
+    legacy.pop("composite_workflow")
+    legacy["profile"] = "lightweight-feature"
+    store.conn.execute(
+        "UPDATE jobs SET data=? WHERE id=?", (json.dumps(legacy), str(job.id))
+    )
+    store.conn.commit()
+
+    assert store.get_job(job.id).composite_workflow == "lightweight-feature"

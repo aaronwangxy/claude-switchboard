@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 from switchboard.domain.enums import (
     ArtifactType,
@@ -40,6 +40,8 @@ class Repository(Base):
 
 
 class Job(Base):
+    model_config = ConfigDict(populate_by_name=True)
+
     id: UUID = Field(default_factory=uuid4)
     title: str
     external_ref: str | None = None
@@ -49,7 +51,10 @@ class Job(Base):
     base_ref: str = "main"
     ticket_text: str = ""
     #: The composite workflow this job follows. Stored so a resumed job is reproducible.
-    profile: str | None = None
+    #: `profile` is the name this field had before Phase 10; stored rows still load.
+    composite_workflow: str | None = Field(
+        default=None, validation_alias=AliasChoices("composite_workflow", "profile")
+    )
     #: The one worktree whose Git lineage defines this job's change. Other writable
     #: workers remain isolated, but may not implicitly become the review target.
     authoritative_worktree_id: UUID | None = None

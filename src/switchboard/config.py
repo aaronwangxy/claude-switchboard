@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 
 CONFIG_ENV = "SB_CONFIG"
 HOME_ENV = "SB_HOME"
@@ -91,12 +91,18 @@ class WorktreeBootstrapConfig(BaseModel):
 
 
 class Config(BaseModel):
+    model_config = {"populate_by_name": True}
+
     subagents: SubagentConfig = Field(default_factory=SubagentConfig)
     commits: CommitConfig = Field(default_factory=CommitConfig)
     models: ModelConfig = Field(default_factory=ModelConfig)
     workflows: WorkflowConfig = Field(default_factory=WorkflowConfig)
-    #: The composite workflow a new job follows unless the job or repository says otherwise.
-    default_profile: str = "complete-ticket"
+    #: The composite workflow a new job follows unless the job or repository says
+    #: otherwise. `default_profile` is the key this had before Phase 10.
+    default_composite_workflow: str = Field(
+        default="complete-ticket",
+        validation_alias=AliasChoices("default_composite_workflow", "default_profile"),
+    )
     claude: ClaudeConfig = Field(default_factory=ClaudeConfig)
     worktree_bootstrap: WorktreeBootstrapConfig = Field(default_factory=WorktreeBootstrapConfig)
 
