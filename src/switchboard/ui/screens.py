@@ -11,7 +11,6 @@ high-level Manager input; Enter hands the terminal to the selected exact native 
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import subprocess
 from collections import deque
@@ -100,7 +99,9 @@ class ManagerPane(Vertical):
         text = Text()
         if not self._entries:
             text.append("Give Manager a goal below, or select it and press Enter.\n", style="dim")
-        for _, reply in self._entries:
+        # The pane is intentionally short at 80x24. Paint newest first so stale recovery
+        # notes can never push the result of the user's latest turn below the viewport.
+        for _, reply in reversed(self._entries):
             text.append(f"{reply or PENDING}\n", style="dim")
         try:
             self.query_one("#manager-log", Static).update(text)
@@ -325,7 +326,7 @@ class SwitchboardApp(App[None]):
         )
         if hasattr(self.manager, "status"):
             status = self.manager.status()  # type: ignore[attr-defined]
-            state = status.get("state") or "absent"
+            state = "turn active" if self._busy else status.get("state") or "absent"
             owner = status.get("owner") or "-"
             self.query_one("#manager-title", Static).update(
                 f"Manager · {state} · {owner}"
@@ -366,7 +367,9 @@ class SwitchboardApp(App[None]):
         jobs = {job.id: job for job in self.sm.store.list_jobs()}
         repos = {repo.id: repo for repo in self.sm.store.list_repositories()}
         manager_status = self.manager.status() if hasattr(self.manager, "status") else {}
-        manager_state = str(manager_status.get("state") or "ready")
+        manager_state = (
+            "turn_active" if self._busy else str(manager_status.get("state") or "ready")
+        )
         manager_owner = str(manager_status.get("owner") or "manager")
         manager_row = Text()
         manager_row.append("● " if manager_state in ("turn_active", "starting") else "✓ ", style="bold green")

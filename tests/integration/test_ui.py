@@ -218,11 +218,28 @@ async def test_a_normal_goal_does_not_hide_the_manager_outcome(app):
     async with app.run_test(size=(80, 24)) as pilot:
         await quiet(pilot)
         app.sm.store.set_preference("manager.current_objective", "x" * 120)
+        app.manager_pane.add_note("An older recovery note that must not occupy the viewport.")
         app.manager_pane.complete_exchange("Visible manager outcome.")
         app._tick()
         await quiet(pilot)
 
         assert "Visible manager outcome." in rendered_text(pilot, "#manager-log")
+
+
+async def test_manager_title_does_not_claim_ready_while_board_turn_is_busy(app, monkeypatch):
+    monkeypatch.setattr(
+        app.manager,
+        "status",
+        lambda: {"state": "ready", "owner": "manager"},
+        raising=False,
+    )
+    async with app.run_test(size=(80, 24)) as pilot:
+        await quiet(pilot)
+        app._busy = True
+        app._tick()
+        await quiet(pilot)
+
+        assert "Manager · turn active · manager" in rendered_text(pilot, "#manager-title")
 
 
 async def test_manager_startup_instruction_uses_global_entry_binding(app, monkeypatch):
