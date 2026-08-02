@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 import sys
 from pathlib import Path
@@ -24,9 +25,23 @@ from switchboard.domain.enums import (
 from switchboard.domain.models import RuntimeInstance, now
 from switchboard.runtime.tmux import TmuxError, TmuxRuntimeStatus
 
+log = logging.getLogger(__name__)
+
 MANAGER_ID_KEY = "manager.identity"
 MANAGER_HANDOFF_KEY = "manager.handoff"
 MANAGER_OBJECTIVE_KEY = "manager.current_objective"
+#: Set to a runtime id whose native startup stopped on a prompt only a person can answer.
+MANAGER_BLOCKED_KEY = "manager.blocked_runtime"
+
+#: How long to wait for the Manager's SessionStart before assuming a person is needed.
+#: Short, because the cost of guessing wrong is only a message that clears itself once
+#: the session reports ready, while the cost of waiting is the user staring at nothing.
+STARTUP_TIMEOUT = 25.0
+
+STARTUP_NEEDS_YOU = (
+    "Manager's native Claude session is waiting on a startup prompt -- workspace trust, "
+    "a login, or similar. Press Ctrl+E to enter it, answer the prompt, then come back."
+)
 MAX_HANDOFF_CHARS = 4000
 MAX_MANAGER_TURNS = 80
 FRESH_MANAGER_RE = re.compile(
@@ -97,6 +112,10 @@ class PersistentNativeManager(Manager):
                 )
             if runtime.owner is RuntimeOwner.HUMAN:
                 return "Manager is currently owned by the human session; automated input is paused."
+            if runtime.process_state is not RuntimeProcessState.READY:
+                # Do not push input at a session that is sitting on a trust or login
+                # prompt: it would be typed into that dialog.
+                return STARTUP_NEEDS_YOU
             self.sm.store.set_preference(MANAGER_OBJECTIVE_KEY, text[:1000])
             turn = self.backend.runtime.send_managed(runtime.id, text)
             self.sm.store.set_preference(
@@ -173,6 +192,11 @@ class PersistentNativeManager(Manager):
 
     def status(self) -> dict[str, object]:
         runtime = self.current_runtime
+        blocked = bool(
+            runtime is not None
+            and runtime.process_state is not RuntimeProcessState.READY
+            and self.sm.store.get_preference(MANAGER_BLOCKED_KEY, "") == str(runtime.id)
+        )
         return {
             "manager_id": str(self.manager_id),
             "runtime_id": str(runtime.id) if runtime else None,
@@ -181,6 +205,7 @@ class PersistentNativeManager(Manager):
             "state": runtime.process_state.value if runtime else "absent",
             "owner": runtime.owner.value if runtime else None,
             "workspace": str(self.workspace),
+            "needs_you": STARTUP_NEEDS_YOU if blocked else "",
         }
 
     async def _new_generation(
@@ -223,7 +248,21 @@ class PersistentNativeManager(Manager):
             system_prompt_append=self._prompt(runtime),
             extra_args=self._extra_args(runtime),
         )
-        await self.backend._wait_ready(runtime.id)
+        try:
+            await self.backend._wait_ready(runtime.id, timeout=STARTUP_TIMEOUT)
+        except RuntimeError as exc:
+            # Native Claude asks for workspace trust or a login on a first run, and that
+            # dialog blocks SessionStart. Raising here kills the controller process --
+            # which tears down the Unix socket the Manager's MCP bridge is waiting on, so
+            # the Manager comes back with no orchestration tools at all and can only
+            # narrate. The process is alive and needs a person, so say so and stay up.
+            observed = self.backend.supervisor.observe(runtime.id)
+            if observed.observation.status is not TmuxRuntimeStatus.ALIVE:
+                raise
+            self.sm.store.set_preference(MANAGER_BLOCKED_KEY, str(runtime.id))
+            log.warning("manager startup needs a person: %s", exc)
+            return self.sm.store.get_runtime(runtime.id) or launched.runtime.runtime
+        self.sm.store.set_preference(MANAGER_BLOCKED_KEY, "")
         return launched.runtime.runtime
 
     def _prompt(self, runtime: RuntimeInstance) -> str:

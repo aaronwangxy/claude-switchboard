@@ -15,7 +15,11 @@ import pytest
 
 from switchboard.agents.backend import WorkerEvent
 from switchboard.agents.native_backend import NativeClaudeBackend, default_tmux_socket_path
-from switchboard.agents.native_manager import MAX_HANDOFF_CHARS, PersistentNativeManager
+from switchboard.agents.native_manager import (
+    MAX_HANDOFF_CHARS,
+    STARTUP_NEEDS_YOU,
+    PersistentNativeManager,
+)
 from switchboard.config import ClaudeConfig, Config
 from switchboard.core.session_manager import SessionManager, SessionManagerError
 from switchboard.domain.enums import (
@@ -162,6 +166,44 @@ def native_services(store: Store, worktree_service, tmp_path: Path):
         capture_output=True,
         check=False,
     )
+
+
+async def test_manager_startup_blocked_on_a_dialog_keeps_the_controller_alive(
+    store: Store, worktree_service, tmp_path: Path
+):
+    """A first run meets Claude's workspace-trust dialog before SessionStart.
+
+    Raising here used to kill the board process, which tore down the Unix socket the
+    Manager's MCP bridge connects to -- so the Manager came back with no orchestration
+    tools and could only narrate that it had none. The board must survive and say who
+    needs to do what.
+    """
+    if shutil.which("tmux") is None:
+        pytest.skip("tmux is not installed")
+    config = Config(
+        claude=ClaudeConfig(
+            executable=str(FAKE), env={"FAKE_NATIVE_BLOCK_STARTUP": "1"}
+        )
+    )
+    socket = Path("/private/tmp") / f"switchboard-native-{uuid4().hex}.sock"
+    backend = NativeClaudeBackend(store, config, tmp_path / "runtime", socket_path=socket)
+    sm = SessionManager(store, backend, config, worktree_service)
+    manager = PersistentNativeManager(sm, backend, tmp_path / "manager-blocked")
+    try:
+        runtime = await manager.start_or_recover()
+        assert runtime.process_state is not RuntimeProcessState.READY
+        status = manager.status()
+        assert "Ctrl+E" in str(status["needs_you"])
+
+        # And nothing is typed at a session that is sitting on a dialog.
+        assert await manager.handle("what is blocked?") == STARTUP_NEEDS_YOU
+        assert sm.store.list_native_turns(runtime.id) == []
+    finally:
+        subprocess.run(
+            [backend.controller.executable, "-S", str(socket), "kill-server"],
+            capture_output=True,
+            check=False,
+        )
 
 
 async def test_atomic_workflow_consumes_only_managed_stop_and_returns_ready(

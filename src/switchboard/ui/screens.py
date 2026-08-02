@@ -300,6 +300,9 @@ class SwitchboardApp(App[None]):
             return
         if notes:
             self.manager_pane.add_note("Recovered sessions: " + "; ".join(notes))
+        needs_you = str(self.manager.status().get("needs_you") or "")
+        if needs_you:
+            self.manager_pane.add_note(needs_you)
         self.refresh_workers()
 
     # -------------------------------------------------------------- live updates
@@ -418,7 +421,10 @@ class SwitchboardApp(App[None]):
             detail.append("workspace  ", style="dim")
             detail.append(str(status.get("workspace") or "isolated non-repository workspace") + "\n\n")
             detail.append(self.sm.status_summary())
-            if status.get("state") == "starting":
+            needs_you = str(status.get("needs_you") or "")
+            if needs_you:
+                detail.append("\n\n" + needs_you, style="bold yellow")
+            elif status.get("state") == "starting":
                 detail.append(
                     "\n\nStartup is waiting for native Claude. Press Ctrl+E to handle "
                     "workspace trust, login, or another startup prompt.",

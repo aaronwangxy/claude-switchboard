@@ -75,6 +75,12 @@ def response_for(prompt: str) -> str:
 def main() -> int:
     session_id = option("--session-id")
     command = hook_command()
+    if os.environ.get("FAKE_NATIVE_BLOCK_STARTUP") == "1":
+        # Real Claude sits on a workspace-trust or login dialog before SessionStart:
+        # alive, visible in tmux, and silent to the hook bridge until a person answers.
+        record({"event": "blocked_on_startup_dialog", "pid": os.getpid()})
+        while True:
+            time.sleep(3600)
     emit(command, session_id, "SessionStart", source="startup", model="fake")
     record({"event": "started", "pid": os.getpid(), "argv": sys.argv[1:]})
     old = termios.tcgetattr(sys.stdin.fileno())
