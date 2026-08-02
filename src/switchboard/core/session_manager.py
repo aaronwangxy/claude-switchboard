@@ -889,8 +889,18 @@ class SessionManager:
             ]
             worker = candidates[-1] if candidates else None
         if worker is not None:
-            self.raise_attention(worker, AttentionKind.PLAN_APPROVAL, detail, detail)
+            self._raise_attention_once(worker, AttentionKind.PLAN_APPROVAL, detail)
         return paused
+
+    def _raise_attention_once(self, worker: Worker, kind: AttentionKind, reason: str) -> None:
+        """Raise attention the user has not already been shown for this worker."""
+        open_kinds = {
+            item.kind
+            for item in self.store.attention_items_for_worker(worker.id)
+            if not item.handled
+        }
+        if kind not in open_kinds:
+            self.raise_attention(worker, kind, reason, reason)
 
     def _approval_satisfied(self, run: WorkflowRun, step: WorkflowStep, job: Job) -> bool:
         """Whether the user has given the approval this step asks for."""
@@ -1386,6 +1396,25 @@ class SessionManager:
             self.store.get_job(worker.job_id) if worker.job_id else None,
             force=True,
         )
+        # Answering a native permission prompt by hand is the whole point of entering, so
+        # a worker whose runtime is no longer waiting must not stay BLOCKED. It would keep
+        # a stale reason on the board and, being non-terminal, make its own step
+        # unreplayable: the replay start is refused as a duplicate workflow.
+        if (
+            worker.status is WorkerStatus.BLOCKED
+            and runtime is not None
+            and runtime.process_state is not RuntimeProcessState.WAITING
+        ):
+            self._force_status(worker, WorkerStatus.IDLE, None)
+            self._resolve_attention(worker, kinds={AttentionKind.PERMISSION_REQUIRED})
+        # Entering a worker clears its attention so auto-advance does not bounce straight
+        # back. An approval gate is durable run state rather than a transient notice, so
+        # it has to return to the board when the user leaves.
+        run = self.store.run_for_worker(worker.id)
+        if run is not None and run.status is RunStatus.AWAITING_APPROVAL:
+            self._raise_attention_once(
+                worker, AttentionKind.PLAN_APPROVAL, run.detail or "This run needs your approval."
+            )
         self._record(worker, "system", "[the user left this session]")
         return worker
 

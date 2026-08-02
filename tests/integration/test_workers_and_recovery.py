@@ -245,6 +245,44 @@ async def test_a_run_blocked_at_native_startup_recovers_once_the_prompt_is_clear
     assert sm.store.get_worker(planner.id).status is WorkerStatus.WORKING
 
 
+async def test_handback_clears_a_permission_block_the_user_just_answered(
+    session_manager, git_repo, backend
+):
+    """Entering a worker to answer its permission prompt must not leave it blocked.
+
+    A worker left BLOCKED keeps a stale reason on the board and, being non-terminal,
+    makes its own step unreplayable: the replay is refused as a duplicate workflow.
+    """
+    sm = session_manager
+    repo = sm.register_repository(git_repo("permission-handback"), "permission-handback")
+    job = sm.create_job("Greeting", repo.id)
+    worker = await sm.start_workflow("plan-feature", job_id=job.id)
+    sm._force_status(worker, WorkerStatus.BLOCKED, "Permission required for Bash.")
+    sm.raise_attention(worker, AttentionKind.PERMISSION_REQUIRED, "Permission required for Bash.")
+
+    await sm.attach(worker.id)
+    runtime = sm.store.current_runtime(worker.id)
+    runtime.process_state = RuntimeProcessState.READY  # the prompt was answered by hand
+    sm.store.save_runtime(runtime)
+    sm.detach(worker.id, composer_cleared=True)
+
+    reconciled = sm.store.get_worker(worker.id)
+    assert reconciled.status is WorkerStatus.IDLE
+    assert not reconciled.waiting_for
+    open_kinds = {i.kind for i in sm.store.attention_items_for_worker(worker.id) if not i.handled}
+    assert AttentionKind.PERMISSION_REQUIRED not in open_kinds
+
+    # A worker still waiting on its runtime keeps its block.
+    still_waiting = await sm.start_workflow("plan-feature", job_id=job.id, target_worker_id=worker.id)
+    sm._force_status(still_waiting, WorkerStatus.BLOCKED, "Permission required for Bash.")
+    await sm.attach(still_waiting.id)
+    runtime = sm.store.current_runtime(still_waiting.id)
+    runtime.process_state = RuntimeProcessState.WAITING
+    sm.store.save_runtime(runtime)
+    sm.detach(still_waiting.id, composer_cleared=True)
+    assert sm.store.get_worker(still_waiting.id).status is WorkerStatus.BLOCKED
+
+
 async def test_answering_a_blocked_worker_resumes_it_and_advances_the_queue(
     session_manager, git_repo, backend
 ):

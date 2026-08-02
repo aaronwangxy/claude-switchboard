@@ -86,8 +86,17 @@ async def test_an_approval_gate_reaches_the_attention_queue(project):
     assert items[0].job_id == job.id
     assert "1 plan approval" in sm.status_summary()
 
+    # Reading the plan in its own session must not silently retire the gate.
+    (planner,) = sm.store.list_workers(job.id)
+    await sm.attach(planner.id)
+    sm.detach(planner.id, composer_cleared=True)
+    kinds = [i.kind for i in sm.list_attention_items()]
+    assert kinds == [AttentionKind.PLAN_APPROVAL], "the gate returns when the user leaves"
+
+    gate_id = sm.list_attention_items()[0].id
     await approve_and_run(sm, job)
-    assert not [i for i in sm.list_attention_items() if i.kind is AttentionKind.PLAN_APPROVAL]
+    handled = {i.id for i in sm.store.list_attention_items(include_handled=True) if i.handled}
+    assert gate_id in handled, "approving retires the gate it was raised for"
 
 
 async def test_the_job_records_the_profile_it_is_following(project):
