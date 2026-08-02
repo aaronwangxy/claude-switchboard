@@ -145,7 +145,7 @@ def test_a_user_can_add_a_workflow_without_editing_switchboard(isolated_workflow
     assert reload_workflows() == []
     definition = get_workflow("post-rebase-verify")
     assert definition.source == "user"
-    assert definition.role is WorkerRole.VERIFIER
+    assert definition.role == WorkerRole.VERIFIER
     assert definition.produces == frozenset({ArtifactType.SMOKE_VERIFICATION})
     # It is allowed for its own role like any built-in.
     assert validate_for_role("post-rebase-verify", WorkerRole.VERIFIER) is definition
@@ -167,8 +167,23 @@ def test_a_user_workflow_may_not_redefine_a_builtin(isolated_workflows: Path):
     assert any("built-in" in problem for problem in problems)
 
 
+def test_a_workflow_may_declare_a_role_switchboard_has_never_heard_of(isolated_workflows: Path):
+    """Adding a workflow must never require editing Switchboard, roles included."""
+    _write(
+        isolated_workflows,
+        "trace-flake.yaml",
+        "name: trace-flake\nrole: flake-hunter\n"
+        "role_policy: You hunt flaky tests. Change nothing.\nprompt: 'chase {request}'\n",
+    )
+    assert reload_workflows() == []
+    definition = get_workflow("trace-flake")
+    assert definition.role == WorkerRole("flake-hunter")
+    # The declared role is allowed for its own workflow without any registration step.
+    assert validate_for_role("trace-flake", WorkerRole("flake-hunter")) is definition
+
+
 def test_a_broken_user_workflow_is_reported_and_skipped(isolated_workflows: Path):
-    _write(isolated_workflows, "broken.yaml", "name: broken\nrole: not-a-role\nprompt: hi\n")
+    _write(isolated_workflows, "broken.yaml", "name: broken\nrole: 'Not A Role'\nprompt: hi\n")
     _write(isolated_workflows, "fine.yaml", "name: fine\nprompt: 'ok {request}'\n")
     problems = reload_workflows()
     assert len(problems) == 1 and "broken.yaml" in problems[0]

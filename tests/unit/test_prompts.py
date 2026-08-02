@@ -15,19 +15,25 @@ from switchboard.agents.prompts import (
 from switchboard.config import Config
 from switchboard.domain.enums import Verbosity, WorkerRole
 
+#: Roles are open, so there is no set to enumerate. These are the ones the built-in
+#: workflows use, plus one a workflow could invent tomorrow.
+BUILTIN_ROLES = [WorkerRole(name) for name in sorted(ROLE_POLICIES)] + [
+    WorkerRole("investigator")
+]
+
 
 @pytest.fixture
 def config() -> Config:
     return Config()
 
 
-@pytest.mark.parametrize("role", list(WorkerRole))
+@pytest.mark.parametrize("role", BUILTIN_ROLES)
 def test_every_role_gets_the_global_concision_policy(config, role):
     prompt = compose_worker_prompt(role, config, writable=True)
     assert CONCISION_POLICY in prompt
 
 
-@pytest.mark.parametrize("role", list(WorkerRole))
+@pytest.mark.parametrize("role", BUILTIN_ROLES)
 def test_no_prompt_ever_restricts_reasoning_or_tools(config, role):
     prompt = compose_worker_prompt(role, config, writable=True)
     assert "Think and investigate as deeply as" in prompt
@@ -40,6 +46,29 @@ def test_role_policies_are_role_specific(config):
     assert "at most 10 short lines" in planner
     assert "Verdict first" in reviewer
     assert ROLE_POLICIES[WorkerRole.PLANNER] not in reviewer
+
+
+def test_a_workflow_may_bring_the_policy_for_a_role_switchboard_has_never_heard_of(config):
+    role = WorkerRole("investigator")
+    declared = "You are an investigation worker. Report findings; change nothing."
+    prompt = compose_worker_prompt(role, config, writable=False, role_policy=declared)
+    assert declared in prompt
+    assert CONCISION_POLICY in prompt
+
+
+def test_an_unknown_role_without_a_declared_policy_still_gets_a_safe_one(config):
+    prompt = compose_worker_prompt(WorkerRole("archivist"), config, writable=False)
+    assert "archivist worker" in prompt
+    assert "Never force-push" in prompt
+
+
+def test_a_declared_role_policy_may_contain_braces(config):
+    """A role policy is authored YAML and may hold a JSON schema; it must not be formatted."""
+    declared = 'Answer with {"finding": "", "evidence": []} and nothing else.'
+    prompt = compose_worker_prompt(
+        WorkerRole("investigator"), config, writable=False, role_policy=declared
+    )
+    assert declared in prompt
 
 
 def test_the_reviewer_is_told_it_has_no_implementer_reasoning(config):

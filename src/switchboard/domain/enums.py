@@ -1,8 +1,17 @@
-"""Enumerations for the core domain."""
+"""Enumerations for the core domain.
+
+Everything here is closed except `WorkerRole`, and that exception is the point: a role is
+something a *workflow* declares, so adding a workflow must not require editing this file.
+"""
 
 from __future__ import annotations
 
+import re
 from enum import Enum
+from typing import Any, ClassVar
+
+from pydantic import GetCoreSchemaHandler
+from pydantic_core import core_schema
 
 
 class WorkerStatus(str, Enum):
@@ -132,20 +141,98 @@ class RunStatus(str, Enum):
 TERMINAL_RUN_STATUSES = frozenset({RunStatus.COMPLETED, RunStatus.FAILED})
 
 
-class WorkerRole(str, Enum):
-    GENERAL = "general"
-    PLANNER = "planner"
-    IMPLEMENTER = "implementer"
-    VERIFIER = "verifier"
-    REVIEWER = "reviewer"
-    QUESTION = "question"
-    REBASE = "rebase"
-    REVIEW_COMMENTS = "review_comments"
+_ROLE_NAME = re.compile(r"[a-z][a-z0-9]*([_-][a-z0-9]+)*")
 
 
-#: Roles that are read-only by default and therefore need no worktree of their own.
-READ_ONLY_ROLES = frozenset(
-    {WorkerRole.PLANNER, WorkerRole.REVIEWER, WorkerRole.QUESTION, WorkerRole.VERIFIER}
+class WorkerRole(str):
+    """The name of the part a worker plays in a workflow.
+
+    Deliberately a validated string rather than an enum. `plan-feature` needs a planner and
+    `investigate` needs an investigator, and both are ordinary YAML files -- if the second
+    one required a new enum member, the first workflow would be the architecture and the
+    second would be an extension of it. The constants below are the roles the built-ins
+    happen to use, not the permitted set.
+
+    `.value` is kept so call sites read the same as they did against the enum.
+    """
+
+    __slots__ = ()
+
+    #: One instance per name, so `WorkerRole("verifier") is WorkerRole.VERIFIER` holds and
+    #: identity comparisons behave exactly as they did against the enum this replaced.
+    _interned: ClassVar[dict[str, WorkerRole]] = {}
+
+    GENERAL: ClassVar[WorkerRole]
+    PLANNER: ClassVar[WorkerRole]
+    IMPLEMENTER: ClassVar[WorkerRole]
+    VERIFIER: ClassVar[WorkerRole]
+    REVIEWER: ClassVar[WorkerRole]
+    QUESTION: ClassVar[WorkerRole]
+    REBASE: ClassVar[WorkerRole]
+    REVIEW_COMMENTS: ClassVar[WorkerRole]
+    INVESTIGATOR: ClassVar[WorkerRole]
+
+    def __new__(cls, value: str) -> WorkerRole:
+        name = str(value).strip().lower()
+        existing = cls._interned.get(name)
+        if existing is not None:
+            return existing
+        if not _ROLE_NAME.fullmatch(name):
+            raise ValueError(
+                f"{value!r} is not a usable role name. Use lowercase words joined by '-' "
+                "or '_', such as 'investigator' or 'review_comments'."
+            )
+        role = super().__new__(cls, name)
+        cls._interned[name] = role
+        return role
+
+    @property
+    def value(self) -> str:
+        return str(self)
+
+    def __repr__(self) -> str:
+        return f"WorkerRole({str(self)!r})"
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls, source: Any, handler: GetCoreSchemaHandler
+    ) -> core_schema.CoreSchema:
+        # Validate through `__new__` so a stored or YAML-authored role is checked once,
+        # and serialise as the plain name so nothing in the database changes shape.
+        return core_schema.no_info_after_validator_function(
+            cls,
+            core_schema.str_schema(),
+            serialization=core_schema.plain_serializer_function_ser_schema(
+                str, return_schema=core_schema.str_schema()
+            ),
+        )
+
+
+for _name in (
+    "GENERAL",
+    "PLANNER",
+    "IMPLEMENTER",
+    "VERIFIER",
+    "REVIEWER",
+    "QUESTION",
+    "REBASE",
+    "REVIEW_COMMENTS",
+    "INVESTIGATOR",
+):
+    setattr(WorkerRole, _name, WorkerRole(_name.lower()))
+del _name
+
+
+#: A bare `create_worker` with no workflow gets a worktree only for these roles. Every
+#: workflow-started worker takes its writability from the workflow's `mutates_code`
+#: instead, so a role nobody here anticipated is read-only rather than unconstrained.
+DEFAULT_WRITABLE_ROLES = frozenset(
+    {
+        WorkerRole.GENERAL,
+        WorkerRole.IMPLEMENTER,
+        WorkerRole.REBASE,
+        WorkerRole.REVIEW_COMMENTS,
+    }
 )
 
 

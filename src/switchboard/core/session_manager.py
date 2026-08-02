@@ -44,7 +44,7 @@ from switchboard.domain.contracts import (
     extract_json_block,
 )
 from switchboard.domain.enums import (
-    READ_ONLY_ROLES,
+    DEFAULT_WRITABLE_ROLES,
     TERMINAL_WORKER_STATUSES,
     ArtifactType,
     AttentionKind,
@@ -245,9 +245,9 @@ class SessionManager:
         if repo is None:
             raise SessionManagerError(f"Repository {repo_id} is not registered.")
 
-        # Read-only by default for reviewer/question/planner/verifier roles.
+        # Only a bare worker reaches this; a workflow always states its own writability.
         if writable is None:
-            writable = role not in READ_ONLY_ROLES
+            writable = role in DEFAULT_WRITABLE_ROLES
 
         worker = Worker(
             job_id=job.id if job else None,
@@ -438,6 +438,7 @@ class SessionManager:
                 writable=worker.writable,
                 verbosity=self.verbosity.get(worker.id, Verbosity.CONCISE),
                 workflow_policy=self._workflow_policy(worker.workflow),
+                role_policy=self._role_policy(worker.workflow),
             ),
             initial_prompt=prompt,
             model=worker.model,
@@ -479,6 +480,11 @@ class SessionManager:
         if definition is None:
             return None
         return f"Current workflow: {definition.name}. {definition.description.strip()}"
+
+    def _role_policy(self, workflow: str | None) -> str | None:
+        """The role policy a workflow declared for a role Switchboard has none for."""
+        definition = find_workflow(workflow)
+        return definition.role_policy if definition and definition.role_policy else None
 
     # --------------------------------------------------------------- messaging
 

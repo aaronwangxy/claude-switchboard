@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from switchboard.config import Config
 from switchboard.domain.enums import Verbosity, WorkerRole
+from switchboard.workflows.spec import render_template
 
 #: Bump when the composed policy text changes; persisted with each session so older
 #: sessions can be identified and refreshed.
@@ -31,7 +32,9 @@ only the conclusion, routing action, blocker, or next user decision. Do not
 repeat known context. Prefer one short paragraph or a compact list. Ask one
 concrete question at a time. Offer more detail only when requested."""
 
-ROLE_POLICIES: dict[WorkerRole, str] = {
+#: The policies for the roles the built-in workflows use. A workflow that introduces a role
+#: of its own supplies its policy in YAML (`role_policy:`) rather than editing this table.
+ROLE_POLICIES: dict[str, str] = {
     WorkerRole.PLANNER: (
         "You are a planning worker. You are read-only: inspect the repository, do not edit it.\n"
         "Your user-facing plan is at most {plan_max_lines} short lines, followed only by material\n"
@@ -105,6 +108,25 @@ VERBOSITY_NOTE = {
 }
 
 
+#: Given to a worker whose workflow declared a role nothing else knows about, so a custom
+#: role still gets the safety framing every built-in role states explicitly.
+UNDECLARED_ROLE_POLICY = (
+    "You are a {role} worker for this repository, acting under a Switchboard workflow.\n"
+    "Do the work the prompt describes and nothing beyond it. Never force-push, merge,\n"
+    "delete a branch, or discard changes."
+)
+
+
+def role_policy_for(role: WorkerRole, declared: str | None = None) -> str:
+    """The policy text for a role: the workflow's own, a built-in's, or a safe default."""
+    if declared:
+        return declared
+    known = ROLE_POLICIES.get(role)
+    if known is not None:
+        return known
+    return UNDECLARED_ROLE_POLICY.format(role=role.value)
+
+
 def compose_worker_prompt(
     role: WorkerRole,
     config: Config,
@@ -112,6 +134,7 @@ def compose_worker_prompt(
     writable: bool,
     verbosity: Verbosity = Verbosity.CONCISE,
     workflow_policy: str | None = None,
+    role_policy: str | None = None,
     artifacts_block: str | None = None,
 ) -> str:
     """Build the append-to-preset system prompt for one worker.
@@ -120,8 +143,14 @@ def compose_worker_prompt(
     then only the structured job artifacts relevant to the current action.
     """
     parts: list[str] = [CONCISION_POLICY]
-    role_policy = ROLE_POLICIES.get(role, ROLE_POLICIES[WorkerRole.GENERAL])
-    parts.append(role_policy.format(plan_max_lines=config.workflows.plan_feature.max_plan_lines))
+    # `render_template`, not `str.format`: a workflow-authored role policy may contain a
+    # JSON schema, and only the tokens we actually supply may be substituted.
+    parts.append(
+        render_template(
+            role_policy_for(role, role_policy),
+            {"plan_max_lines": config.workflows.plan_feature.max_plan_lines},
+        )
+    )
     if not writable:
         parts.append(READ_ONLY_NOTE)
     if config.subagents.enabled and writable:

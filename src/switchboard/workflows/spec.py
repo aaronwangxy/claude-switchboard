@@ -90,6 +90,9 @@ class WorkflowDefinition(BaseModel):
     description: str = ""
     aliases: tuple[str, ...] = ()
     role: WorkerRole = WorkerRole.GENERAL
+    #: System-prompt policy for `role`, when the role is one Switchboard has no built-in
+    #: policy for. This is what lets a workflow introduce a role without a core change.
+    role_policy: str = ""
     allowed_roles: frozenset[WorkerRole] = frozenset()
     mutates_code: bool = False
     #: Artifacts that must exist and be current before this workflow may run.

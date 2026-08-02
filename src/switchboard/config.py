@@ -34,7 +34,12 @@ class ModelConfig(BaseModel):
 
     Defaults come from the environment (`SB_STRONG_MODEL` / `SB_FAST_MODEL`) and fall
     back to the native Claude default (``None`` -> the configured runtime's default model).
+
+    Extra keys are allowed so a role a workflow invented -- `investigator`, say -- can be
+    configured here without Switchboard having to know the name in advance.
     """
+
+    model_config = {"extra": "allow"}
 
     manager: str | None = Field(default_factory=lambda: os.getenv("SB_STRONG_MODEL"))
     planner: str | None = Field(default_factory=lambda: os.getenv("SB_STRONG_MODEL"))
