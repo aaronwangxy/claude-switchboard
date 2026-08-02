@@ -85,11 +85,29 @@ class PersistentNativeManager(Manager):
             except TmuxError as exc:
                 observed = self.backend.supervisor.observe(current.id)
                 if observed.observation.status is TmuxRuntimeStatus.ALIVE:
-                    raise TmuxError(
-                        "The live Manager process does not match the current launch "
-                        "configuration. Refusing to create a duplicate; finish or stop the "
-                        "existing Manager session explicitly."
-                    ) from exc
+                    # This controller would launch the Manager differently from the process
+                    # that is running -- a changed prompt, model, or MCP wiring. That
+                    # process cannot be adopted, but refusing outright left the board with
+                    # a Manager that declined every message and could not be entered, with
+                    # no remedy the user could reach from the board. Retire it instead: the
+                    # Manager routes, it is never the system of record, and a bounded
+                    # handoff carries the objective across.
+                    if current.owner is RuntimeOwner.HUMAN:
+                        raise TmuxError(
+                            "The live Manager process does not match the current launch "
+                            "configuration, and you currently own it. Leave that session, "
+                            "or stop it, before Switchboard replaces it."
+                        ) from exc
+                    log.warning("retiring a mismatched live Manager process: %s", exc)
+                    objective = self.sm.store.get_preference(MANAGER_OBJECTIVE_KEY, "") or ""
+                    return await self._rotate_unlocked(
+                        {
+                            "current_user_objective": objective,
+                            "rotation_reason": (
+                                "the running Manager predates the current launch configuration"
+                            ),
+                        }
+                    )
             else:
                 if observed.observation.status is TmuxRuntimeStatus.ALIVE:
                     return observed.runtime
@@ -266,7 +284,9 @@ class PersistentNativeManager(Manager):
             log.warning("manager startup needs a person: %s", exc)
             return self.sm.store.get_runtime(runtime.id) or launched.runtime.runtime
         self.sm.store.set_preference(MANAGER_BLOCKED_KEY, "")
-        return launched.runtime.runtime
+        # Read the row rather than returning the pre-launch snapshot: readiness was just
+        # written by the session's own SessionStart hook, from its own process.
+        return self.sm.store.get_runtime(runtime.id) or launched.runtime.runtime
 
     def _prompt(self, runtime: RuntimeInstance) -> str:
         handoff = self.sm.store.get_preference(f"manager.handoff.{runtime.id}", "") or ""

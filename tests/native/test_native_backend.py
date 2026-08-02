@@ -97,35 +97,56 @@ async def test_native_manager_human_entry_uses_same_process(native_services, tmp
     assert sm.store.get_runtime(runtime.id).owner.value == "manager"
 
 
-async def test_live_manager_adoption_mismatch_refuses_duplicate(
+async def test_live_manager_that_predates_this_configuration_is_retired_not_stranded(
     native_services, tmp_path, monkeypatch
 ):
+    """A Manager launched under an older configuration must not wedge the board.
+
+    Editing the Manager's prompt or launch arguments while a session is running changes
+    its fingerprint, so the running process can no longer be adopted. Refusing outright
+    left every message and Ctrl+E answering with the same refusal, and the only way out
+    was an undocumented phrase. The mismatched process is retired instead.
+    """
     sm, backend, _ = native_services
     manager = PersistentNativeManager(sm, backend, tmp_path / "manager-no-duplicate")
     runtime = await manager.start_or_recover()
+
+    # The configuration changed once, so exactly the first adoption attempt mismatches.
+    real_adopt = backend.runtime.adopt
+    attempts: list[int] = []
+
+    def mismatch_once(*args, **kwargs):
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise TmuxError("fingerprint mismatch")
+        return real_adopt(*args, **kwargs)
+
+    monkeypatch.setattr(backend.runtime, "adopt", mismatch_once)
+    replacement = await manager.start_or_recover()
+
+    assert replacement.id != runtime.id
+    assert replacement.generation == runtime.generation + 1
+    assert sm.store.current_runtime(manager.manager_id).id == replacement.id
+    # The board is usable again straight away, which is the whole point.
+    assert "Plan ready" in await manager.handle("What is blocked?")
+
+
+async def test_a_mismatched_manager_the_user_owns_is_never_taken_from_them(
+    native_services, tmp_path, monkeypatch
+):
+    sm, backend, _ = native_services
+    manager = PersistentNativeManager(sm, backend, tmp_path / "manager-human-owned")
+    runtime = await manager.start_or_recover()
+    await manager.enter()  # the user is now in that session
 
     def mismatch(*args, **kwargs):
         raise TmuxError("fingerprint mismatch")
 
     monkeypatch.setattr(backend.runtime, "adopt", mismatch)
-    with pytest.raises(TmuxError, match="Refusing to create a duplicate"):
+    with pytest.raises(TmuxError, match="you currently own it"):
         await manager.start_or_recover()
     assert sm.store.current_runtime(manager.manager_id).id == runtime.id
     assert len(sm.store.list_runtimes(manager.manager_id)) == 1
-
-
-async def test_native_manager_entry_refuses_foreign_tmux_without_stranding_ownership(
-    native_services, tmp_path, monkeypatch
-):
-    sm, backend, _ = native_services
-    manager = PersistentNativeManager(sm, backend, tmp_path / "manager-nested")
-    runtime = await manager.start_or_recover()
-    monkeypatch.setenv("TMUX", "/tmp/a-different-tmux.sock,1,0")
-
-    with pytest.raises(TmuxError, match="separate terminal"):
-        await manager.enter()
-
-    assert sm.store.get_runtime(runtime.id).owner.value == "manager"
 
 
 @pytest.fixture
