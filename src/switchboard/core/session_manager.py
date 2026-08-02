@@ -97,6 +97,9 @@ from switchboard.workflows.registry import (
 
 log = logging.getLogger(__name__)
 
+#: Statuses meaning a worker no longer has a session worth reusing or ending.
+_RETIRED_STATUSES = (WorkerStatus.STOPPED, WorkerStatus.FAILED, WorkerStatus.DISCONNECTED)
+
 
 #: Fallback for a worker started with a role but no workflow (a bare `create_worker`).
 ROLE_ARTIFACTS: dict[WorkerRole, frozenset[ArtifactType]] = {
@@ -903,11 +906,14 @@ class SessionManager:
             run.status = RunStatus.RUNNING
             run.detail = ""
             self.store.save_run(run)
+            target = self._worker_for_step(step, step_definition, job)
+            if target is None:
+                await self._retire_superseded(job, step_definition)
             try:
                 worker = await self.start_workflow(
                     step.workflow,
                     job_id=job.id,
-                    target_worker_id=self._worker_for_step(step, step_definition, job),
+                    target_worker_id=target,
                     request=run.request,
                 )
             except SessionManagerError as exc:
@@ -1036,7 +1042,7 @@ class SessionManager:
             w
             for w in self.store.list_workers(job.id)
             if w.role in definition.allowed_roles
-            and w.status not in (WorkerStatus.STOPPED, WorkerStatus.FAILED, WorkerStatus.DISCONNECTED)
+            and w.status not in _RETIRED_STATUSES
             and (w.writable or not definition.mutates_code)
             and (
                 not definition.mutates_code
@@ -1050,6 +1056,33 @@ class SessionManager:
             )
         ]
         return candidates[-1].id if candidates else None
+
+    async def _retire_superseded(self, job: Job, definition: WorkflowDefinition) -> None:
+        """Stop this job's earlier read-only sessions of the same role before a fresh one.
+
+        A `fresh` step starts a new session every time it runs, and a repeat target can
+        send a run back through verify and review several times. Nothing used to stop the
+        previous attempt, so a long job accumulated live idle sessions -- a real run ended
+        with three verifiers on one worktree, each holding a report a later commit had
+        already invalidated. That is the opposite of standing in for the operator, who
+        would have closed them.
+
+        Deliberately limited to a workflow that does not mutate code: a writable session
+        owns a worktree and is the job's change, so it is never retired automatically. The
+        role, not the worker's `workflow` field, identifies the superseded attempt --
+        `workflow` records the last step that ran on a session, not the one that started
+        it. A session the user owns is also left alone.
+        """
+        if definition.mutates_code:
+            return
+        for worker in self.store.list_workers(job.id):
+            if worker.role != definition.role or worker.status in _RETIRED_STATUSES:
+                continue
+            runtime = self.store.current_runtime(worker.id)
+            if runtime is not None and runtime.owner is not RuntimeOwner.MANAGER:
+                continue
+            log.info("retiring superseded %s for a fresh %s", worker.title, definition.name)
+            await self.stop_worker(worker.id)
 
     def _pause_run(self, run: WorkflowRun, status: RunStatus, detail: str) -> WorkflowRun:
         run.status = status

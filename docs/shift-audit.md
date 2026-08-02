@@ -177,7 +177,15 @@ fixed with a regression test.
    reads the pane, answers a trust dialog it can answer, and otherwise waits again — the
    cost of waiting is latency, the cost of a false "needs you" is a stalled fleet.
 
+10. **Repeated steps left their sessions running.** A `fresh` step starts a new session
+    each time it runs, and review sent the run back through verification twice, so the
+    job ended with three live verifiers on one worktree — each holding a report a later
+    commit had already invalidated. An earlier read-only attempt at the same role is now
+    retired when its replacement starts. Writable sessions never are: one owns a worktree
+    and *is* the job's change.
+
 Points 1, 2, 4, 8 and 9 have the same shape, and it is the shape that matters for this
 product: **the fleet interrupting the user for something that did not need them, or
 stopping without telling them.** Neither is visible from reading the code. Both are
-obvious within two minutes of running it.
+obvious within two minutes of running it. Point 10 is the third form of the same thing:
+the board has to stay readable, or none of the rest is reachable.

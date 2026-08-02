@@ -12,7 +12,7 @@ import json
 
 import pytest
 
-from switchboard.domain.enums import ArtifactType, WorkerRole
+from switchboard.domain.enums import ArtifactType, WorkerRole, WorkerStatus
 from tests.conftest import commit_file
 from tests.integration.test_feature_workflow import settle
 
@@ -141,6 +141,72 @@ async def test_a_firefight_reaches_a_deterministic_completion(firefight):
     assert set(report.required) >= {"findings", "goal", "verification", "review"}
     assert report.ready, report.blockers
     assert sm.store.get_job(job.id).completed_at is not None
+
+
+async def test_a_repeated_step_does_not_leave_its_previous_session_running(
+    session_manager, git_repo, backend
+):
+    """A `fresh` step that runs twice used to leave the first session alive and idle.
+
+    Live, a `diagnose-and-fix` job ended with three verifiers on one worktree, each
+    holding a report a later commit had already invalidated. Only the newest attempt at a
+    step survives; the other phases keep the session the user can still drop into.
+    """
+    sm = session_manager
+    repo = sm.register_repository(git_repo("taskq"), "taskq")
+    job = sm.create_job("Startup race in the task queue", repo.id)
+    fixes = iter(("fix.txt", "fix2.txt"))
+    reviews = iter(
+        (
+            '```json\n{"verdict":"changes_requested","findings":[{"id":"F1",'
+            '"severity":"blocking","category":"correctness",'
+            '"description":"The fix publishes _items outside the lock.",'
+            '"location":"taskq.py:13"}]}\n```',
+            REVIEW_PASS,
+        )
+    )
+
+    def implementer(spec, message: str) -> str:
+        name = next(fixes, None)
+        if name is not None:
+            commit_file(spec.cwd, name, "locked\n", f"fix: {name}")
+        return "Fixed."
+
+    backend.responses["investigator"] = lambda spec, m: (
+        "Found it.\n```json\n" + json.dumps(FINDINGS) + "\n```"
+    )
+    backend.responses["implementer"] = implementer
+    backend.responses["verifier"] = lambda spec, m: verification_for("AC1")
+    backend.responses["reviewer"] = lambda spec, m: next(reviews, REVIEW_PASS)
+
+    await sm.start_run("diagnose-and-fix", job_id=job.id, request="Workers see an empty queue.")
+    await settle()
+
+    workers = sm.store.list_workers(job.id)
+    verifiers = [w for w in workers if w.role is WorkerRole.VERIFIER]
+    assert len(verifiers) > 1, "the review sent the run back through verification"
+    live = [w for w in verifiers if w.status is not WorkerStatus.STOPPED]
+    assert len(live) == 1, f"only the newest verifier stays running, got {[w.status for w in live]}"
+    assert live[0].created_at == max(w.created_at for w in verifiers)
+    # The investigator is a different role, so it is still there to be asked a follow-up.
+    investigators = [w for w in workers if w.role == WorkerRole("investigator")]
+    assert [w.status for w in investigators] == [WorkerStatus.IDLE]
+
+
+async def test_a_writable_session_is_never_retired_automatically(firefight):
+    """A writable session owns a worktree and *is* the job's change, so it is kept.
+
+    Retirement tidies up observers whose reports a later commit invalidated. Ending a
+    session that holds uncommitted work, or that a later `existing` step is going to
+    resume, would be Switchboard discarding work rather than managing sessions.
+    """
+    sm, job, _ = firefight
+    await sm.start_run("diagnose-and-fix", job_id=job.id, request="Workers see an empty queue.")
+    await settle()
+
+    writable = [w for w in sm.store.list_workers(job.id) if w.writable]
+    assert writable, "the fix step ran"
+    assert all(w.status is not WorkerStatus.STOPPED for w in writable)
 
 
 async def test_a_fix_cannot_start_before_something_was_actually_diagnosed(
