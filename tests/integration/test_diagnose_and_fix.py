@@ -13,6 +13,7 @@ import json
 import pytest
 
 from switchboard.domain.enums import ArtifactType, WorkerRole, WorkerStatus
+from switchboard.workflows.registry import find_workflow
 from tests.conftest import commit_file
 from tests.integration.test_feature_workflow import settle
 
@@ -207,6 +208,30 @@ async def test_a_writable_session_is_never_retired_automatically(firefight):
     writable = [w for w in sm.store.list_workers(job.id) if w.writable]
     assert writable, "the fix step ran"
     assert all(w.status is not WorkerStatus.STOPPED for w in writable)
+
+
+async def test_retirement_reads_the_worker_not_the_workflow(session_manager, git_repo):
+    """`finalize-change` declares `mutates_code: false` but runs on the writable session.
+
+    Trusting the step's `mutates_code` retired a real writable implementer in a live run,
+    because that step's own definition says it does not mutate code. Whether a session may
+    be ended is a fact about the session.
+    """
+    sm = session_manager
+    repo = sm.register_repository(git_repo("taskq"), "taskq")
+    job = sm.create_job("Startup race", repo.id)
+    writable = await sm.create_worker(
+        role=WorkerRole.IMPLEMENTER,
+        title="fixer",
+        prompt="fix it",
+        repository_id=repo.id,
+        job_id=job.id,
+        writable=True,
+    )
+
+    await sm._retire_superseded(job, find_workflow("finalize-change"))
+
+    assert sm.store.get_worker(writable.id).status is not WorkerStatus.STOPPED
 
 
 async def test_a_fix_cannot_start_before_something_was_actually_diagnosed(

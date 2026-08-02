@@ -1067,16 +1067,18 @@ class SessionManager:
         already invalidated. That is the opposite of standing in for the operator, who
         would have closed them.
 
-        Deliberately limited to a workflow that does not mutate code: a writable session
-        owns a worktree and is the job's change, so it is never retired automatically. The
-        role, not the worker's `workflow` field, identifies the superseded attempt --
+        A writable session owns a worktree and *is* the job's change, so it is never
+        retired automatically. That is checked on the worker rather than on the step's
+        `mutates_code`: `finalize-change` declares `mutates_code: false` yet runs on the
+        writable implementer, and reading the workflow stopped a real writable session.
+        The role, not the worker's `workflow` field, identifies the superseded attempt --
         `workflow` records the last step that ran on a session, not the one that started
         it. A session the user owns is also left alone.
         """
-        if definition.mutates_code:
-            return
         for worker in self.store.list_workers(job.id):
             if worker.role != definition.role or worker.status in _RETIRED_STATUSES:
+                continue
+            if worker.writable:
                 continue
             runtime = self.store.current_runtime(worker.id)
             if runtime is not None and runtime.owner is not RuntimeOwner.MANAGER:
