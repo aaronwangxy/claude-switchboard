@@ -213,6 +213,13 @@ No architecture was redesigned. Git lineage and the ready-to-push gate moved out
 orchestrator; the tests were sorted into tiers by what each can actually prove; and `docs/`
 became a description of the finished system with this document holding the history.
 
+The documentation itself settled last. The shift specification and its audit had done their
+work and were the last two files still written as a diff against an earlier design, so they
+were removed once the durable part of each had landed in the documents that describe the
+system — most notably why a persistent tmux process, rather than `claude --bg`, is what the
+runtime needs, which now lives in [runtime.md](runtime.md). What remains is seven documents
+in the present tense plus two dated records, this one and the dogfood report.
+
 ---
 
 ## What changed our mind, and when

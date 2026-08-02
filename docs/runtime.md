@@ -19,6 +19,28 @@ SessionManager
 events in-process for deterministic tests and offline demos. There is no SDK fallback;
 `claude-agent-sdk` is not a dependency.
 
+## Why tmux, and not native background sessions
+
+Switchboard needs three properties at once from a session:
+
+1. it is **live and interactive**, so the user can drop in and type;
+2. a follow-up prompt can be delivered **programmatically** into that same session;
+3. each managed turn produces a **correlated completion signal**, so a run advances on a
+   fact rather than a guess.
+
+`claude --bg` plus Agent View gives (1) and nothing supported for (2) or (3): `claude
+agents` takes no subcommands, and there is no supported programmatic send, attach, stop, or
+turn-completion interface for a background agent. `claude -p --resume <id>` gives (2) and
+(3) but spawns a fresh process per turn that nobody can sit inside while it runs. Only a
+persistent interactive process with an input channel gives all three.
+
+`claude agents --json` is still used for what it is good at: it needs no TTY and reports
+`pid`, `cwd`, `kind`, `sessionId`, `name`, and `status`, which is why every session is
+launched with `--name`.
+
+The substrate sits behind the `WorkerBackend` boundary, so a supported native equivalent
+could replace it without touching orchestration.
+
 ## Runtime instances
 
 Each agent — worker or manager — has a durable, generation-numbered `RuntimeInstance`. It
