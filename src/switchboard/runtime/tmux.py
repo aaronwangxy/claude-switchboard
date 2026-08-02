@@ -8,6 +8,7 @@ discoverable if the Python process that created it exits.
 from __future__ import annotations
 
 import os
+import shlex
 import subprocess
 from collections.abc import Mapping, Sequence
 from contextlib import contextmanager
@@ -90,9 +91,13 @@ class TmuxView:
         current_socket = Path(current.split(",", 1)[0])
         if current_socket == self.socket_path:
             return self.nested_argv
+        # Running the board inside tmux is ordinary, and it makes entry from this terminal
+        # impossible -- so the refusal has to carry the command that does work, not just
+        # the fact that this one does not.
         raise TmuxError(
-            "The current terminal belongs to a different tmux server. Open this runtime "
-            "in a separate terminal client rather than nesting tmux."
+            "The current terminal belongs to a different tmux server, so this session "
+            "cannot be entered from here. Run this in another terminal:  "
+            + shlex.join(self.external_argv)
         )
 
 

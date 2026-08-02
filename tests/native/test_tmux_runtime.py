@@ -285,8 +285,11 @@ def test_view_avoids_nested_tmux_and_switches_only_within_its_own_server(launche
     assert "attach-session" in view.argv(tmux_environment="")
     same_server = f"{view.socket_path},123,0"
     assert "switch-client" in view.argv(tmux_environment=same_server)
-    with pytest.raises(TmuxError, match="different tmux server"):
+    # Running the board inside tmux is ordinary, so the refusal must hand over the command
+    # that does work rather than only reporting that this terminal cannot be used.
+    with pytest.raises(TmuxError, match="different tmux server") as refusal:
         view.argv(tmux_environment="/tmp/some-other-tmux.sock,456,0")
+    assert " ".join(view.external_argv) in str(refusal.value)
 
 
 def test_exited_and_absent_are_distinct(launched):

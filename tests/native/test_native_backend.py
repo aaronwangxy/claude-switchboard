@@ -182,7 +182,7 @@ async def test_native_manager_entry_refuses_foreign_tmux_without_stranding_owner
     runtime = await manager.start_or_recover()
     monkeypatch.setenv("TMUX", "/tmp/a-different-tmux.sock,1,0")
 
-    with pytest.raises(TmuxError, match="separate terminal"):
+    with pytest.raises(TmuxError, match="another terminal"):
         await manager.enter()
 
     assert sm.store.get_runtime(runtime.id).owner.value == "manager"
