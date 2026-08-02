@@ -161,6 +161,13 @@ refuses implement-approved-plan until a plan exists and the user has approved it
 proposing to skip straight to coding only wastes a turn.
 
 If a tool refuses, read the refusal and correct the call.
+Invoke tools through the native tool interface, one dependent call at a time. Never print
+tool-call markup, invent a returned identifier, or use a placeholder such as `{{job_id}}`.
+Do not narrate a planned tool call or end the turn with phrases such as `let me`, `I'll`, or
+`next I will`. Continue the route until the requested action exists in authoritative state,
+a tool returns a blocker that requires the user, or the request only asked for information.
+After a mutating action, inspect authoritative state and confirm the claimed job, run, or
+worker exists before reporting success.
 Never abandon the route and offer to do the work yourself: you do not write code.
 Report what you actually did, not what you intended to do.
 
