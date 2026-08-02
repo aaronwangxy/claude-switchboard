@@ -345,6 +345,7 @@ async def test_recovery_adopts_an_exact_live_runtime(session_manager, git_repo, 
     )
     await settle()
     sm.raise_attention(worker, AttentionKind.PERMISSION_REQUIRED, "Permission required for tool.")
+    sm.raise_attention(worker, AttentionKind.PLAN_APPROVAL, "Approve the completed plan.")
     sm._pumps.pop(worker.id).cancel()
 
     restarted = SessionManager(sm.store, backend, Config(), sm.worktrees)
@@ -353,7 +354,9 @@ async def test_recovery_adopts_an_exact_live_runtime(session_manager, git_repo, 
     assert any("adopted" in note for note in notes)
     assert len(restarted.store.list_runtimes(worker.id)) == 1
     assert restarted.store.get_worker(worker.id).status is WorkerStatus.IDLE
-    assert restarted.list_attention_items() == []
+    items = restarted.list_attention_items()
+    assert len(items) == 1
+    assert items[0].kind is AttentionKind.PLAN_APPROVAL
 
 
 def test_status_summary_exposes_an_idle_incomplete_job(session_manager, git_repo):

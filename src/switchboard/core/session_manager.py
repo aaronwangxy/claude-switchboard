@@ -1456,8 +1456,12 @@ class SessionManager:
         )
         return self.store.save_attention_item(item)
 
-    def _resolve_attention(self, worker: Worker) -> None:
+    def _resolve_attention(
+        self, worker: Worker, *, kinds: set[AttentionKind] | None = None
+    ) -> None:
         for item in self.store.attention_items_for_worker(worker.id):
+            if kinds is not None and item.kind not in kinds:
+                continue
             item.handled = True
             self.store.save_attention_item(item)
 
@@ -2094,7 +2098,9 @@ class SessionManager:
                     )
                 else:
                     self._force_status(worker, WorkerStatus.IDLE, None)
-                    self._resolve_attention(worker)
+                    self._resolve_attention(
+                        worker, kinds={AttentionKind.PERMISSION_REQUIRED}
+                    )
                 notes.append(f"{worker.title}: {action}")
             except Exception as exc:
                 self._force_status(
