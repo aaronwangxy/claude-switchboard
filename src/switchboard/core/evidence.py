@@ -205,6 +205,11 @@ def job_completion(store: Store, config: Config, job_id: UUID) -> CompletionRepo
         if check is not None:
             blockers.extend(check(artifact, config))
 
+    for child in store.list_jobs():
+        if child.parent_job_id == job_id and child.completed_at is None:
+            # A request split into several jobs has one answer, and it is the last one.
+            blockers.append(f"Its sub-job {child.external_ref or child.title!r} is not complete.")
+
     run = store.active_run(job_id)
     if run is not None and run.status is not RunStatus.COMPLETED:
         total = len(definition.steps) if definition and definition.is_composite else 0

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
@@ -205,16 +205,23 @@ class SessionManager:
         external_ref: str | None = None,
         base_ref: str | None = None,
         ticket_text: str = "",
+        parent_job_id: UUID | None = None,
+        context_job_ids: Sequence[UUID] = (),
     ) -> Job:
         repo = self.store.get_repository(repository_id)
         if repo is None:
             raise SessionManagerError(f"Repository {repository_id} is not registered.")
+        for related in (*( [parent_job_id] if parent_job_id else []), *context_job_ids):
+            if self.store.get_job(related) is None:
+                raise SessionManagerError(f"Job {related} does not exist.")
         job = Job(
             title=title,
             external_ref=external_ref,
             repository_id=repository_id,
             base_ref=base_ref or repo.default_branch,
             ticket_text=ticket_text,
+            parent_job_id=parent_job_id,
+            context_job_ids=list(context_job_ids),
         )
         self.store.save_job(job)
         return job
@@ -1079,6 +1086,24 @@ class SessionManager:
         self._background.add(task)
         task.add_done_callback(self._background.discard)
 
+    def available_artifact(self, job: Job, type_: ArtifactType) -> Artifact | None:
+        """The current artifact of a type available to this job, including linked ones.
+
+        A job may be handed another job's evidence -- that is what makes a decomposed
+        request work -- so a prerequisite is satisfied by an investigation's findings even
+        when the investigation was a separate job. Completion deliberately does *not* look
+        here: input may be borrowed, output may not.
+        """
+        candidates = [job.id, *job.context_job_ids]
+        for job_id in candidates:
+            artifact = self.store.latest_artifact(job_id, type_)
+            if artifact is not None and not artifact.stale:
+                return artifact
+        return None
+
+    def _producers_of(self, type_: ArtifactType) -> list[str]:
+        return sorted(name for name in workflow_names() if type_ in get_workflow(name).produces)
+
     def _assert_prerequisites(self, definition: WorkflowDefinition, job: Job | None) -> None:
         """A workflow cannot run before the artifacts it declares it needs exist.
 
@@ -1093,11 +1118,18 @@ class SessionManager:
                 f"{', '.join(sorted(a.value for a in definition.requires))}."
             )
         for required in sorted(definition.requires, key=lambda a: a.value):
-            artifact = self.store.latest_artifact(job.id, required)
-            if artifact is None or artifact.stale:
+            artifact = self.available_artifact(job, required)
+            if artifact is None:
+                producers = self._producers_of(required)
+                remedy = (
+                    f" Run one of: {', '.join(producers)}; or link a job that already has "
+                    "one as context."
+                    if producers
+                    else ""
+                )
                 raise SessionManagerError(
-                    f"{definition.name} needs a current {required.value} for this job and there "
-                    "is none. Run plan-feature first, then approve the plan."
+                    f"{definition.name} needs a current {required.value} for this job and "
+                    f"there is none.{remedy}"
                 )
             if (
                 required is ArtifactType.IMPLEMENTATION_CONTRACT
@@ -1173,7 +1205,12 @@ class SessionManager:
         return render_template(definition.prompt, values)
 
     def _artifact_block(self, job: Job | None, definition: WorkflowDefinition) -> str:
-        """Only the structured artifacts this action declares -- never a planner transcript."""
+        """Only the structured artifacts this action declares -- never a planner transcript.
+
+        A job may name other jobs as context, which is how a request that was split across
+        several jobs hands one session's evidence to the next: the artifact travels from
+        the store verbatim, so it cannot drift from what its author actually wrote.
+        """
         if job is None:
             return "(none)"
         wanted = definition.prompt_context
@@ -1184,6 +1221,15 @@ class SessionManager:
                 lines.append(f"### {type_.value}\n{artifact.body}")
         for decision in self.store.list_decisions(job.id):
             lines.append(f"### decision\nQ: {decision.question}\nA: {decision.answer}")
+        for related_id in job.context_job_ids:
+            related = self.store.get_job(related_id)
+            if related is None:
+                continue
+            for artifact in self.store.list_artifacts(related.id):
+                if artifact.stale or artifact.type not in wanted:
+                    continue
+                label = related.external_ref or related.title
+                lines.append(f"### {artifact.type.value} (from {label})\n{artifact.body}")
         return "\n\n".join(lines) if lines else "(none)"
 
     # ---------------------------------------------------------------- mining

@@ -29,6 +29,7 @@ def test_manager_mcp_exposes_only_orchestration_semantics():
     assert set(TOOL_SCHEMAS) == {
         "register_repository",
         "create_job",
+        "check_completion",
         "inspect_state",
         "list_workflows",
         "start_workflow",

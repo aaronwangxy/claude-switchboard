@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
+from switchboard.core import evidence
 from switchboard.core.session_manager import SessionManager
 from switchboard.domain.enums import RuntimeAgentKind, RuntimeProcessState
 from switchboard.workflows.registry import get_workflow, workflow_names
@@ -27,7 +28,9 @@ TOOL_SCHEMAS: dict[str, tuple[str, dict[str, Any]]] = {
         },
     ),
     "create_job": (
-        "Create durable work for a goal in a registered repository.",
+        "Create durable work for a goal in a registered repository. Pass parent_job_id "
+        "when this job serves a larger request, and context_job_ids to give its workers "
+        "another job's stored artifacts (for example an investigation's findings).",
         {
             "type": "object",
             "required": ["title", "repository_id"],
@@ -36,8 +39,15 @@ TOOL_SCHEMAS: dict[str, tuple[str, dict[str, Any]]] = {
                 "repository_id": {"type": "string"},
                 "external_ref": {"type": "string"},
                 "ticket_text": {"type": "string"},
+                "parent_job_id": {"type": "string"},
+                "context_job_ids": {"type": "array", "items": {"type": "string"}},
             },
         },
+    ),
+    "check_completion": (
+        "Whether a job's work is actually finished, computed from stored evidence "
+        "against its workflow's definition of done. Use this rather than judging.",
+        {"type": "object", "required": ["job_id"], "properties": {"job_id": {"type": "string"}}},
     ),
     "inspect_state": (
         "Inspect bounded authoritative objectives, jobs, runs, workers and attention.",
@@ -169,8 +179,20 @@ class ManagerTools:
                 UUID(args["repository_id"]),
                 external_ref=args.get("external_ref") or None,
                 ticket_text=args.get("ticket_text", ""),
+                parent_job_id=_uuid(args.get("parent_job_id")),
+                context_job_ids=[UUID(str(i)) for i in args.get("context_job_ids") or []],
             )
             return {"job_id": str(job.id), "title": job.title}
+        if name == "check_completion":
+            report = self.sm.job_completion(UUID(args["job_id"]))
+            return {
+                "complete": report.ready,
+                "workflow": report.workflow,
+                "definition_of_done": report.required,
+                "blockers": report.blockers,
+                "summary": report.explain(),
+                "evidence": report.blurb,
+            }
         if name == "inspect_state":
             return self._state()
         if name == "list_workflows":
@@ -311,13 +333,19 @@ class ManagerTools:
         workflow = get_workflow(name)
         return {
             "name": name,
-            "description": workflow.description,
+            "description": " ".join(workflow.description.split()),
+            "aliases": list(workflow.aliases),
             "composite": workflow.is_composite,
             "role": workflow.role.value,
             "requires": [item.value for item in workflow.requires],
             "produces": [item.value for item in workflow.produces],
             "mutates_code": workflow.mutates_code,
             "steps": [step.workflow for step in workflow.steps],
+            # What starting this would commit the job to proving before it can be called
+            # finished. This is the field to choose a workflow on.
+            "definition_of_done": sorted(
+                item.value for item in evidence.required_artifacts(workflow)
+            ),
         }
 
 

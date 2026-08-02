@@ -113,18 +113,38 @@ def test_manager_prompt_carries_its_own_response_policy():
     prompt = compose_manager_prompt()
     assert MANAGER_POLICY in prompt
     assert "you do not write code" in prompt
-    assert "NOT the system of" in prompt  # the phrase wraps a line in the template
+    assert "NOT the\nsystem of record" in prompt  # the phrase wraps a line
     assert "one dependent call at a time" in prompt
     assert "Never print\ntool-call markup" in prompt
     assert "Do not narrate a planned tool call" in prompt
     assert "until the requested action exists in authoritative state" in prompt
     assert "inspect authoritative state" in prompt
     assert "resolve a user-visible repository name" in prompt
-    assert "without asking\nfor it or registering it again" in prompt
-    assert "When the user names a composite\nworkflow, start that composite" in prompt
-    assert "When no composite workflow applies" in prompt
-    assert "continue what I\ninterrupted" in prompt
+    assert "reuse a match without asking or re-registering" in prompt
+    assert "When the user names a workflow, use that one" in prompt
+    assert "continue what\nI interrupted" in prompt
     assert "use resume_run" in prompt
+
+
+def test_the_manager_prompt_names_no_particular_workflow():
+    """Workflows are peer recipes; naming one here would make it the architecture."""
+    prompt = compose_manager_prompt()
+    for name in ("plan-feature", "complete-ticket", "implement-approved-plan"):
+        assert name not in prompt, f"{name} is hardcoded into the manager's instructions"
+    assert "definition_of_done" in prompt, "it chooses on what a workflow would prove"
+
+
+def test_the_manager_is_told_to_decompose_and_to_hand_evidence_over():
+    prompt = compose_manager_prompt()
+    assert "Some requests are not one job" in prompt
+    assert "context_job_ids" in prompt
+    assert "parent_job_id" in prompt
+
+
+def test_the_manager_never_judges_completion_itself():
+    prompt = compose_manager_prompt()
+    assert "Never judge whether work is finished" in prompt
+    assert "check_completion" in prompt
 
 
 def test_the_policy_version_is_stable_and_recorded():

@@ -63,6 +63,12 @@ class Job(Base):
     #: The one worktree whose Git lineage defines this job's change. Other writable
     #: workers remain isolated, but may not implicitly become the review target.
     authoritative_worktree_id: UUID | None = None
+    #: Set when this job exists to serve a larger request. The parent is not complete
+    #: until its children are, which is how a decomposed request has one answer.
+    parent_job_id: UUID | None = None
+    #: Jobs whose stored artifacts are given to this job's workers. This is how one
+    #: session's findings reach the next without a person or a model retyping them.
+    context_job_ids: list[UUID] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=now)
     updated_at: datetime = Field(default_factory=now)
 
