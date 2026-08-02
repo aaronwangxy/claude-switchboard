@@ -509,8 +509,6 @@ class SwitchboardApp(App[None]):
         parts.append(worker.model or "default model")
         if worker.pinned:
             parts.append("pinned")
-        if worker.active_helpers:
-            parts.append(f"{worker.active_helpers} helpers")
         header = " · ".join(parts)
         item = next(
             (i for i in self.sm.list_attention_items() if i.worker_id == worker.id),

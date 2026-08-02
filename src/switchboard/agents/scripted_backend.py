@@ -128,6 +128,9 @@ class ScriptedWorkerBackend:
         self._sessions: dict[UUID, _Session] = {}
         self.started: list[WorkerSpec] = []
         self.stopped: list[UUID] = []
+        #: Workers whose session is alive but never reaches readiness, as one sitting on a
+        #: native startup dialog does. Tests add to this to exercise that path.
+        self.never_ready: set[UUID] = set()
 
     def role_of(self, spec: WorkerSpec) -> str:
         return spec.role
@@ -222,7 +225,9 @@ class ScriptedWorkerBackend:
         return None
 
     async def wait_ready(self, worker_id: UUID, timeout: float = 30.0) -> bool:
-        return worker_id in self._sessions
+        """A session can be alive and never reach readiness -- that is the whole point of
+        the blocked-startup path, so tests must be able to model it."""
+        return worker_id in self._sessions and worker_id not in self.never_ready
 
     async def stop(self, worker_id: UUID) -> None:
         session = self._sessions.pop(worker_id, None)

@@ -118,3 +118,56 @@ def test_vouching_reads_as_consent_in_an_ordinary_sentence():
         "Never trust anything under /tmp.",
     ):
         assert not TRUST_RE.search(withheld), withheld
+
+
+async def test_a_slow_start_is_not_mistaken_for_one_needing_a_person(worker, monkeypatch):
+    """Several native sessions starting at once contend; slow is not stuck.
+
+    Found by dogfooding: the sixth Claude in a fleet exceeded the startup wait, was
+    declared blocked, and stalled a workflow run that nothing was actually wrong with.
+    """
+    sm, repo, created = worker
+    monkeypatch.setattr(sm.backend, "capture", lambda _id: "❯ \n")
+    waits: list[float] = []
+
+    async def slow_ready(worker_id, timeout=30.0):
+        waits.append(timeout)
+        return True
+
+    monkeypatch.setattr(sm.backend, "wait_ready", slow_ready)
+
+    assert await sm._recover_startup(created) is True
+    assert waits == [sm.SLOW_STARTUP_GRACE], "it waits again rather than asking the user"
+
+
+async def test_a_slow_start_still_gives_up_eventually(worker, monkeypatch):
+    sm, repo, created = worker
+    monkeypatch.setattr(sm.backend, "capture", lambda _id: "❯ \n")
+
+    async def never_ready(worker_id, timeout=30.0):
+        return False
+
+    monkeypatch.setattr(sm.backend, "wait_ready", never_ready)
+    assert await sm._recover_startup(created) is False
+
+
+async def test_a_trust_dialog_is_still_answered_rather_than_waited_out(worker, monkeypatch):
+    sm, repo, created = worker
+    sm.grant_repository_trust(repo.id, confirmed=True)
+    runtime = sm.store.current_runtime(created.id)
+    runtime.process_state = RuntimeProcessState.STARTING
+    sm.store.save_runtime(runtime)
+    monkeypatch.setattr(sm.backend, "capture", lambda _id: "Quick safety check: I trust this folder")
+    answered: list[object] = []
+
+    async def record(worker_id):
+        answered.append(worker_id)
+
+    async def ready(worker_id, timeout=30.0):
+        return True
+
+    monkeypatch.setattr(sm.backend, "answer_startup_dialog", record)
+    monkeypatch.setattr(sm.backend, "wait_ready", ready)
+
+    assert await sm._recover_startup(created) is True
+    assert answered == [created.id]

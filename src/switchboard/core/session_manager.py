@@ -398,11 +398,10 @@ class SessionManager:
                 WorkerStatus.BLOCKED if startup_alive else WorkerStatus.FAILED,
                 waiting_for=waiting_for,
             )
-            if startup_alive and await self._auto_answer_trust(worker):
-                # The user already vouched for this repository's worktrees, so the dialog
-                # that stopped the launch is answered and the worker carries on. Without
-                # this, every writable worker stops on the same question about a fresh
-                # worktree path Switchboard created itself.
+            if startup_alive and await self._recover_startup(worker):
+                # Either the session was only slow, or it stopped on a trust dialog for a
+                # repository the user has already vouched for. Neither needs a person, and
+                # at ten sessions both would otherwise interrupt one.
                 runtime = self.store.get_runtime(runtime.id) or runtime
                 if handle_session_id := runtime.claude_session_id:
                     worker.session_id = handle_session_id
@@ -451,17 +450,38 @@ class SessionManager:
         # it started with, so an inherited pump would consume nothing. Always replace here.
         self._ensure_pump(worker.id, replace=True)
 
-    async def _auto_answer_trust(self, worker: Worker) -> bool:
-        """Answer a trust dialog when the user already vouched for this repository."""
-        if not self.repository_trust_granted(worker.repository_id):
-            return False
+    #: A second, longer wait for a session that is alive and showing no dialog. Several
+    #: native Claude processes starting at once contend, and a slow start is not a stuck
+    #: one -- treating them the same makes a fleet interrupt the user for no reason.
+    SLOW_STARTUP_GRACE = 120.0
+
+    async def _recover_startup(self, worker: Worker) -> bool:
+        """Get a live but not-yet-ready session going without troubling the user.
+
+        Two different things look identical from the outside: a session waiting on a
+        workspace-trust dialog, and one that is simply slow because five siblings are
+        starting beside it. The pane tells them apart, and only the first needs consent.
+        """
         try:
-            await self.answer_workspace_trust(worker.id)
-        except SessionManagerError as exc:
-            log.info("not auto-answering startup for %s: %s", worker.title, exc)
+            pane = self.backend.capture(worker.id)
+        except Exception as exc:
+            log.info("could not read %s while starting: %s", worker.title, exc)
             return False
-        # The dialog is answered; the session still has to reach SessionStart.
-        return await self.backend.wait_ready(worker.id)
+        if any(marker in pane for marker in self.TRUST_DIALOG_MARKERS):
+            if not self.repository_trust_granted(worker.repository_id):
+                return False
+            try:
+                await self.answer_workspace_trust(worker.id)
+            except SessionManagerError as exc:
+                log.info("not auto-answering startup for %s: %s", worker.title, exc)
+                return False
+            return await self.backend.wait_ready(worker.id)
+        if pane.strip() and "?" not in pane and "❯" not in pane:
+            # Something is on screen that is neither a prompt nor a settled composer.
+            # Whatever it is, guessing at it is how a board answers a question it does
+            # not understand, so hand it to the user.
+            log.info("%s is showing an unrecognised startup screen", worker.title)
+        return await self.backend.wait_ready(worker.id, timeout=self.SLOW_STARTUP_GRACE)
 
     def _ensure_pump(self, worker_id: UUID, *, replace: bool = False) -> None:
         """One live consumer of a worker's backend events, however it was started."""
@@ -1820,8 +1840,10 @@ class SessionManager:
                 self._set_runtime_state(worker.id, RuntimeProcessState.TURN_ACTIVE)
                 self._record(worker, "tool", f"[{event.text}]")
             case "helper":
-                worker.active_helpers = int(event.data.get("active", 0))
-                self.store.save_worker(worker)
+                # Claude owns its subagents. Their count affects no durable Switchboard
+                # contract, so modelling it here was Switchboard describing something it
+                # does not orchestrate.
+                pass
             case "permission":
                 self._set_runtime_state(worker.id, RuntimeProcessState.WAITING)
                 self._set_status(worker, WorkerStatus.BLOCKED, waiting_for=event.text)

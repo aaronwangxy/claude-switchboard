@@ -100,7 +100,6 @@ class Worker(Base):
     snoozed_until: datetime | None = None
     workflow: str | None = None
     prompt_policy_version: str = "1"
-    active_helpers: int = 0
     created_at: datetime = Field(default_factory=now)
     updated_at: datetime = Field(default_factory=now)
 

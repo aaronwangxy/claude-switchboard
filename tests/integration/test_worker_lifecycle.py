@@ -214,6 +214,7 @@ async def test_a_run_blocked_at_native_startup_recovers_once_the_prompt_is_clear
 
     async def timed_out(spec):
         await real_start(spec)  # the native session really is alive behind the prompt
+        backend.never_ready.add(spec.worker_id)  # ...and stays behind it until a person acts
         raise RuntimeError("Timed out waiting for native Claude SessionStart.")
 
     async def still_alive(worker_id):
