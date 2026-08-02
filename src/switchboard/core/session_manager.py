@@ -393,6 +393,8 @@ class SessionManager:
         )
         if prompt:
             self._record(worker, "user", prompt)
+            if not adopt:
+                self.store.set_preference(f"worker.pending_startup_prompt:{worker.id}", prompt)
         try:
             handle = (
                 await self.backend.adopt(spec)
@@ -439,6 +441,8 @@ class SessionManager:
             worker.session_id = handle.session_id
             runtime.claude_session_id = handle.session_id
             self.store.save_worker(worker)
+        if prompt and not adopt:
+            self.store.set_preference(f"worker.pending_startup_prompt:{worker.id}", "")
         runtime.updated_at = now()
         self.store.save_runtime(runtime)
         if not adopt:
@@ -1331,6 +1335,20 @@ class SessionManager:
         )
         self._record(worker, "system", "[the user left this session]")
         return worker
+
+    async def resume_startup(self, worker_id: UUID) -> bool:
+        """Deliver an initial prompt delayed by native trust/login startup."""
+        worker = self._require_worker(worker_id)
+        key = f"worker.pending_startup_prompt:{worker.id}"
+        prompt = self.store.get_preference(key, "") or ""
+        if not prompt:
+            return False
+        runtime = self.store.current_runtime(worker.id)
+        if runtime is None or runtime.process_state is not RuntimeProcessState.READY:
+            return False
+        await self.send(worker.id, prompt)
+        self.store.set_preference(key, "")
+        return True
 
     def is_attached(self, worker_id: UUID) -> bool:
         runtime = self.store.current_runtime(worker_id)

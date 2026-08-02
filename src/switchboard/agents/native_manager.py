@@ -67,8 +67,14 @@ class PersistentNativeManager(Manager):
                     system_prompt_append=self._prompt(current),
                     extra_args=self._extra_args(current),
                 )
-            except TmuxError:
-                pass
+            except TmuxError as exc:
+                observed = self.backend.supervisor.observe(current.id)
+                if observed.observation.status is TmuxRuntimeStatus.ALIVE:
+                    raise TmuxError(
+                        "The live Manager process does not match the current launch "
+                        "configuration. Refusing to create a duplicate; finish or stop the "
+                        "existing Manager session explicitly."
+                    ) from exc
             else:
                 if observed.observation.status is TmuxRuntimeStatus.ALIVE:
                     return observed.runtime

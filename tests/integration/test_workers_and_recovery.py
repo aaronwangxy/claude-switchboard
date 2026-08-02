@@ -182,6 +182,20 @@ async def test_live_native_startup_failure_requests_entry_and_prevents_duplicate
         await session_manager.start_workflow("plan-feature", job_id=job.id)
     assert len(session_manager.store.list_workers(job.id)) == 1
 
+    runtime = session_manager.store.current_runtime(worker.id)
+    runtime.process_state = RuntimeProcessState.READY
+    session_manager.store.save_runtime(runtime)
+    delivered: list[str] = []
+
+    async def deliver(worker_id, message):
+        delivered.append(message)
+
+    monkeypatch.setattr(backend, "send", deliver)
+    assert await session_manager.resume_startup(worker.id)
+    assert delivered and delivered[0].startswith("Plan this work")
+    assert session_manager.store.get_worker(worker.id).status is WorkerStatus.WORKING
+    assert not await session_manager.resume_startup(worker.id)
+
 
 async def test_answering_a_blocked_worker_resumes_it_and_advances_the_queue(
     session_manager, git_repo, backend

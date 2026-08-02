@@ -92,6 +92,23 @@ async def test_native_manager_human_entry_uses_same_process(native_services, tmp
     assert sm.store.get_runtime(runtime.id).owner.value == "manager"
 
 
+async def test_live_manager_adoption_mismatch_refuses_duplicate(
+    native_services, tmp_path, monkeypatch
+):
+    sm, backend, _ = native_services
+    manager = PersistentNativeManager(sm, backend, tmp_path / "manager-no-duplicate")
+    runtime = await manager.start_or_recover()
+
+    def mismatch(*args, **kwargs):
+        raise TmuxError("fingerprint mismatch")
+
+    monkeypatch.setattr(backend.runtime, "adopt", mismatch)
+    with pytest.raises(TmuxError, match="Refusing to create a duplicate"):
+        await manager.start_or_recover()
+    assert sm.store.current_runtime(manager.manager_id).id == runtime.id
+    assert len(sm.store.list_runtimes(manager.manager_id)) == 1
+
+
 async def test_native_manager_entry_refuses_foreign_tmux_without_stranding_ownership(
     native_services, tmp_path, monkeypatch
 ):

@@ -460,7 +460,10 @@ class SwitchboardApp(App[None]):
             runtime.process_state.value if runtime else None,
             runtime.owner.value if runtime else None,
             run.updated_at if run else None,
-            len(artifacts),
+            tuple(
+                (str(artifact.id), artifact.stale, artifact.head_commit, artifact.tree_hash)
+                for artifact in artifacts
+            ),
         )
         if signature == self._pane_signature:
             return
@@ -674,6 +677,10 @@ class SwitchboardApp(App[None]):
                     self.manager.release_human(composer_cleared=True)  # type: ignore[attr-defined]
                 elif worker_id is not None:
                     self.sm.detach(worker_id, composer_cleared=True)
+                    if await self.sm.resume_startup(worker_id):
+                        self.manager_pane.add_note(
+                            "Native startup completed; the pending workflow prompt was delivered."
+                        )
             else:
                 self.manager_pane.add_note(
                     "Session remains human-controlled. Re-enter it, clear the composer, "

@@ -1,9 +1,11 @@
-"""The three-pane UI, driven headlessly through Textual's pilot."""
+"""The session-first UI, driven headlessly through Textual's pilot."""
 
 from __future__ import annotations
 
 import asyncio
+from contextlib import nullcontext
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from textual.widgets import Button, Input, Static
@@ -175,6 +177,28 @@ async def test_auto_advance_can_be_paused_and_workers_pinned(app):
         await pilot.press("ctrl+p")
         await quiet(pilot, ticks=4)
         assert app.sm.store.get_worker(worker.id).pinned is True
+
+
+async def test_worker_entry_returns_ownership_after_empty_composer_confirmation(
+    app, monkeypatch
+):
+    async with app.run_test() as pilot:
+        await quiet(pilot)
+        await send_to_manager(pilot, TICKET)
+        worker = app.sm.store.list_workers()[0]
+        app.select_worker(worker.id)
+        monkeypatch.setattr(
+            "switchboard.ui.screens.subprocess.run",
+            lambda *args, **kwargs: SimpleNamespace(returncode=0),
+        )
+        monkeypatch.setattr("builtins.input", lambda prompt: "yes")
+        monkeypatch.setattr(app, "suspend", lambda: nullcontext())
+
+        await app.action_attach()
+        await quiet(pilot)
+
+        assert not app.sm.is_attached(worker.id)
+        assert any("Back in Switchboard" in (entry[1] or "") for entry in app.manager_pane.entries)
 
 
 async def test_the_manager_pane_window_stays_bounded(app):

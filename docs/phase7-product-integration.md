@@ -7,11 +7,12 @@ session and pressing Enter enters its exact native process; `Ctrl+E` remains an 
 
 ## Deterministic and native-tmux coverage
 
-The full integration suite uses disposable Git repositories. Scripted and fake-native tests
-cover simple routing, complete-ticket approval/implementation/verification/review/finalization,
-parallel isolated worktrees, human intervention and replay, Manager MCP, exact-process entry and
-handback, permission/failure presentation, composite restart recovery, and exact-generation tmux
-adoption without paid calls. Phase 7 added regressions for foreign-tmux ownership rollback,
+The integration suite uses disposable Git repositories. Scripted and fake-native tests cover
+simple routing, complete-ticket approval/implementation/verification/review/finalization,
+parallel isolated worktrees, human intervention and replay, Manager MCP, lower-layer
+exact-process entry/handback, composite restart recovery, and exact-generation tmux adoption
+without paid calls. These scenarios exercise the same control plane but are not all driven through
+Textual. Phase 7 added regressions for foreign-tmux ownership rollback,
 long Unix socket paths, duplicate workflow startup, startup attention, and completed-turn
 handback.
 
@@ -33,7 +34,8 @@ Observed successful path:
   contracts for the disposable repository;
 - Manager and worker exact-process entry returned the same Claude session IDs; handback restored
   manager ownership;
-- a fresh controller adopted the exact worker runtime and session without creating a peer.
+- a fresh controller adopted the exact worker runtime and session without creating a peer;
+- a live Manager launch mismatch now refuses recovery rather than minting a peer generation.
 
 Configuration findings:
 
@@ -46,9 +48,9 @@ Configuration findings:
   native trust confirmation once. Switchboard now presents a starting-session entry instruction;
 - this installation took about 31 seconds to emit `SessionStart`, exposing and fixing the former
   30-second false timeout;
-- a controller restart adopted the worker exactly. One paid-state Manager restart created a fresh
-  generation rather than adopting the prior generation; deterministic tests cover exact Manager
-  adoption, but this environment-specific mismatch remains a Phase 8 target.
+- a controller restart adopted the worker exactly. A later paid-state Manager restart exposed a
+  launch mismatch that could create a peer generation; recovery now refuses that unsafe case and
+  tells the user to resolve the existing Manager explicitly.
 
 ## Failures found and fixed
 
@@ -62,7 +64,7 @@ Configuration findings:
 ## Phase 8 targets
 
 Attack first-use trust and authentication prompts interactively; delayed hooks around the
-60-second bound; Manager generation adoption under the real configured environment; process
+60-second bound; resolving a refused Manager launch mismatch under the real environment; process
 cleanup after controller loss; repeated enter/watch/type/detach cycles during active tools and
 permissions; and whether the sparse board explains multi-job dependencies once several real
 workers are active. Parallel and full-ticket cases should remain deterministic unless a specific
