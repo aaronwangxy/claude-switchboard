@@ -130,10 +130,11 @@ class PersistentNativeManager(Manager):
                 )
             if runtime.owner is RuntimeOwner.HUMAN:
                 return "Manager is currently owned by the human session; automated input is paused."
+            runtime = self._reconcile_finished_turn(runtime)
             if runtime.process_state is not RuntimeProcessState.READY:
                 # Do not push input at a session that is sitting on a trust or login
                 # prompt: it would be typed into that dialog.
-                return STARTUP_NEEDS_YOU
+                return self._not_ready_reason(runtime)
             self.sm.store.set_preference(MANAGER_OBJECTIVE_KEY, text[:1000])
             turn = self.backend.runtime.send_managed(runtime.id, text)
             self.sm.store.set_preference(
@@ -155,6 +156,42 @@ class PersistentNativeManager(Manager):
                     return f"Manager turn failed: {terminal.error or terminal.final_output}"
                 await asyncio.sleep(0.05)
             return "Manager is still working in its native session."
+
+    def _reconcile_finished_turn(self, runtime: RuntimeInstance) -> RuntimeInstance:
+        """Clear a turn that finished after this controller stopped waiting for it.
+
+        A turn that outruns the wait above leaves the runtime in `turn_complete`, and only
+        an acknowledgement returns it to `ready`. Without this the Manager answered every
+        later message with a startup prompt that did not exist, permanently.
+        """
+        if runtime.process_state is not RuntimeProcessState.TURN_COMPLETE:
+            return runtime
+        turns = self.sm.store.list_native_turns(runtime.id)
+        if not turns or self.backend.runtime.completed(turns[-1].id) is None:
+            return runtime
+        try:
+            self.backend.runtime.acknowledge(runtime.id, turns[-1].id)
+        except (TmuxError, ValueError) as exc:  # a newer turn raced us; leave it alone
+            log.info("could not acknowledge the Manager's finished turn: %s", exc)
+            return runtime
+        return self.sm.store.get_runtime(runtime.id) or runtime
+
+    def _not_ready_reason(self, runtime: RuntimeInstance) -> str:
+        """Say what the Manager is actually doing, not what it is usually doing."""
+        if self.sm.store.get_preference(MANAGER_BLOCKED_KEY, "") == str(runtime.id):
+            return STARTUP_NEEDS_YOU
+        if runtime.process_state is RuntimeProcessState.TURN_ACTIVE:
+            return "Manager is still working on the previous message in its native session."
+        if runtime.process_state is RuntimeProcessState.WAITING:
+            return (
+                "Manager's native session is waiting on a prompt only you can answer. "
+                "Press Ctrl+E to enter it, answer it, then come back."
+            )
+        return (
+            f"Manager's native session is {runtime.process_state.value.replace('_', ' ')} "
+            "and cannot take input yet. Press Ctrl+E to look at it, or say 'fresh manager' "
+            "to start a new generation."
+        )
 
     async def rotate(self, handoff: dict[str, object] | None = None) -> RuntimeInstance:
         """Revoke the old generation before starting a fresh native Claude session."""

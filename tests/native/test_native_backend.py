@@ -149,6 +149,45 @@ async def test_a_mismatched_manager_the_user_owns_is_never_taken_from_them(
     assert len(sm.store.list_runtimes(manager.manager_id)) == 1
 
 
+async def test_a_turn_that_outran_the_wait_does_not_wedge_the_manager(
+    native_services, tmp_path
+):
+    """The controller stops waiting at three minutes; the turn still finishes.
+
+    That leaves the runtime in `turn_complete`, which only an acknowledgement clears. The
+    Manager used to answer every later message with "waiting on a startup prompt --
+    press Ctrl+E" for a session that had no prompt and needed nothing.
+    """
+    sm, backend, _ = native_services
+    manager = PersistentNativeManager(sm, backend, tmp_path / "manager-abandoned-wait")
+    runtime = await manager.start_or_recover()
+    await manager.handle("Report status.")
+
+    stranded = sm.store.get_runtime(runtime.id)
+    stranded.process_state = RuntimeProcessState.TURN_COMPLETE
+    sm.store.save_runtime(stranded)
+
+    reply = await manager.handle("What is blocked?")
+
+    assert "Ctrl+E" not in reply
+    assert "Plan ready" in reply
+    assert sm.store.get_runtime(runtime.id).process_state is RuntimeProcessState.READY
+
+
+async def test_native_manager_entry_refuses_foreign_tmux_without_stranding_ownership(
+    native_services, tmp_path, monkeypatch
+):
+    sm, backend, _ = native_services
+    manager = PersistentNativeManager(sm, backend, tmp_path / "manager-nested")
+    runtime = await manager.start_or_recover()
+    monkeypatch.setenv("TMUX", "/tmp/a-different-tmux.sock,1,0")
+
+    with pytest.raises(TmuxError, match="separate terminal"):
+        await manager.enter()
+
+    assert sm.store.get_runtime(runtime.id).owner.value == "manager"
+
+
 @pytest.fixture
 def native_services(store: Store, worktree_service, tmp_path: Path):
     if shutil.which("tmux") is None:
