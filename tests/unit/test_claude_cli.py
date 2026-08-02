@@ -6,7 +6,7 @@ import stat
 
 import pytest
 
-from switchboard.agents.runtime import ClaudeRuntimeError, claude_cli_path
+from switchboard.runtime.claude_cli import ClaudeExecutableError, claude_cli_path
 
 
 def _make_executable(path):
@@ -30,7 +30,7 @@ class TestClaudeExecutable:
         assert claude_cli_path("company-claude") == wrapper
 
     def test_missing_executable_is_refused_with_the_alias_hint(self):
-        with pytest.raises(ClaudeRuntimeError) as exc:
+        with pytest.raises(ClaudeExecutableError) as exc:
             claude_cli_path("definitely-not-a-real-command-xyz")
         # The likeliest mistake is pointing this at a shell alias, so say so.
         assert "alias" in str(exc.value)
@@ -39,5 +39,5 @@ class TestClaudeExecutable:
         plain = tmp_path / "claude"
         plain.write_text("not executable")
         plain.chmod(0o644)
-        with pytest.raises(ClaudeRuntimeError):
+        with pytest.raises(ClaudeExecutableError):
             claude_cli_path(str(plain))

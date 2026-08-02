@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
 
@@ -27,6 +27,9 @@ from switchboard.agents.backend import (
 )
 from switchboard.agents.prompts import PROMPT_POLICY_VERSION, compose_worker_prompt
 from switchboard.config import Config, user_workflows_dir
+from switchboard.core import evidence, lineage
+from switchboard.core.errors import SessionManagerError
+from switchboard.core.evidence import ReadyToPushReport
 from switchboard.core.runs import condition_holds, has_blocking_decisions
 from switchboard.core.transitions import assert_worker_transition
 from switchboard.domain import events as ev
@@ -76,23 +79,14 @@ from switchboard.gitops.worktrees import CleanupDecision, WorktreeSafetyError, W
 from switchboard.routing import router
 from switchboard.routing.router import RouteError, RouteProposal, RoutingState
 from switchboard.storage.store import Store
-from switchboard.workflows.freshness import (
-    BEHAVIORAL_ARTIFACTS,
-    CodeChange,
-    GitSnapshot,
-    artifacts_invalidated_by,
-    classify_change,
-    is_fresh,
-    relineage,
-)
 from switchboard.workflows.registry import (
     REPO_WORKFLOW_DIR,
     Approval,
     WorkerMode,
     WorkflowDefinition,
-    WorkflowError,
     WorkflowStep,
     builtin_names,
+    find_workflow,
     get_workflow,
     reload_workflows,
     render_template,
@@ -103,15 +97,6 @@ from switchboard.workflows.registry import (
 log = logging.getLogger(__name__)
 
 
-class SessionManagerError(RuntimeError):
-    """An operation was refused because it would violate an application invariant."""
-
-    def __init__(self, *args: object, worker_id: UUID | None = None) -> None:
-        super().__init__(*args)
-        #: Set when the refusal left a real worker behind, so a caller can still own it.
-        self.worker_id = worker_id
-
-
 #: Fallback for a worker started with a role but no workflow (a bare `create_worker`).
 ROLE_ARTIFACTS: dict[WorkerRole, frozenset[ArtifactType]] = {
     WorkerRole.PLANNER: frozenset({ArtifactType.IMPLEMENTATION_CONTRACT}),
@@ -119,13 +104,6 @@ ROLE_ARTIFACTS: dict[WorkerRole, frozenset[ArtifactType]] = {
     WorkerRole.REVIEWER: frozenset({ArtifactType.REVIEW}),
     WorkerRole.REVIEW_COMMENTS: frozenset({ArtifactType.COMMENT_RESOLUTIONS}),
 }
-
-
-@dataclass
-class ReadyToPushReport:
-    ready: bool
-    blockers: list[str] = field(default_factory=list)
-    blurb: str = ""
 
 
 @dataclass
@@ -294,17 +272,17 @@ class SessionManager:
         elif job is not None:
             # Read-only workers observe the job's writable worktree when one exists, so a
             # reviewer or verifier sees the change under review without owning it.
-            worker.cwd = self._job_inspection_path(job) or repo.root_path
+            worker.cwd = lineage.inspection_path(self.store, job) or repo.root_path
 
         self.store.save_worker(worker)
         self.store.save_runtime(self._new_runtime(worker, generation=1))
         if job is not None:
-            definition = self._definition(workflow)
+            definition = find_workflow(workflow)
             if definition is not None:
                 # Reserve a composite step before native launch/send. A crash from this
                 # point onward recovers this exact worker instead of dispatching twice.
                 self._adopt_into_run(job, worker, definition)
-        self._snapshot_before_change(worker)
+        lineage.snapshot_before_turn(self.store, worker)
         self.emit(
             ev.WORKER_CREATED,
             job_id=worker.job_id,
@@ -323,7 +301,7 @@ class SessionManager:
         already exists under another owner, refuse rather than take it over.
         """
         base_ref = job.base_ref if job else repo.default_branch
-        self._snapshot_before_change(worker)
+        lineage.snapshot_before_turn(self.store, worker)
         try:
             worktree = self.worktrees.create_worktree(repo, job, worker, base_ref)
         except (GitError, WorktreeSafetyError) as exc:
@@ -335,56 +313,9 @@ class SessionManager:
                 )
         return self.store.save_worktree(worktree)
 
-    def _job_inspection_path(self, job: Job) -> Path | None:
-        if job.authoritative_worktree_id is not None:
-            worktree = self.store.get_worktree(job.authoritative_worktree_id)
-            if worktree and worktree.path.exists():
-                return worktree.path
-        return None
-
-    def _ensure_authoritative_worktree(self, job: Job) -> Job:
-        """Migrate an unambiguous legacy job, or fail closed on multiple lineages."""
-        if job.authoritative_worktree_id is not None:
-            return job
-        candidates = [
-            worker.worktree_id
-            for worker in self.store.list_workers(job.id)
-            if worker.writable and worker.worktree_id is not None
-        ]
-        if len(candidates) > 1:
-            raise SessionManagerError(
-                "This job has multiple writable worktrees but no authoritative lineage. "
-                "Choose one explicitly before running another workflow."
-            )
-        if candidates:
-            job.authoritative_worktree_id = candidates[0]
-            job.updated_at = now()
-            self.store.save_job(job)
-        return job
-
     def set_authoritative_worktree(self, job_id: UUID, worktree_id: UUID) -> Job:
         """Explicitly choose the one job lineage inspected by every downstream gate."""
-        job = self.store.get_job(job_id)
-        worktree = self.store.get_worktree(worktree_id)
-        if job is None or worktree is None:
-            raise SessionManagerError("The job or worktree does not exist.")
-        worker = (
-            self.store.get_worker(worktree.owner_worker_id)
-            if worktree.owner_worker_id is not None
-            else None
-        )
-        if (
-            worktree.repository_id != job.repository_id
-            or worker is None
-            or worker.job_id != job.id
-            or not worker.writable
-        ):
-            raise SessionManagerError(
-                "The authoritative lineage must be a writable worktree owned by this job."
-            )
-        job.authoritative_worktree_id = worktree.id
-        job.updated_at = now()
-        return self.store.save_job(job)
+        return lineage.set_authoritative(self.store, job_id, worktree_id)
 
     async def _start_backend(
         self, worker: Worker, prompt: str, resume: bool = False, adopt: bool = False
@@ -544,7 +475,7 @@ class SessionManager:
         return self.store.save_runtime(runtime)
 
     def _workflow_policy(self, workflow: str | None) -> str | None:
-        definition = self._definition(workflow)
+        definition = find_workflow(workflow)
         if definition is None:
             return None
         return f"Current workflow: {definition.name}. {definition.description.strip()}"
@@ -568,7 +499,7 @@ class SessionManager:
         self._apply_invalidation(
             worker, self.store.get_job(worker.job_id) if worker.job_id else None
         )
-        self._snapshot_before_change(worker)
+        lineage.snapshot_before_turn(self.store, worker)
         try:
             await self.backend.send(worker_id, message)
         except WorkerBusyError as exc:
@@ -633,8 +564,8 @@ class SessionManager:
         job = self.store.get_job(job_id) if job_id else None
         worker = self.store.get_worker(target_worker_id) if target_worker_id else None
         if job is not None:
-            job = self._ensure_authoritative_worktree(job)
-            self._reconcile_job_git(job)
+            job = lineage.ensure_authoritative(self.store, job)
+            lineage.reconcile_job(self.store, job)
         self._assert_prerequisites(definition, job)
 
         if worker is not None:
@@ -656,7 +587,7 @@ class SessionManager:
                 not definition.mutates_code
                 and job is not None
                 and job.authoritative_worktree_id is not None
-                and worker.cwd != self._job_inspection_path(job)
+                and worker.cwd != lineage.inspection_path(self.store, job)
             ):
                 raise SessionManagerError(
                     f"{worker.title!r} observes a different worktree than this job's "
@@ -717,7 +648,7 @@ class SessionManager:
         run = self.store.active_run(job.id)
         if run is None or run.current_worker_id is not None:
             return
-        composite = self._definition(run.workflow)
+        composite = find_workflow(run.workflow)
         if composite is None or run.step_index >= len(composite.steps):
             return
         if composite.steps[run.step_index].workflow != definition.name:
@@ -760,7 +691,7 @@ class SessionManager:
         job = self.store.get_job(job_id)
         if job is None:
             raise SessionManagerError(f"Job {job_id} does not exist.")
-        job = self._ensure_authoritative_worktree(job)
+        job = lineage.ensure_authoritative(self.store, job)
         existing = self.store.active_run(job.id)
         if existing is not None:
             raise SessionManagerError(
@@ -773,7 +704,7 @@ class SessionManager:
             job_id=job.id,
             workflow=definition.name,
             request=request,
-            head_at_start=self._job_head(job),
+            head_at_start=lineage.job_head(self.store, job),
         )
         self.store.save_run(run)
         self.emit(
@@ -800,8 +731,8 @@ class SessionManager:
             return run
         job = self.store.get_job(run.job_id)
         if job is not None:
-            self._reconcile_job_git(job)
-        definition = self._definition(run.workflow)
+            lineage.reconcile_job(self.store, job)
+        definition = find_workflow(run.workflow)
         if job is None or definition is None or not definition.is_composite:
             return self._pause_run(run, RunStatus.FAILED, "Its workflow or job no longer exists.")
         steps = definition.steps
@@ -822,7 +753,7 @@ class SessionManager:
             run.step_index += 1
 
         while True:
-            head = self._job_head(job)
+            head = lineage.job_head(self.store, job)
             if run.step_index >= len(steps):
                 repeat = self._repeat_target(run, definition, job, head)
                 if repeat is None:
@@ -834,7 +765,7 @@ class SessionManager:
                     return run
                 run.step_index = repeat
             step = steps[run.step_index]
-            step_definition = self._definition(step.workflow)
+            step_definition = find_workflow(step.workflow)
             if step_definition is None:
                 return self._pause_run(
                     run, RunStatus.FAILED, f"Step {run.step_index + 1} names an unknown workflow."
@@ -914,7 +845,7 @@ class SessionManager:
         """
         if run.current_worker_id is not None:
             return self.store.get_worker(run.current_worker_id)
-        definition = self._definition(run.workflow)
+        definition = find_workflow(run.workflow)
         if definition is None:
             return None
         produced = {step.workflow for step in definition.steps}
@@ -944,7 +875,7 @@ class SessionManager:
             return True
         if blocking:
             return False
-        step_definition = self._definition(step.workflow)
+        step_definition = find_workflow(step.workflow)
         if step_definition is not None and (
             ArtifactType.IMPLEMENTATION_CONTRACT in step_definition.produces
         ):
@@ -967,7 +898,7 @@ class SessionManager:
                 continue
             if run.iterations.get(str(index), 0) >= step.max_iterations:
                 continue
-            step_definition = self._definition(step.workflow)
+            step_definition = find_workflow(step.workflow)
             if step_definition is None:
                 continue
             if condition_holds(
@@ -1003,7 +934,7 @@ class SessionManager:
             and (
                 definition.mutates_code
                 or job.authoritative_worktree_id is None
-                or w.cwd == self._job_inspection_path(job)
+                or w.cwd == lineage.inspection_path(self.store, job)
             )
         ]
         return candidates[-1].id if candidates else None
@@ -1064,10 +995,6 @@ class SessionManager:
         run.status = RunStatus.RUNNING
         self.store.save_run(run)
         return await self._advance_run(run.id)
-
-    def _job_head(self, job: Job) -> str | None:
-        head, _ = self._job_head_and_dirty(job)
-        return head
 
     def _pause_run_of(self, worker: Worker, status: RunStatus, detail: str) -> None:
         run = self.store.run_for_worker(worker.id)
@@ -1162,7 +1089,7 @@ class SessionManager:
                 job_id=job.id if job else None,
                 worker_id=worker.id,
                 workflow=workflow_name,
-                head_commit=self._head(worker),
+                head_commit=lineage.worker_head(self.store, worker),
             )
         )
 
@@ -1195,7 +1122,7 @@ class SessionManager:
             }
         # A workflow that produces a review needs the commit range it is reviewing.
         if job is not None and ArtifactType.REVIEW in definition.produces:
-            base, head, commits, diff = self._review_inputs(job)
+            base, head, commits, diff = lineage.review_inputs(self.store, job)
             values |= {
                 "base_commit": base, "head_commit": head, "commits": commits, "diff": diff
             }
@@ -1214,18 +1141,6 @@ class SessionManager:
         for decision in self.store.list_decisions(job.id):
             lines.append(f"### decision\nQ: {decision.question}\nA: {decision.answer}")
         return "\n\n".join(lines) if lines else "(none)"
-
-    def _review_inputs(self, job: Job) -> tuple[str, str, str, str]:
-        path = self._job_inspection_path(job)
-        if path is None:
-            return "", "", "(no worktree)", "(no diff available)"
-        try:
-            base = runner.run_git(path, "merge-base", job.base_ref, "HEAD").out
-            head = runner.head_commit(path)
-            commits = "\n".join(runner.commits_between(path, base, head)) or "(no commits yet)"
-            return base, head, commits, runner.diff(path, base, head) or "(empty diff)"
-        except GitError as exc:
-            return "", "", f"(git error: {exc})", "(no diff available)"
 
     # ---------------------------------------------------------------- mining
 
@@ -1374,7 +1289,7 @@ class SessionManager:
             runtime_generation=runtime.generation,
         )
         attachment = self.backend.attachment(spec, self._attach_note(worker))
-        self._snapshot_before_change(worker)
+        lineage.snapshot_before_turn(self.store, worker)
         runtime = self.store.current_runtime(worker.id) or runtime
         runtime.owner = RuntimeOwner.HUMAN
         runtime.updated_at = now()
@@ -1763,8 +1678,8 @@ class SessionManager:
         block = extract_json_block(text)
         if block is None:
             return
-        head = self._head(worker)
-        tree = self._tree(worker)
+        head = lineage.worker_head(self.store, worker)
+        tree = lineage.worker_tree(self.store, worker)
         produces = self._produced_artifacts(worker)
 
         if ArtifactType.IMPLEMENTATION_CONTRACT in produces:
@@ -1799,18 +1714,10 @@ class SessionManager:
 
     def _produced_artifacts(self, worker: Worker) -> frozenset[ArtifactType]:
         """What this worker's turn may produce: its workflow's declaration, else its role."""
-        definition = self._definition(worker.workflow)
+        definition = find_workflow(worker.workflow)
         if definition is not None and definition.produces:
             return definition.produces
         return ROLE_ARTIFACTS.get(worker.role, frozenset())
-
-    def _definition(self, workflow: str | None) -> WorkflowDefinition | None:
-        if not workflow:
-            return None
-        try:
-            return get_workflow(workflow)
-        except WorkflowError:
-            return None
 
     def _store_plan(self, worker: Worker, job: Job, block: dict, head: str | None, tree: str | None) -> None:
         contract = ImplementationContract.model_validate(
@@ -1842,8 +1749,8 @@ class SessionManager:
     ) -> None:
         report = VerificationReport.model_validate(block)
         report.tested_head = head or ""
-        for evidence in report.evidence:
-            evidence.tested_head = head or ""
+        for item in report.evidence:
+            item.tested_head = head or ""
         self._save_artifact(job, type_, worker, report.model_dump(mode="json"), head, tree)
         self._sync_criteria_status(job, report)
         if report.passed:
@@ -1926,81 +1833,17 @@ class SessionManager:
 
     # ------------------------------------------------------------ invalidation
 
-    def _snapshot_before_change(self, worker: Worker) -> None:
-        # Any turn a writable worker takes can change the tree, whatever workflow it is
-        # running, so the snapshot is taken from writability rather than from intent.
-        if not worker.writable:
-            return
-        head, tree = self._head(worker), self._tree(worker)
-        if head and tree:
-            runtime = self.store.current_runtime(worker.id)
-            if (
-                runtime is not None
-                and runtime.git_head_before_turn is None
-                and runtime.git_tree_before_turn is None
-            ):
-                runtime.git_head_before_turn = head
-                runtime.git_tree_before_turn = tree
-                runtime.updated_at = now()
-                self.store.save_runtime(runtime)
-
     def _apply_invalidation(
         self, worker: Worker, job: Job | None, *, force: bool = False
     ) -> None:
-        runtime = self.store.current_runtime(worker.id)
-        if (
-            runtime is None
-            or runtime.git_head_before_turn is None
-            or runtime.git_tree_before_turn is None
-        ):
-            return
-        if runtime.owner is RuntimeOwner.HUMAN and not force:
-            # An interrupt completion may arrive after ownership was handed over. Keep
-            # the baseline until detach/recovery observes the human's complete edit.
-            return
-        before = GitSnapshot(runtime.git_head_before_turn, runtime.git_tree_before_turn)
-        runtime.git_head_before_turn = None
-        runtime.git_tree_before_turn = None
-        runtime.updated_at = now()
-        self.store.save_runtime(runtime)
-        if job is None:
-            return
-        definition = self._definition(worker.workflow)
-        head, tree = self._head(worker), self._tree(worker)
-        if not head or not tree:
-            return
-        change = classify_change(before, GitSnapshot(head, tree))
-        if change is CodeChange.NONE:
-            return
-        if not artifacts_invalidated_by(change):
-            # Same tree: behavioral evidence still holds, only lineage moves forward.
-            for artifact in self.store.list_artifacts(job.id):
-                if artifact.type in BEHAVIORAL_ARTIFACTS and not artifact.stale:
-                    self.store.save_artifact(relineage(artifact, head, tree))
-            return
-        targets = artifacts_invalidated_by(change)
-        if definition is not None:
-            targets |= definition.invalidates
-        invalidated = 0
-        for artifact in self.store.list_artifacts(job.id):
-            if artifact.type in targets and not artifact.stale:
-                artifact.stale = True
-                artifact.stale_reason = f"{change.value} at {head[:8]}"
-                self.store.save_artifact(artifact)
-                invalidated += 1
-        if invalidated:
+        outcome = lineage.apply_invalidation(self.store, worker, job, force=force)
+        if outcome is not None and outcome.invalidated and job is not None:
             self.emit(
                 ev.ARTIFACT_INVALIDATED,
                 job_id=job.id,
                 worker_id=worker.id,
-                summary=f"{invalidated} artifact(s) invalidated by {change.value}.",
+                summary=f"{outcome.invalidated} artifact(s) invalidated by {outcome.change.value}.",
             )
-
-    def _reconcile_job_git(self, job: Job) -> None:
-        """Apply any durable, unfinished Git baselines before trusting run state."""
-        for worker in self.store.list_workers(job.id):
-            if worker.writable:
-                self._apply_invalidation(worker, job)
 
     # ------------------------------------------------------------ ready to push
 
@@ -2015,105 +1858,10 @@ class SessionManager:
 
     def ready_to_push(self, job_id: UUID) -> ReadyToPushReport:
         """Deterministic gate. Every blocker is computed from stored state, not judgment."""
-        job = self.store.get_job(job_id)
-        if job is None:
-            raise SessionManagerError(f"Job {job_id} does not exist.")
-        blockers: list[str] = []
-        if job.authoritative_worktree_id is None:
-            blockers.append("No authoritative change worktree is selected.")
-
-        contract_artifact = self.store.latest_artifact(job_id, ArtifactType.IMPLEMENTATION_CONTRACT)
-        if contract_artifact is None:
-            blockers.append("No implementation contract.")
-        else:
-            contract = ImplementationContract.model_validate(contract_artifact.body)
-            if not contract.approved:
-                blockers.append("The implementation contract has not been approved.")
-            if contract.blocking_decisions():
-                blockers.append(
-                    f"{len(contract.blocking_decisions())} blocking decision(s) unanswered."
-                )
-
-        behavior_artifact = self.store.latest_artifact(job_id, ArtifactType.BEHAVIOR_CONTRACT)
-        criteria = (
-            BehaviorContract.model_validate(behavior_artifact.body).criteria
-            if behavior_artifact
-            else []
-        )
-        if not criteria:
-            blockers.append("No acceptance criteria recorded.")
-        for criterion in criteria:
-            if criterion.status != "passed" and not criterion.accepted_limitation:
-                blockers.append(f"Criterion {criterion.id} is {criterion.status}.")
-
-        head, dirty = self._job_head_and_dirty(job)
-        verification = self.store.latest_artifact(job_id, ArtifactType.VERIFICATION)
-        if verification is None:
-            blockers.append("No verification evidence.")
-        elif verification.stale or (head and not is_fresh(verification, head)):
-            blockers.append("Verification does not apply to current HEAD.")
-
-        review = self.store.latest_artifact(job_id, ArtifactType.REVIEW)
-        if review is None:
-            blockers.append("No independent review.")
-        elif review.stale or (head and not is_fresh(review, head)):
-            blockers.append("Review does not apply to current HEAD.")
-        else:
-            parsed = ReviewReport.model_validate(review.body)
-            unresolved = parsed.unresolved_blocking(
-                set(self.config.workflows.review_change.blocking_severities)
-            )
-            if unresolved:
-                blockers.append(f"{len(unresolved)} unresolved blocking review finding(s).")
-
-        if dirty:
-            blockers.append(f"The worktree has {len(dirty)} uncommitted change(s).")
-
-        return ReadyToPushReport(
-            ready=not blockers, blockers=blockers, blurb=self.verification_blurb(job_id)
-        )
-
-    def _job_head_and_dirty(self, job: Job) -> tuple[str | None, list[str]]:
-        path = self._job_inspection_path(job)
-        if path is None:
-            return None, []
-        try:
-            return runner.head_commit(path), runner.dirty_files(path)
-        except GitError:
-            return None, []
+        return evidence.ready_to_push(self.store, self.config, job_id)
 
     def verification_blurb(self, job_id: UUID) -> str:
-        """A copy-pastable blurb built only from stored evidence -- never from memory."""
-        verification = self.store.latest_artifact(job_id, ArtifactType.VERIFICATION)
-        review = self.store.latest_artifact(job_id, ArtifactType.REVIEW)
-        lines = ["Verification performed:"]
-        limitations: list[str] = []
-        if verification is None:
-            lines.append("- None recorded.")
-        else:
-            report = VerificationReport.model_validate(verification.body)
-            for evidence in report.evidence:
-                commands = ", ".join(
-                    f"`{c.command}` (exit {c.exit_code})" for c in evidence.commands
-                )
-                lines.append(
-                    f"- {evidence.criterion_id}: {evidence.status} — {evidence.observed_behavior}"
-                    + (f" [{commands}]" if commands else "")
-                )
-                limitations.extend(evidence.limitations)
-            if report.tested_head:
-                lines.append(f"- Tested head: {report.tested_head[:12]}")
-        if review is not None:
-            parsed = ReviewReport.model_validate(review.body)
-            open_findings = [f for f in parsed.findings if not f.resolved]
-            lines.append(
-                f"- Independent review of {parsed.reviewed_head[:12]}: {parsed.verdict}, "
-                f"{len(open_findings)} open finding(s)."
-            )
-        lines.append("")
-        lines.append("Limitations:")
-        lines.extend(f"- {item}" for item in (limitations or ["None recorded."]))
-        return "\n".join(lines)
+        return evidence.verification_blurb(self.store, job_id)
 
     # ---------------------------------------------------------------- recovery
 
@@ -2424,27 +2172,6 @@ class SessionManager:
         worker.waiting_for = waiting_for
         worker.updated_at = now()
         return self.store.save_worker(worker)
-
-    def _worktree_path(self, worker: Worker) -> Path | None:
-        if worker.worktree_id:
-            worktree = self.store.get_worktree(worker.worktree_id)
-            if worktree:
-                return worktree.path
-        return worker.cwd
-
-    def _head(self, worker: Worker) -> str | None:
-        path = self._worktree_path(worker)
-        try:
-            return runner.head_commit(path) if path and path.exists() else None
-        except GitError:
-            return None
-
-    def _tree(self, worker: Worker) -> str | None:
-        path = self._worktree_path(worker)
-        try:
-            return runner.tree_hash(path) if path and path.exists() else None
-        except GitError:
-            return None
 
 
 def _last_question(text: str) -> str:

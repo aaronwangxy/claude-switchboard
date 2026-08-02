@@ -9,6 +9,7 @@ import pytest
 from switchboard.agents.backend import RuntimeObservation, WorkerNotReadyError
 from switchboard.agents.scripted_backend import ScriptedWorkerBackend
 from switchboard.config import Config
+from switchboard.core import lineage
 from switchboard.core.session_manager import SessionManager
 from switchboard.domain.enums import (
     ArtifactType,
@@ -593,7 +594,7 @@ async def test_recovery_reconciles_a_durable_git_baseline(
             body={"verdict": "pass", "findings": []},
         )
     )
-    sm._snapshot_before_change(worker)
+    lineage.snapshot_before_turn(sm.store, worker)
     commit_file(worker.cwd, "late.txt", "late\n", "late edit")
 
     restarted = SessionManager(sm.store, ScriptedWorkerBackend(), Config(), sm.worktrees)
@@ -629,7 +630,7 @@ async def test_a_new_turn_reconciles_an_unfinished_baseline_before_replacing_it(
             body={"evidence": []},
         )
     )
-    sm._snapshot_before_change(worker)
+    lineage.snapshot_before_turn(sm.store, worker)
     commit_file(worker.cwd, "between.txt", "changed\n", "between turns")
 
     await sm.send(worker.id, "continue")
@@ -670,7 +671,7 @@ async def test_direct_workflow_start_reconciles_every_writable_worker_for_the_jo
             body={"verdict": "pass", "findings": []},
         )
     )
-    sm._snapshot_before_change(writer)
+    lineage.snapshot_before_turn(sm.store, writer)
     commit_file(writer.cwd, "direct.txt", "changed\n", "direct change")
 
     await sm.start_workflow(
@@ -705,8 +706,8 @@ async def test_job_inspection_uses_the_explicit_authoritative_worktree(
 
     stored = sm.store.get_job(job.id)
     assert stored.authoritative_worktree_id == authoritative.worktree_id
-    assert sm._job_inspection_path(stored) == authoritative.cwd
-    base, head, commits, diff = sm._review_inputs(stored)
+    assert lineage.inspection_path(sm.store, stored) == authoritative.cwd
+    base, head, commits, diff = lineage.review_inputs(sm.store, stored)
     assert base and head
     assert "intended lineage" in commits
     assert "intended.txt" in diff
@@ -714,8 +715,8 @@ async def test_job_inspection_uses_the_explicit_authoritative_worktree(
 
     sm.set_authoritative_worktree(job.id, other.worktree_id)
     switched = sm.store.get_job(job.id)
-    assert sm._job_inspection_path(switched) == other.cwd
-    _, _, switched_commits, switched_diff = sm._review_inputs(switched)
+    assert lineage.inspection_path(sm.store, switched) == other.cwd
+    _, _, switched_commits, switched_diff = lineage.review_inputs(sm.store, switched)
     assert "other lineage" in switched_commits
     assert "wrong.txt" in switched_diff
     assert "intended.txt" not in switched_diff

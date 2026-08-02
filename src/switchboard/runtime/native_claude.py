@@ -12,7 +12,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from switchboard.agents.runtime import ClaudeRuntimeError, claude_cli_path
 from switchboard.config import Config
 from switchboard.domain.contracts import extract_json_block
 from switchboard.domain.enums import (
@@ -22,6 +21,7 @@ from switchboard.domain.enums import (
     RuntimeProcessState,
 )
 from switchboard.domain.models import NativeTurn, now
+from switchboard.runtime.claude_cli import ClaudeExecutableError, claude_cli_path
 from switchboard.runtime.hook_bridge import acknowledge_turn, managed_prompt, prompt_digest
 from switchboard.runtime.supervisor import SupervisedRuntime, TmuxRuntimeSupervisor
 from switchboard.runtime.tmux import TmuxError, TmuxView
@@ -291,6 +291,6 @@ class NativeClaudeRuntime:
             return configured
         found = shutil.which("claude")
         if not found:
-            raise ClaudeRuntimeError("Claude executable was not found on PATH.")
+            raise ClaudeExecutableError("Claude executable was not found on PATH.")
         return Path(found)
 

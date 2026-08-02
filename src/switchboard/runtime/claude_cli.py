@@ -1,4 +1,4 @@
-"""Locating the Claude executable.
+"""Locating the native Claude executable this installation should launch.
 
 The command is configuration rather than a literal `claude`, so a wrapper can be used
 instead. Switchboard only decides which executable to launch; the parent environment is always
@@ -15,7 +15,7 @@ from pathlib import Path
 log = logging.getLogger(__name__)
 
 
-class ClaudeRuntimeError(RuntimeError):
+class ClaudeExecutableError(RuntimeError):
     """The configured Claude executable cannot be used."""
 
 
@@ -30,7 +30,7 @@ def claude_cli_path(configured: str | None) -> Path | None:
     candidate = Path(configured).expanduser()
     found = str(candidate) if candidate.is_absolute() else shutil.which(configured)
     if not found or not os.access(found, os.X_OK):
-        raise ClaudeRuntimeError(
+        raise ClaudeExecutableError(
             f"Configured Claude executable {configured!r} was not found on PATH or is not "
             "executable. A shell alias or shell function cannot be launched directly -- "
             "point claude.executable at a real executable wrapper."

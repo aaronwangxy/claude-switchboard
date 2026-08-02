@@ -14,6 +14,7 @@ import pytest
 from switchboard.agents.attach import AttachError, build_attachment
 from switchboard.agents.scripted_backend import ScriptedWorkerBackend
 from switchboard.config import Config
+from switchboard.core import lineage
 from switchboard.core.session_manager import SessionManager, SessionManagerError
 from switchboard.domain import events as ev
 from switchboard.domain.enums import ArtifactType, RunStatus, RuntimeOwner, WorkerRole, WorkerStatus
@@ -272,7 +273,7 @@ class TestAttachHandsOverControl:
                 body={"verdict": "pass", "findings": []},
             )
         )
-        session_manager._snapshot_before_change(worker)
+        lineage.snapshot_before_turn(session_manager.store, worker)
         commit_file(worker.cwd, "agent.txt", "agent\n", "agent edit")
 
         await session_manager.attach(worker.id)

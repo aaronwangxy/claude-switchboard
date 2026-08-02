@@ -32,6 +32,7 @@ __all__ = [
     "WorkflowStep",
     "REPO_WORKFLOW_DIR",
     "builtin_names",
+    "find_workflow",
     "get_workflow",
     "load_problems",
     "reload_workflows",
@@ -80,6 +81,20 @@ def get_workflow(name: str) -> WorkflowDefinition:
         raise WorkflowError(
             f"Unknown workflow {name!r}. Known workflows: {', '.join(workflow_names())}."
         ) from None
+
+
+def find_workflow(name: str | None) -> WorkflowDefinition | None:
+    """The definition for a stored workflow name, or None if it no longer loads.
+
+    A worker or run records the *name* it was started with, and the registry is reloaded
+    from disk; a user workflow can be deleted or broken between one turn and the next.
+    """
+    if not name:
+        return None
+    try:
+        return get_workflow(name)
+    except WorkflowError:
+        return None
 
 
 def validate_for_role(name: str, role: WorkerRole) -> WorkflowDefinition:
