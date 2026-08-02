@@ -280,7 +280,12 @@ async def test_human_entry_taints_active_managed_turn_and_notification_blocks(
     runtime = manager.store.current_runtime(worker.id)
     await wait_for(lambda: manager.store.open_native_turn(runtime.id))
     await manager.attach(worker.id)
-    await asyncio.sleep(0.7)
+    # Wait for the tainted turn to actually stop running rather than for a fixed delay,
+    # which flakes under load: the point is that its output is discarded, not delayed.
+    await wait_for(
+        lambda: manager.store.current_runtime(worker.id).process_state
+        is not RuntimeProcessState.TURN_ACTIVE
+    )
 
     turn = manager.store.list_native_turns(runtime.id)[-1]
     assert turn.human_intervened

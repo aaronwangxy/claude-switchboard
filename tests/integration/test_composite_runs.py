@@ -69,6 +69,27 @@ async def test_the_run_pauses_for_the_user_and_does_not_implement_unapproved_wor
     assert [w.role for w in sm.store.list_workers(job.id)] == [WorkerRole.PLANNER]
 
 
+async def test_an_approval_gate_reaches_the_attention_queue(project):
+    """A run waiting on the user must never leave the board saying nothing needs them.
+
+    A planner that ends its turn cleanly, rather than asking a question, resolves its own
+    attention; the approval gate it stops at has to raise its own.
+    """
+    from switchboard.domain.enums import AttentionKind
+
+    sm, backend, repo = project
+    _, job, _ = await paste_ticket(sm)
+
+    assert sm.store.active_run(job.id).status is RunStatus.AWAITING_APPROVAL
+    items = sm.list_attention_items()
+    assert [i.kind for i in items] == [AttentionKind.PLAN_APPROVAL]
+    assert items[0].job_id == job.id
+    assert "1 plan approval" in sm.status_summary()
+
+    await approve_and_run(sm, job)
+    assert not [i for i in sm.list_attention_items() if i.kind is AttentionKind.PLAN_APPROVAL]
+
+
 async def test_the_job_records_the_profile_it_is_following(project):
     sm, backend, repo = project
     _, job, _ = await paste_ticket(sm)

@@ -36,6 +36,7 @@ from switchboard.domain.contracts import (
 )
 from switchboard.domain.enums import (
     READ_ONLY_ROLES,
+    TERMINAL_WORKER_STATUSES,
     ArtifactType,
     AttentionKind,
     JobStage,
@@ -790,9 +791,8 @@ class SessionManager:
             if not run.current_step_completed:
                 return run
             if run.step_index < len(steps) and not self._approval_satisfied(run, steps[run.step_index], job):
-                return self._pause_run(
+                return self._await_approval(
                     run,
-                    RunStatus.AWAITING_APPROVAL,
                     f"Step {run.step_index + 1} ({steps[run.step_index].workflow}) needs your approval.",
                 )
             run.current_worker_id = None
@@ -835,7 +835,7 @@ class SessionManager:
             try:
                 self._assert_prerequisites(step_definition, job)
             except SessionManagerError as exc:
-                return self._pause_run(run, RunStatus.AWAITING_APPROVAL, str(exc))
+                return self._await_approval(run, str(exc))
 
             run.status = RunStatus.RUNNING
             run.detail = ""
@@ -871,6 +871,26 @@ class SessionManager:
                 run.updated_at = now()
                 self.store.save_run(run)
             return run
+
+    def _await_approval(self, run: WorkflowRun, detail: str) -> WorkflowRun:
+        """Stop for the user *and* say so in the attention queue.
+
+        A planner that ends its turn cleanly instead of asking a question resolves its own
+        attention, so an approval gate reached this way used to leave the board reporting
+        `Nothing needs you` while the run waited on the one person who could unblock it.
+        """
+        paused = self._pause_run(run, RunStatus.AWAITING_APPROVAL, detail)
+        worker = self.store.get_worker(run.current_worker_id) if run.current_worker_id else None
+        if worker is None:
+            candidates = [
+                w
+                for w in self.store.list_workers(run.job_id)
+                if w.status not in TERMINAL_WORKER_STATUSES
+            ]
+            worker = candidates[-1] if candidates else None
+        if worker is not None:
+            self.raise_attention(worker, AttentionKind.PLAN_APPROVAL, detail, detail)
+        return paused
 
     def _approval_satisfied(self, run: WorkflowRun, step: WorkflowStep, job: Job) -> bool:
         """Whether the user has given the approval this step asks for."""
