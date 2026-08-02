@@ -1039,6 +1039,18 @@ class SessionManager:
         run.updated_at = now()
         self.store.save_run(run)
         self.emit(ev.RUN_PAUSED, job_id=run.job_id, summary=f"{run.workflow}: {detail}")
+        if status is RunStatus.BLOCKED:
+            # A blocked run needs a person, and its worker may look perfectly healthy --
+            # conservative reconciliation blocks a run whose session is idle and ready.
+            # Without this the board says nothing needs you while the work is stopped,
+            # which is the one failure an operator replacement must not have.
+            worker = self._gate_worker(run)
+            if worker is not None:
+                self._raise_attention_once(
+                    worker,
+                    AttentionKind.HUMAN_DECISION,
+                    f"{run.workflow} is blocked: {detail}",
+                )
         return run
 
     async def resume_run(self, run_id: UUID) -> WorkflowRun:
@@ -2398,6 +2410,14 @@ class SessionManager:
                 names = ", ".join(f"{w.title} ({w.waiting_for or 'blocked'})" for w in stuck[:2])
                 suffix = "" if len(stuck) <= 2 else f" and {len(stuck) - 2} more"
                 return f"{len(stuck)} session(s) are blocked and cannot move: {names}{suffix}."
+            # A run can be stopped while every one of its sessions looks healthy.
+            halted = [r for r in self.store.list_runs() if r.status is RunStatus.BLOCKED]
+            if halted:
+                first = halted[0]
+                return (
+                    f"{len(halted)} workflow run(s) are blocked and will not continue on "
+                    f"their own: {first.workflow} — {first.detail or 'no reason recorded'}"
+                )
             active = [
                 w for w in workers if w.status in (WorkerStatus.WORKING, WorkerStatus.STARTING)
             ]

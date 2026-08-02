@@ -296,3 +296,47 @@ async def test_two_runs_cannot_race_on_one_job(project):
     with pytest.raises(SessionManagerError) as excinfo:
         await sm.start_run("complete-ticket", job_id=job.id)
     assert "already running" in str(excinfo.value)
+
+
+async def test_a_blocked_run_reaches_the_attention_queue(project):
+    """A run can stop while every one of its sessions looks perfectly healthy.
+
+    Conservative reconciliation blocks a run whose worker is idle and ready. Without an
+    attention item the board reported "nothing needs you" about work that had stopped and
+    would never restart on its own -- the one failure an operator replacement cannot have.
+    """
+    from switchboard.domain.enums import AttentionKind
+
+    sm, backend, repo = project
+    _, job, _ = await paste_ticket(sm)
+    run = sm.store.active_run(job.id)
+    for item in sm.store.list_attention_items():
+        item.handled = True
+        sm.store.save_attention_item(item)
+
+    sm._pause_run(run, RunStatus.BLOCKED, "Prompt delivery is uncertain before UserPromptSubmit.")
+
+    kinds = {item.kind for item in sm.list_attention_items()}
+    assert AttentionKind.HUMAN_DECISION in kinds
+    reasons = [item.reason for item in sm.list_attention_items()]
+    assert any("blocked" in reason and "uncertain" in reason for reason in reasons)
+
+
+async def test_a_blocked_run_is_named_in_the_status_summary(project):
+    from switchboard.domain.enums import WorkerStatus
+
+    sm, backend, repo = project
+    _, job, _ = await paste_ticket(sm)
+    run = sm.store.active_run(job.id)
+    sm._pause_run(run, RunStatus.BLOCKED, "Prompt delivery is uncertain.")
+    # A blocked session is the more actionable fact, so clear that first to isolate the
+    # case this is about: every session healthy, the run itself stopped.
+    for worker in sm.store.list_workers(job.id):
+        sm._force_status(worker, WorkerStatus.IDLE, None)
+    for item in sm.store.list_attention_items():
+        item.handled = True
+        sm.store.save_attention_item(item)
+
+    summary = sm.status_summary()
+    assert "blocked and will not continue" in summary
+    assert "complete-ticket" in summary
