@@ -200,10 +200,9 @@ async def test_worker_entry_returns_ownership_after_empty_composer_confirmation(
 
         assert not app.sm.is_attached(worker.id)
         returns = sum(
-            "Back in Switchboard" in (entry[1] or "") for entry in app.manager_pane.entries
+            "Back in Switchboard" in entry for entry in app.manager_pane.entries
         )
         assert returns >= 2
-        assert any("Back in Switchboard" in (entry[1] or "") for entry in app.manager_pane.entries)
 
 
 async def test_the_manager_pane_window_stays_bounded(app):
@@ -254,6 +253,24 @@ async def test_manager_startup_instruction_uses_global_entry_binding(app, monkey
         detail = rendered_text(pilot, "#session-detail")
         assert "Press Ctrl+E" in detail
         assert "Press Enter to handle" not in detail
+
+
+async def test_entering_the_scripted_manager_explains_why_it_cannot_be_entered(app):
+    """Every manager answers `enter`; the offline one refuses with a reason.
+
+    The UI must not silently do nothing when a session cannot be entered -- that was
+    indistinguishable from a key that did not register.
+    """
+    async with app.run_test() as pilot:
+        await quiet(pilot)
+        app.action_focus_manager()
+        await app.action_attach()
+        await quiet(pilot)
+
+        assert any(
+            "Cannot enter that session" in entry and "rule engine" in entry
+            for entry in app.manager_pane.entries
+        )
 
 
 async def test_the_help_screen_lists_the_bindings(app):

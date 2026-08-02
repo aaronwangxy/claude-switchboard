@@ -5,8 +5,10 @@ from __future__ import annotations
 import re
 from typing import Protocol
 
+from switchboard.agents.attach import AttachError, Attachment
 from switchboard.agents.snapshots import Exchange
 from switchboard.core.session_manager import SessionManager
+from switchboard.domain.models import RuntimeInstance
 from switchboard.routing import router
 
 #: Destructive operations keep a deliberately narrow confirmation: the whole message has
@@ -76,7 +78,22 @@ APPROVE_RE = _ApprovalPattern()
 
 
 class Manager(Protocol):
+    """Everything the board is allowed to ask of a manager, whatever backs it.
+
+    The production manager is a native Claude process and the offline one is a rule
+    engine, but the UI must not branch on which: it selects a Manager row, shows its
+    status, and enters it exactly as it does for a worker.
+    """
+
     async def handle(self, text: str) -> str: ...
+
+    async def start_or_recover(self) -> RuntimeInstance | None: ...
+
+    def status(self) -> dict[str, object]: ...
+
+    async def enter(self) -> Attachment: ...
+
+    def release_human(self, *, composer_cleared: bool) -> None: ...
 
 
 class DeterministicManager:
@@ -85,6 +102,25 @@ class DeterministicManager:
     def __init__(self, session_manager: SessionManager) -> None:
         self.sm = session_manager
         self.exchanges: list[Exchange] = []
+
+    async def start_or_recover(self) -> RuntimeInstance | None:
+        return None  # it runs in this process; there is nothing to adopt or replace
+
+    def status(self) -> dict[str, object]:
+        return {
+            "state": "ready",
+            "owner": "manager",
+            "workspace": "in-process rule engine (SB_BACKEND=scripted)",
+        }
+
+    async def enter(self) -> Attachment:
+        raise AttachError(
+            "The scripted manager is a rule engine in this process, not a Claude "
+            "session. Run without SB_BACKEND=scripted to enter a native Manager."
+        )
+
+    def release_human(self, *, composer_cleared: bool) -> None:
+        return None  # it never hands its input lane to a human terminal
 
     async def handle(self, text: str) -> str:
         confirmed = bool(CONFIRM_RE.search(text))

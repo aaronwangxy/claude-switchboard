@@ -44,7 +44,8 @@ MAX_MANAGER_EXCHANGES = 5
 #: How much of a worker's `waiting_for` fits on one list row.
 REASON_WIDTH = 60
 
-PENDING = "…"
+#: Shown while a manager turn is in flight, and replaced in place by its reply.
+WORKING = "Manager is working…"
 
 
 # --------------------------------------------------------------------------- panes
@@ -59,7 +60,7 @@ class ManagerPane(Vertical):
 
     def __init__(self) -> None:
         super().__init__(id="manager-pane")
-        self._entries: deque[list[str | None]] = deque(maxlen=MAX_MANAGER_EXCHANGES)
+        self._entries: deque[str] = deque(maxlen=MAX_MANAGER_EXCHANGES)
 
     def compose(self) -> ComposeResult:
         yield Static("Manager", classes="pane-title", id="manager-title")
@@ -77,23 +78,23 @@ class ManagerPane(Vertical):
 
     def add_note(self, text: str) -> None:
         """Record an application note (startup, recovery, refusals)."""
-        self._entries.append([None, text])
+        self._entries.append(text)
         self._repaint()
 
-    def begin_exchange(self, user_text: str) -> None:
-        self._entries.append([None, "Manager is working…"])
+    def begin_exchange(self) -> None:
+        self._entries.append(WORKING)
         self._repaint()
 
     def complete_exchange(self, reply: str) -> None:
-        if self._entries and self._entries[-1][1] == "Manager is working…":
-            self._entries[-1][1] = reply
+        if self._entries and self._entries[-1] == WORKING:
+            self._entries[-1] = reply
         else:
-            self._entries.append([None, reply])
+            self._entries.append(reply)
         self._repaint()
 
     @property
-    def entries(self) -> list[tuple[str | None, str | None]]:
-        return [(entry[0], entry[1]) for entry in self._entries]
+    def entries(self) -> list[str]:
+        return list(self._entries)
 
     def _repaint(self) -> None:
         text = Text()
@@ -101,8 +102,8 @@ class ManagerPane(Vertical):
             text.append("Give Manager a goal below, or select it and press Enter.\n", style="dim")
         # The pane is intentionally short at 80x24. Paint newest first so stale recovery
         # notes can never push the result of the user's latest turn below the viewport.
-        for _, reply in reversed(self._entries):
-            text.append(f"{reply or PENDING}\n", style="dim")
+        for entry in reversed(self._entries):
+            text.append(f"{entry}\n", style="dim")
         try:
             self.query_one("#manager-log", Static).update(text)
         except Exception:  # not mounted yet
@@ -291,8 +292,7 @@ class SwitchboardApp(App[None]):
 
     async def _recover(self) -> None:
         try:
-            if hasattr(self.manager, "start_or_recover"):
-                await self.manager.start_or_recover()  # type: ignore[attr-defined]
+            await self.manager.start_or_recover()
             notes = await self.sm.recover()
         except Exception as exc:  # recovery must never stop the UI from coming up
             log.exception("recovery failed")
@@ -324,13 +324,10 @@ class SwitchboardApp(App[None]):
             f"{self.sm.status_summary()}\n"
             f"Current goal: {_compact(objective, 32) if objective else 'none yet'}"
         )
-        if hasattr(self.manager, "status"):
-            status = self.manager.status()  # type: ignore[attr-defined]
-            state = "turn active" if self._busy else status.get("state") or "absent"
-            owner = status.get("owner") or "-"
-            self.query_one("#manager-title", Static).update(
-                f"Manager · {state} · {owner}"
-            )
+        status = self.manager.status()
+        state = "turn active" if self._busy else status.get("state") or "absent"
+        owner = status.get("owner") or "-"
+        self.query_one("#manager-title", Static).update(f"Manager · {state} · {owner}")
         self.refresh_workers()
         self.refresh_worker_pane()
 
@@ -366,7 +363,7 @@ class SwitchboardApp(App[None]):
         rows = self.ordered_workers()
         jobs = {job.id: job for job in self.sm.store.list_jobs()}
         repos = {repo.id: repo for repo in self.sm.store.list_repositories()}
-        manager_status = self.manager.status() if hasattr(self.manager, "status") else {}
+        manager_status = self.manager.status()
         manager_state = (
             "turn_active" if self._busy else str(manager_status.get("state") or "ready")
         )
@@ -410,7 +407,7 @@ class SwitchboardApp(App[None]):
         """Redraw only when something actually changed, so scrolling is not fought."""
         worker_id = self.sm.selected_worker_id
         if self._selected_manager:
-            status = self.manager.status() if hasattr(self.manager, "status") else {}
+            status = self.manager.status()
             detail = Text()
             detail.append("role       ", style="dim")
             detail.append("orchestrator; never writes repository code\n")
@@ -544,7 +541,7 @@ class SwitchboardApp(App[None]):
             self.manager_pane.add_note("Still working on the previous message.")
             return
         event.input.value = ""
-        self.manager_pane.begin_exchange(text)
+        self.manager_pane.begin_exchange()
         # A manager turn can take seconds; run it off the message pump so the UI stays live.
         self.run_worker(self._manager_turn(text), name="manager-turn", exclusive=False)
 
@@ -647,8 +644,8 @@ class SwitchboardApp(App[None]):
         """
         entering_manager = self._selected_manager
         try:
-            if entering_manager and hasattr(self.manager, "enter"):
-                attachment = await self.manager.enter()  # type: ignore[attr-defined]
+            if entering_manager:
+                attachment = await self.manager.enter()
                 worker_id = None
             else:
                 worker_id = self.sm.selected_worker_id
@@ -674,8 +671,8 @@ class SwitchboardApp(App[None]):
                 composer_cleared = answer.strip().lower() in ("y", "yes")
         finally:
             if composer_cleared:
-                if entering_manager and hasattr(self.manager, "release_human"):
-                    self.manager.release_human(composer_cleared=True)  # type: ignore[attr-defined]
+                if entering_manager:
+                    self.manager.release_human(composer_cleared=True)
                 elif worker_id is not None:
                     self.sm.detach(worker_id, composer_cleared=True)
                     if await self.sm.resume_startup(worker_id):
