@@ -339,24 +339,109 @@ async def serve_connection(
         await writer.wait_closed()
 
 
-async def _proxy(socket_path: Path) -> None:
-    reader, writer = await asyncio.open_unix_connection(socket_path)
+#: How long a bridge waits for the board's socket while the controller is restarting.
+RECONNECT_TIMEOUT = 30.0
+
+
+class _Bridge:
+    """A stdio-to-socket bridge that outlives the board controller.
+
+    The board owns the Unix socket, so quitting it closes this connection. Claude Code
+    never respawns a stdio MCP server that exits, so dying here would silently strip a
+    surviving native Manager of every orchestration tool for the rest of its session --
+    leaving a model that narrates tool calls it cannot make. The board rebinds the same
+    generation-bound path when it comes back, and every call is reauthorized server-side,
+    so reconnecting is both safe and enough to restore authority.
+    """
+
+    def __init__(self, socket_path: Path, timeout: float = RECONNECT_TIMEOUT) -> None:
+        self.socket_path = socket_path
+        self.timeout = timeout
+        self._reader: asyncio.StreamReader | None = None
+        self._writer: asyncio.StreamWriter | None = None
+
+    async def _open(self) -> tuple[asyncio.StreamReader, asyncio.StreamWriter, bool]:
+        if self._reader is not None and self._writer is not None:
+            if not self._writer.is_closing() and not self._reader.at_eof():
+                return self._reader, self._writer, True
+            self._drop()
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self.timeout
+        delay = 0.05
+        while True:
+            try:
+                self._reader, self._writer = await asyncio.open_unix_connection(self.socket_path)
+            except OSError:
+                if loop.time() >= deadline:
+                    raise
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, 1.0)
+            else:
+                return self._reader, self._writer, False
+
+    def _drop(self) -> None:
+        if self._writer is not None:
+            self._writer.close()
+        self._reader = None
+        self._writer = None
+
+    async def exchange(self, line: str, wants_response: bool) -> str | None:
+        for attempt in (0, 1):
+            reader, writer, reused = await self._open()
+            try:
+                writer.write(line.encode())
+                await writer.drain()
+            except OSError:
+                self._drop()
+                # A reused connection that fails to write never delivered the request,
+                # so resending it cannot duplicate a mutation.
+                if attempt == 0 and reused:
+                    continue
+                raise
+            if not wants_response:
+                return None
+            response = await reader.readline()
+            if response:
+                return response.decode()
+            # The board accepted the request and then vanished. Never resend: it may
+            # already have been applied. The Manager contract re-inspects state anyway.
+            self._drop()
+            raise ConnectionResetError("the Switchboard board closed the connection")
+        raise ConnectionResetError("the Switchboard board is unreachable")
+
+    async def close(self) -> None:
+        writer = self._writer
+        self._drop()
+        if writer is not None:
+            try:
+                await writer.wait_closed()
+            except OSError:
+                pass
+
+
+def _unreachable(ident: Any, exc: Exception) -> str:
+    message = f"Switchboard is not reachable: {exc}. Retry once the board is running."
+    return json.dumps({"jsonrpc": "2.0", "id": ident, "error": {"code": -32000, "message": message}})
+
+
+async def _proxy(socket_path: Path, timeout: float = RECONNECT_TIMEOUT) -> None:
+    bridge = _Bridge(socket_path, timeout)
     loop = asyncio.get_running_loop()
     try:
         while line := await loop.run_in_executor(None, sys.stdin.readline):
             request = json.loads(line)
-            writer.write(line.encode())
-            await writer.drain()
-            if request.get("id") is None:
-                continue
-            response = await reader.readline()
-            if not response:
-                raise RuntimeError("Switchboard manager service disconnected.")
-            sys.stdout.write(response.decode())
-            sys.stdout.flush()
+            ident = request.get("id")
+            try:
+                response = await bridge.exchange(line, ident is not None)
+            except OSError as exc:
+                if ident is None:
+                    continue
+                response = _unreachable(ident, exc) + "\n"
+            if response is not None:
+                sys.stdout.write(response)
+                sys.stdout.flush()
     finally:
-        writer.close()
-        await writer.wait_closed()
+        await bridge.close()
 
 
 def main(argv: list[str] | None = None) -> int:

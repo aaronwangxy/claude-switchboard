@@ -96,6 +96,118 @@ def test_manager_launch_disables_coding_tools(session_manager, tmp_path):
     assert "mcp__switchboard__*" in args
 
 
+#: A stand-in for the board's socket server whose death is a real process exit, which is
+#: how a controller actually goes away.
+BOARD_STUB = """
+import asyncio, json, sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+
+
+async def handle(reader, writer):
+    while line := await reader.readline():
+        request = json.loads(line)
+        reply = {"jsonrpc": "2.0", "id": request.get("id"),
+                 "result": {"content": [{"type": "text", "text": "board"}]}}
+        writer.write((json.dumps(reply) + "\\n").encode())
+        await writer.drain()
+    writer.close()
+
+
+async def main():
+    path.unlink(missing_ok=True)
+    server = await asyncio.start_unix_server(handle, path)
+    async with server:
+        await server.serve_forever()
+
+
+asyncio.run(main())
+"""
+
+
+async def test_manager_mcp_bridge_survives_a_controller_restart(tmp_path):
+    """Quitting the board must not permanently strip a live Manager of its tools.
+
+    Claude Code never respawns a stdio MCP server that exits, so a bridge that died with
+    the board left the surviving Manager narrating tool calls it could no longer make.
+    """
+    import asyncio
+    import sys
+
+    socket_path = Path("/private/tmp") / f"sb-bridge-test-{id(tmp_path)}.sock"
+    socket_path.unlink(missing_ok=True)
+
+    async def start_board():
+        board = await asyncio.create_subprocess_exec(
+            sys.executable, "-c", BOARD_STUB, str(socket_path)
+        )
+        for _ in range(100):
+            if socket_path.exists():
+                return board
+            await asyncio.sleep(0.05)
+        raise AssertionError("board stub never bound its socket")
+
+    try:
+        board = await start_board()
+    except PermissionError:  # pragma: no cover - sandbox only
+        import pytest
+
+        pytest.skip("sandbox forbids local Unix sockets")
+
+    proxy = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "-m",
+        "switchboard.agents.manager_mcp",
+        "--socket",
+        str(socket_path),
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+    )
+    assert proxy.stdin is not None and proxy.stdout is not None
+
+    async def call(ident: int) -> dict:
+        request = {"jsonrpc": "2.0", "id": ident, "method": "tools/list"}
+        proxy.stdin.write((json.dumps(request) + "\n").encode())
+        await proxy.stdin.drain()
+        return json.loads(await asyncio.wait_for(proxy.stdout.readline(), timeout=30))
+
+    board2 = None
+    try:
+        assert (await call(1))["id"] == 1
+
+        board.kill()  # the controller quits; the socket disappears with it
+        await board.wait()
+        socket_path.unlink(missing_ok=True)
+        await asyncio.sleep(1.0)
+        assert proxy.returncode is None, "the bridge died with the board"
+
+        board2 = await start_board()  # a fresh controller rebinds the same path
+        second = await call(2)
+        assert second["id"] == 2 and "content" in second["result"]
+        assert proxy.returncode is None
+    finally:
+        proxy.stdin.close()
+        await asyncio.wait_for(proxy.wait(), timeout=15)
+        for process in (board, board2):
+            if process is not None and process.returncode is None:
+                process.kill()
+                await process.wait()
+        socket_path.unlink(missing_ok=True)
+
+
+async def test_manager_mcp_bridge_refuses_instead_of_dying_when_the_board_is_gone(tmp_path):
+    """An unreachable board is a refusal the Manager can report, not a lost tool surface."""
+    import pytest
+
+    from switchboard.agents.manager_mcp import _Bridge
+
+    bridge = _Bridge(tmp_path / "never-bound.sock", timeout=0.2)
+    with pytest.raises(OSError):
+        await bridge.exchange('{"jsonrpc":"2.0","id":1,"method":"tools/list"}\n', True)
+    await bridge.close()
+
+
 def test_configured_wrapper_and_environment_are_shared_with_native_runtime(
     session_manager, tmp_path
 ):
