@@ -476,11 +476,9 @@ class SessionManager:
                 log.info("not auto-answering startup for %s: %s", worker.title, exc)
                 return False
             return await self.backend.wait_ready(worker.id)
-        if pane.strip() and "?" not in pane and "❯" not in pane:
-            # Something is on screen that is neither a prompt nor a settled composer.
-            # Whatever it is, guessing at it is how a board answers a question it does
-            # not understand, so hand it to the user.
-            log.info("%s is showing an unrecognised startup screen", worker.title)
+        # Anything else on screen is something Switchboard does not know how to answer, so
+        # it waits rather than guessing. If the session was only slow it arrives; if it is
+        # genuinely waiting for a person, the caller raises attention as before.
         return await self.backend.wait_ready(worker.id, timeout=self.SLOW_STARTUP_GRACE)
 
     def _ensure_pump(self, worker_id: UUID, *, replace: bool = False) -> None:
