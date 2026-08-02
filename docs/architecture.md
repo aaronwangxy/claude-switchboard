@@ -67,8 +67,8 @@ that artifact type carries. A conditional step is never a precondition, because 
 that may not run cannot be required. Any workflow that mutates code also needs a clean
 authoritative tree, and a parent job waits for its children.
 
-For `complete-ticket` this evaluates to the rule that used to be hardcoded. For `rebase`
-it asks for a clean tree and fresh checks. For `investigate` it asks for evidenced
+So `complete-ticket` asks for an approved plan, criteria, verification and review;
+`rebase` asks for a clean tree and fresh checks; `investigate` asks for evidenced
 findings. A job following no workflow is reported unfinished, never vacuously done.
 
 ```

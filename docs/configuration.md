@@ -89,9 +89,10 @@ Notes on the ones with sharp edges:
   there, so something like `CLAUDE.local.md` is missing unless it is copied. Only files
   named here are copied, and only plain files directly inside the repository root — nothing
   is swept up by pattern, because these files are exactly where credentials tend to live.
-- **`default_composite_workflow`** was previously called `default_profile`. The old key
-  still loads. It is only the default: the Manager picks a workflow per request, and
-  `investigate`, `diagnose-and-fix`, `rebase` and `review-only` are its equals.
+- **`default_composite_workflow`** is only a default, and a rarely load-bearing one: the
+  Manager picks a workflow per request, and `investigate`, `diagnose-and-fix`, `rebase` and
+  `review-only` are `complete-ticket`'s equals. The legacy key `default_profile` is still
+  accepted as an alias.
 - **`permissions`** is the knob that decides how often a fleet interrupts you. The default
   stops a writable worker asking about writes inside its own worktree while still asking
   about shell commands. `auto` hands command classification to Claude as well, which

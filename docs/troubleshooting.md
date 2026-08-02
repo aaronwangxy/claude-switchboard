@@ -30,8 +30,9 @@ and then discarded.
 Workaround today: let a turn finish before entering when you can, and use `resume_run` to
 replay the tainted step from the durable contracts. It does not consume an iteration.
 
-The right fix is to integrate with Claude's own question and permission UI rather than route
-around it, which is deliberately not a cleanup-phase change.
+The real fix is to integrate with Claude's own question and permission UI rather than route
+around it, so that answering an agent is not the same act as taking a session over. That is
+a substantial piece of work and is not done.
 
 ## "You are attached to X. Talk to it in that session, or leave it before sending"
 
@@ -126,11 +127,11 @@ Recorded rather than solved. Each is a real property of the current build.
   proposal is advisory; only the safety invariants are mandatory. Refusals bound the damage;
   they do not guarantee an optimal route.
 
-## Owed evidence
+## Where the evidence is thinner than the tests suggest
 
-Two fixes have passing deterministic coverage but no live replay: recovery across a pending
-plan approval, and the rapid Manager follow-up race. They are carried as owed rather than
-quietly closed.
+Two behaviours have passing deterministic coverage but have never been replayed against a
+live Claude: recovery across a pending plan approval, and the rapid Manager follow-up race.
+Both are recorded here rather than counted as proven.
 
 ## Deliberate non-goals
 

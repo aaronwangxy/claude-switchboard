@@ -88,11 +88,11 @@ inspects state rather than retrying a mutation that may already have happened.
 ### When native startup needs a person
 
 A first run in a fresh data directory meets Claude's workspace-trust dialog, which blocks
-`SessionStart`. Raising there used to kill the board process and take down the Unix socket
-the MCP bridge connects to, leaving a Manager with no tools that could only narrate having
-none. The board now stays up, records which runtime is waiting, and says to press Ctrl+E.
-`handle` refuses to send while the session is not ready, so a message can never be typed
-into a trust dialog.
+`SessionStart`. The board treats that as an ordinary waiting state rather than a failure: it
+stays up, records which runtime is waiting, and says to press Ctrl+E. Raising there instead
+would take down the Unix socket the MCP bridge connects to, leaving a Manager that has lost
+every orchestration tool and can only narrate having none. `handle` refuses to send while
+the session is not ready, so a message can never be typed into a trust dialog.
 
 ## Workspace and configuration
 
