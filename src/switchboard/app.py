@@ -26,11 +26,13 @@ from switchboard.config import (
     user_workflows_dir,
     worktree_root,
 )
+from switchboard.core.evidence import required_artifacts
 from switchboard.core.session_manager import SessionManager, SessionManagerError
 from switchboard.gitops.worktrees import WorktreeService
 from switchboard.storage.store import Store
 from switchboard.ui.screens import SwitchboardApp
 from switchboard.workflows.registry import get_workflow, workflow_names
+from switchboard.workflows.validate import validate_registry
 
 log = logging.getLogger(__name__)
 
@@ -50,6 +52,7 @@ class Services:
     scripted: bool
 
     def close(self) -> None:
+        self.session_manager.shutdown()
         self.store.close()
 
 
@@ -152,7 +155,16 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     commands = parser.add_subparsers(dest="command")
     commands.add_parser("claude", help="Open the interface (the default).")
-    commands.add_parser("workflows", help="List the workflows this installation can route to.")
+    workflows = commands.add_parser(
+        "workflows", help="List the workflows this installation can route to."
+    )
+    workflows.add_argument(
+        "action",
+        nargs="?",
+        choices=["list", "validate"],
+        default="list",
+        help="'validate' checks every workflow for authoring mistakes and exits non-zero.",
+    )
     commands.add_parser("config", help="Print the effective configuration and its paths.")
     return parser.parse_args(argv)
 
@@ -166,9 +178,29 @@ def list_workflows() -> int:
             definition = get_workflow(name)
             kind = "composite" if definition.is_composite else definition.role.value
             description = " ".join(definition.description.split())
-            print(f"{name:<26} {kind:<16} {description}")
+            done = ", ".join(sorted(a.value for a in required_artifacts(definition)))
+            print(f"{name:<26} {kind:<14} {description}")
+            if done:
+                print(f"{'':<26} {'':<14} done when: {done}")
         for problem in problems:
             print(f"skipped: {problem}")
+    finally:
+        services.close()
+    return 0
+
+
+def validate_workflows() -> int:
+    """Check every workflow before somebody's work depends on one being right."""
+    services = build_services()
+    try:
+        services.session_manager.reload_workflows()
+        problems = validate_registry()
+        for problem in problems:
+            print(problem)
+        if problems:
+            print(f"\n{len(problems)} problem(s).")
+            return 1
+        print(f"{len(workflow_names())} workflows, no problems.")
     finally:
         services.close()
     return 0
@@ -200,7 +232,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     else:
         logging.getLogger("switchboard").addHandler(logging.NullHandler())
     if args.command == "workflows":
-        return list_workflows()
+        return validate_workflows() if args.action == "validate" else list_workflows()
     if args.command == "config":
         return show_config()
     services = build_services()

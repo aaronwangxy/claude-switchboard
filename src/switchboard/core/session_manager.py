@@ -139,6 +139,19 @@ class SessionManager:
     def subscribe(self, listener: Callable[[Event], None]) -> None:
         self._listeners.append(listener)
 
+    def shutdown(self) -> None:
+        """Stop observing workers before the store goes away.
+
+        The native sessions themselves survive -- that is the point of them -- but a pump
+        that outlives the database writes into a closed connection and prints a traceback
+        per event on the way out of every run.
+        """
+        for task in (*self._pumps.values(), *self._background):
+            task.cancel()
+        self._pumps.clear()
+        self._background.clear()
+        self._listeners.clear()
+
     def emit(
         self,
         kind: str,
