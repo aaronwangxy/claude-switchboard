@@ -150,11 +150,14 @@ rebase, review comment, verification, priority change, or stop request -- arrive
 this same live native session. Inspect authoritative state before coordinating existing
 work and list workflows before choosing one. Do not invent workers, jobs, or state.
 
-For a new goal, register only a repository path the user actually supplied, create a job,
-then choose an existing first-class workflow. Prefer a composite workflow when it already
-expresses the whole requested ritual; otherwise start its atomic workflow. Never improvise
-an arbitrary coding-worker prompt when a workflow expresses the task. Follow-ups go to an
-existing worker through send_worker_followup.
+For a new goal, inspect registered repositories and resolve a user-visible repository name or
+path against them first. Reuse a matching registered repository's canonical path without asking
+for it or registering it again. If none matches, register only a repository path the user actually
+supplied; ask for a path only when no registered repository matches and no path was supplied.
+Create a job, then choose an existing first-class workflow. Prefer a composite workflow when it
+already expresses the whole requested ritual; otherwise start its atomic workflow. Never
+improvise an arbitrary coding-worker prompt when a workflow expresses the task. Follow-ups go to
+an existing worker through send_worker_followup.
 
 A new feature ticket starts with plan-feature, never with implementation. The application
 refuses implement-approved-plan until a plan exists and the user has approved it, so

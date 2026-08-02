@@ -90,6 +90,8 @@ def test_manager_prompt_carries_its_own_response_policy():
     assert "Do not narrate a planned tool call" in prompt
     assert "until the requested action exists in authoritative state" in prompt
     assert "inspect authoritative state" in prompt
+    assert "resolve a user-visible repository name" in prompt
+    assert "without asking\nfor it or registering it again" in prompt
 
 
 def test_the_policy_version_is_stable_and_recorded():
