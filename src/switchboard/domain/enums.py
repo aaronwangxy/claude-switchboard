@@ -115,17 +115,13 @@ ALLOWED_WORKER_TRANSITIONS: dict[WorkerStatus, frozenset[WorkerStatus]] = {
 }
 
 
-class JobStage(str, Enum):
-    INTAKE = "intake"
-    PLANNING = "planning"
-    AWAITING_INPUT = "awaiting_input"
-    IMPLEMENTING = "implementing"
-    VERIFYING = "verifying"
-    REVIEWING = "reviewing"
-    FIXING = "fixing"
-    READY_TO_PUSH = "ready_to_push"
-    COMPLETED = "completed"
-    FAILED = "failed"
+#: Where a job starts before any workflow has said otherwise. Stages themselves are not
+#: enumerated: `planning` and `implementing` belong to `complete-ticket`, `rebasing`
+#: belongs to `rebase`, and a workflow names its own in YAML.
+INTAKE_STAGE = "intake"
+
+#: The stage a job is moved to once its workflow's definition of done is satisfied.
+COMPLETE_STAGE = "complete"
 
 
 class RunStatus(str, Enum):
@@ -256,7 +252,9 @@ class AttentionKind(str, Enum):
     BLOCKING_REVIEW_FINDING = "blocking_review_finding"
     VERIFICATION_FAILED = "verification_failed"
     READY_FOR_REVIEW = "ready_for_review"
-    READY_TO_PUSH = "ready_to_push"
+    #: The job's workflow says the work is finished. Named for what is true of any
+    #: workflow, not for what happens next to a `complete-ticket` branch.
+    WORK_COMPLETE = "work_complete"
     CLEANUP_CANDIDATE = "cleanup_candidate"
 
 

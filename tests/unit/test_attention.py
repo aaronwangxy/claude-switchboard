@@ -78,7 +78,7 @@ def queue():
     ready = make_worker("ready")
     workers = {blocked.id: blocked, ready.id: ready}
     items = [
-        item(ready, AttentionKind.READY_TO_PUSH, minutes=1),
+        item(ready, AttentionKind.WORK_COMPLETE, minutes=1),
         item(blocked, AttentionKind.HUMAN_DECISION, minutes=2),
     ]
     return blocked, ready, workers, items

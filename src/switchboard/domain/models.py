@@ -9,9 +9,9 @@ from uuid import UUID, uuid4
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 from switchboard.domain.enums import (
+    INTAKE_STAGE,
     ArtifactType,
     AttentionKind,
-    JobStage,
     NativeTurnOrigin,
     NativeTurnStatus,
     RunStatus,
@@ -46,7 +46,12 @@ class Job(Base):
     title: str
     external_ref: str | None = None
     repository_id: UUID
-    stage: JobStage = JobStage.INTAKE
+    #: A label the running workflow chose, purely descriptive. It is not a state machine
+    #: and nothing gates on it -- `completed_at` is the fact, and it is set only by the
+    #: deterministic completion gate.
+    stage: str = INTAKE_STAGE
+    #: When this job's workflow definition of done was first satisfied.
+    completed_at: datetime | None = None
     selected_worker_id: UUID | None = None
     base_ref: str = "main"
     ticket_text: str = ""

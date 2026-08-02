@@ -11,7 +11,7 @@ import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_meta (version INTEGER NOT NULL);
@@ -188,6 +188,8 @@ def migrate(conn: sqlite3.Connection) -> None:
     row = conn.execute("SELECT version FROM schema_meta").fetchone()
     if row is not None and row["version"] < 5:
         _reconcile_open_native_turns(conn)
+    if row is not None and row["version"] < 7:
+        _rename_ready_to_push(conn)
     conn.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_native_turn_one_open "
         "ON native_turns(runtime_id) "
@@ -198,6 +200,35 @@ def migrate(conn: sqlite3.Connection) -> None:
     elif row["version"] != SCHEMA_VERSION:
         conn.execute("UPDATE schema_meta SET version = ?", (SCHEMA_VERSION,))
     conn.commit()
+
+
+def _rename_ready_to_push(conn: sqlite3.Connection) -> None:
+    """Rewrite the v6 vocabulary that belonged to one workflow rather than to jobs.
+
+    `ready_to_push` was `complete-ticket`'s name for done. Jobs following `rebase` or
+    `investigate` now reach the same state, so the attention kind is `work_complete` and
+    the stage is a free label. Rows are rewritten rather than tolerated, because an
+    unrecognised enum value fails Pydantic validation on load.
+    """
+    for row in conn.execute(
+        "SELECT id, data FROM attention_items WHERE kind='ready_to_push'"
+    ).fetchall():
+        data = json.loads(row["data"])
+        data["kind"] = "work_complete"
+        conn.execute(
+            "UPDATE attention_items SET kind='work_complete', data=? WHERE id=?",
+            (json.dumps(data, separators=(",", ":")), row["id"]),
+        )
+    # `stage` is now free text, so only the two labels that carried meaning are mapped.
+    for old, new in (("ready_to_push", "complete"), ("completed", "complete")):
+        for row in conn.execute("SELECT id, data FROM jobs WHERE stage=?", (old,)).fetchall():
+            data = json.loads(row["data"])
+            data["stage"] = new
+            data.setdefault("completed_at", data.get("updated_at"))
+            conn.execute(
+                "UPDATE jobs SET stage=?, data=? WHERE id=?",
+                (new, json.dumps(data, separators=(",", ":")), row["id"]),
+            )
 
 
 def _reconcile_open_native_turns(conn: sqlite3.Connection) -> None:

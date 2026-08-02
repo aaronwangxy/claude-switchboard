@@ -9,7 +9,7 @@ import pytest
 
 from switchboard.agents.manager import DeterministicManager
 from switchboard.core.session_manager import SessionManagerError
-from switchboard.domain.enums import ArtifactType, JobStage, RunStatus, WorkerRole
+from switchboard.domain.enums import ArtifactType, RunStatus, WorkerRole
 from switchboard.workflows.registry import WorkflowError, reload_workflows
 from tests.conftest import TICKET
 from tests.integration.test_feature_workflow import committing_responder, settle
@@ -161,8 +161,8 @@ async def test_approving_the_plan_carries_the_job_through_the_whole_ritual(proje
     assert sm.store.latest_artifact(job.id, ArtifactType.REVIEW) is not None
     assert sm.store.active_run(job.id) is None, "the run finished"
     assert sm.store.list_runs(job.id)[-1].status is RunStatus.COMPLETED
-    assert sm.ready_to_push(job.id).ready
-    assert sm.store.get_job(job.id).stage is JobStage.READY_TO_PUSH
+    assert sm.job_completion(job.id).ready
+    assert sm.store.get_job(job.id).stage == "complete"
 
 
 async def test_concurrent_resume_calls_dispatch_the_next_step_once(project, monkeypatch):
@@ -222,8 +222,8 @@ async def test_blocking_findings_trigger_the_bounded_fix_loop(project):
     run = sm.store.list_runs(job.id)[-1]
     assert run.status is RunStatus.COMPLETED, "a bounded loop terminates rather than spinning"
     assert max(run.iterations.values()) <= 2
-    assert not sm.ready_to_push(job.id).ready
-    assert sm.store.get_job(job.id).stage is JobStage.FIXING
+    assert not sm.job_completion(job.id).ready
+    assert sm.store.get_job(job.id).stage == "fixing"
 
 
 # ------------------------------------------------- composite workflow choice

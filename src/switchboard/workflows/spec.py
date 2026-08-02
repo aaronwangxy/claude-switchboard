@@ -17,7 +17,7 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from switchboard.domain.enums import ArtifactType, JobStage, WorkerRole
+from switchboard.domain.enums import ArtifactType, WorkerRole
 
 #: Only `{name}` tokens we actually supply are substituted; every other brace -- notably
 #: the JSON schema braces in prompt templates -- is left alone. This is why workflow
@@ -101,8 +101,10 @@ class WorkflowDefinition(BaseModel):
     invalidates: frozenset[ArtifactType] = frozenset()
     #: Extra stored artifacts to put in the worker's prompt beyond `requires`.
     context: frozenset[ArtifactType] = frozenset()
-    #: The job stage this workflow moves its job to when it starts.
-    stage: JobStage | None = None
+    #: A label this workflow moves its job to when it starts, for the user to read.
+    #: Free text: `complete-ticket` says `implementing`, `rebase` says `rebasing`. Empty
+    #: leaves the job's current label alone. Nothing gates on it.
+    stage: str = ""
     worker: WorkerMode = WorkerMode.AUTO
     prompt: str = ""
     steps: tuple[WorkflowStep, ...] = ()

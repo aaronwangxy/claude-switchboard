@@ -7,7 +7,7 @@ from uuid import uuid4
 
 import pytest
 
-from switchboard.domain.enums import JobStage, WorkerRole, WorkerStatus
+from switchboard.domain.enums import WorkerRole, WorkerStatus
 from switchboard.domain.models import Job, Repository, Worker
 from switchboard.routing.router import (
     RouteError,
@@ -306,7 +306,7 @@ def test_validate_rejects_an_unregistered_repository(repo, other_repo):
 
 def test_completed_jobs_do_not_capture_a_new_ticket(repo):
     job = make_job(repo)
-    job.stage = JobStage.COMPLETED
+    job.stage = "complete"
     state = RoutingState(repositories=[repo], jobs=[job])
     route = resolve_route(TICKET, state)
     # The ref still matches, so it routes to that job rather than duplicating it;

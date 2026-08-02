@@ -14,7 +14,6 @@ from pydantic import BaseModel
 from switchboard.domain.enums import (
     TERMINAL_RUN_STATUSES,
     ArtifactType,
-    JobStage,
     NativeTurnStatus,
     WorkerStatus,
 )
@@ -116,7 +115,7 @@ class Store:
                 str(job.id),
                 str(job.repository_id),
                 job.external_ref,
-                job.stage.value,
+                job.stage,
                 job.updated_at.isoformat(),
                 _dump(job),
             ),
@@ -128,10 +127,10 @@ class Store:
         row = self.conn.execute("SELECT data FROM jobs WHERE id=?", (str(job_id),)).fetchone()
         return _load(Job, row) if row else None
 
-    def list_jobs(self, stage: JobStage | None = None) -> list[Job]:
+    def list_jobs(self, stage: str | None = None) -> list[Job]:
         if stage:
             rows = self.conn.execute(
-                "SELECT data FROM jobs WHERE stage=? ORDER BY updated_at DESC", (stage.value,)
+                "SELECT data FROM jobs WHERE stage=? ORDER BY updated_at DESC", (stage,)
             ).fetchall()
         else:
             rows = self.conn.execute("SELECT data FROM jobs ORDER BY updated_at DESC").fetchall()

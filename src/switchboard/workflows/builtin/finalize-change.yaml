@@ -4,7 +4,7 @@ role: implementer
 allowed_roles: [implementer, general]
 mutates_code: false
 context: [implementation_contract, behavior_contract, verification, review]
-stage: ready_to_push
+stage: ready
 worker: existing
 prompt: |
   Summarise this change for handoff.

@@ -7,7 +7,7 @@ import asyncio
 import pytest
 
 from switchboard.agents.manager import DeterministicManager
-from switchboard.domain.enums import ArtifactType, JobStage, WorkerRole, WorkerStatus
+from switchboard.domain.enums import ArtifactType, WorkerRole, WorkerStatus
 from switchboard.gitops import runner
 from tests.conftest import TICKET, commit_file
 
@@ -79,7 +79,7 @@ async def test_pasted_ticket_creates_a_job_and_a_read_only_planner(project):
     assert len(jobs) == 1
     job = jobs[0]
     assert job.external_ref == "ENG-421"
-    assert job.stage is JobStage.PLANNING
+    assert job.stage == "planning"
     assert "ENG-421" in reply
 
     (planner,) = sm.store.list_workers(job.id)
@@ -193,7 +193,7 @@ async def test_full_feature_loop_reaches_ready_to_push_with_a_blurb(project):
     assert review.head_commit == head
     assert review.body["verdict"] == "pass"
 
-    report = sm.ready_to_push(job.id)
+    report = sm.job_completion(job.id)
     assert report.ready, report.blockers
     assert "Verification performed:" in report.blurb
     assert "Limitations:" in report.blurb
@@ -232,7 +232,7 @@ async def test_the_reviewer_gets_the_diff_and_evidence_but_no_implementer_reason
 async def test_a_code_change_invalidates_verification_and_review_and_blocks_the_push(project):
     sm, backend, repo = project
     manager, job, impl = await drive_to_review(sm, backend, repo)
-    assert sm.ready_to_push(job.id).ready
+    assert sm.job_completion(job.id).ready
 
     backend.responses["implementer"] = committing_responder(
         "preferences.py", "PREFERENCES = {'email': True}\n", "fix: honour email channel"
@@ -245,7 +245,7 @@ async def test_a_code_change_invalidates_verification_and_review_and_blocks_the_
     assert verification.stale and "implementation_edit" in verification.stale_reason
     assert review.stale
 
-    report = sm.ready_to_push(job.id)
+    report = sm.job_completion(job.id)
     assert not report.ready
     assert any("current HEAD" in blocker for blocker in report.blockers)
 
@@ -265,10 +265,10 @@ async def test_a_blocking_review_finding_prevents_ready_to_push(project):
     backend.responses["reviewer"] = blocking_review
     manager, job, impl = await drive_to_review(sm, backend, repo)
 
-    report = sm.ready_to_push(job.id)
+    report = sm.job_completion(job.id)
     assert not report.ready
     assert any("blocking review finding" in blocker for blocker in report.blockers)
-    assert sm.store.get_job(job.id).stage is JobStage.FIXING
+    assert sm.store.get_job(job.id).stage == "fixing"
     assert any(i.kind.value == "blocking_review_finding" for i in sm.list_attention_items())
 
 
@@ -287,7 +287,7 @@ async def test_verification_failure_is_recorded_honestly_and_blocks_the_push(pro
     backend.responses["verifier"] = failing_verify
     manager, job, impl = await drive_to_review(sm, backend, repo)
 
-    report = sm.ready_to_push(job.id)
+    report = sm.job_completion(job.id)
     assert not report.ready
     assert any("AC1" in blocker for blocker in report.blockers)
     assert any(i.kind.value == "verification_failed" for i in sm.list_attention_items())

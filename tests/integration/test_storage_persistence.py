@@ -12,7 +12,6 @@ import pytest
 from switchboard.domain.enums import (
     ArtifactType,
     AttentionKind,
-    JobStage,
     RuntimeOwner,
     RuntimeProcessState,
     WorkerRole,
@@ -69,7 +68,7 @@ def test_every_entity_round_trips_across_a_reopen(store: Store, reopen, tmp_path
         title="Add login",
         external_ref="ENG-1234",
         repository_id=repo.id,
-        stage=JobStage.IMPLEMENTING,
+        stage="implementing",
         base_ref="trunk",
         ticket_text="Users need to log in.",
         created_at=at(1),
@@ -169,10 +168,10 @@ def test_every_entity_round_trips_across_a_reopen(store: Store, reopen, tmp_path
 
     loaded_job = reopened.get_job(job.id)
     assert loaded_job == job
-    assert isinstance(loaded_job.stage, JobStage) and loaded_job.stage is JobStage.IMPLEMENTING
+    assert loaded_job.stage == "implementing"
     assert loaded_job.repository_id == repo.id
     assert loaded_job.ticket_text == "Users need to log in."
-    assert reopened.list_jobs(JobStage.IMPLEMENTING) == [job]
+    assert reopened.list_jobs("implementing") == [job]
 
     loaded_worktree = reopened.get_worktree(worktree.id)
     assert loaded_worktree == worktree
@@ -304,7 +303,7 @@ def test_list_attention_items_excludes_handled_by_default(store: Store, tmp_path
     )
     handled_item = AttentionItem(
         worker_id=worker.id,
-        kind=AttentionKind.READY_TO_PUSH,
+        kind=AttentionKind.WORK_COMPLETE,
         reason="already dealt with",
         handled=True,
         created_at=at(2),

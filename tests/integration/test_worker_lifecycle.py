@@ -337,7 +337,7 @@ async def test_answering_a_blocked_worker_resumes_it_and_advances_the_queue(
         role=WorkerRole.IMPLEMENTER, title="Cache bug", prompt="go", job_id=job.id, writable=True
     )
     await settle()
-    sm.raise_attention(ready, AttentionKind.READY_TO_PUSH, "Cache bug is ready to push.")
+    sm.raise_attention(ready, AttentionKind.WORK_COMPLETE, "Cache bug is ready to push.")
     sm.selected_worker_id = blocked.id
 
     # The user answers; the worker returns to working and its item is handled.

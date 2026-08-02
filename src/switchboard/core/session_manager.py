@@ -29,7 +29,7 @@ from switchboard.agents.prompts import PROMPT_POLICY_VERSION, compose_worker_pro
 from switchboard.config import Config, user_workflows_dir
 from switchboard.core import evidence, lineage
 from switchboard.core.errors import SessionManagerError
-from switchboard.core.evidence import ReadyToPushReport
+from switchboard.core.evidence import CompletionReport
 from switchboard.core.runs import condition_holds, has_blocking_decisions
 from switchboard.core.transitions import assert_worker_transition
 from switchboard.domain import events as ev
@@ -44,11 +44,11 @@ from switchboard.domain.contracts import (
     extract_json_block,
 )
 from switchboard.domain.enums import (
+    COMPLETE_STAGE,
     DEFAULT_WRITABLE_ROLES,
     TERMINAL_WORKER_STATUSES,
     ArtifactType,
     AttentionKind,
-    JobStage,
     NativeTurnStatus,
     RunStatus,
     RuntimeAgentKind,
@@ -218,7 +218,7 @@ class SessionManager:
         self.store.save_job(job)
         return job
 
-    def update_job_stage(self, job: Job, stage: JobStage) -> Job:
+    def update_job_stage(self, job: Job, stage: str) -> Job:
         job.stage = stage
         job.updated_at = now()
         return self.store.save_job(job)
@@ -770,6 +770,11 @@ class SessionManager:
                     run.updated_at = now()
                     self.store.save_run(run)
                     self.emit(ev.RUN_COMPLETED, job_id=job.id, summary=run.detail)
+                    # An unfinished run is itself a completion blocker, so the job can
+                    # only be judged finished once the run stops being one.
+                    self._check_completion(
+                        self.store.get_job(job.id) or job, self._gate_worker(run)
+                    )
                     return run
                 run.step_index = repeat
             step = steps[run.step_index]
@@ -1080,14 +1085,12 @@ class SessionManager:
                     )
 
     def _advance_stage(self, job: Job | None, definition: WorkflowDefinition) -> None:
-        """Each workflow declares the stage it moves its job to; unset means no change.
+        """Each workflow declares the label it moves its job to; unset means no change.
 
-        `ready_to_push` is the exception: it is a claim about the state of the change, so
-        it is granted by the deterministic gate rather than by a workflow declaring it.
+        A label is a description, never a claim. Whether the work is finished is decided
+        only by the completion gate, which reads evidence rather than a declaration.
         """
-        if job is None or definition.stage is None:
-            return
-        if definition.stage is JobStage.READY_TO_PUSH and not self.ready_to_push(job.id).ready:
+        if job is None or not definition.stage:
             return
         self.update_job_stage(job, definition.stage)
 
@@ -1674,6 +1677,11 @@ class SessionManager:
         if job is not None:
             self._harvest_artifact(worker, job, text)
         self._apply_invalidation(worker, job)
+        if job is not None:
+            # Any turn can be the one that finishes the job -- for `rebase` it is a
+            # verification, not a review -- so the gate is consulted after every harvest
+            # rather than from inside one workflow's handler.
+            self._check_completion(self.store.get_job(job.id) or job, worker)
 
     # --------------------------------------------------------------- artifacts
 
@@ -1796,10 +1804,9 @@ class SessionManager:
                 AttentionKind.BLOCKING_REVIEW_FINDING,
                 f"{len(blocking)} blocking finding(s): {blocking[0].description[:120]}",
             )
-            self.update_job_stage(job, JobStage.FIXING)
+            self.update_job_stage(job, "fixing")
         else:
             self.emit(ev.REVIEW_PASSED, job_id=job.id, worker_id=worker.id)
-            self._maybe_ready_to_push(job, worker)
 
     def _sync_criteria_status(self, job: Job, report: VerificationReport) -> None:
         artifact = self.store.latest_artifact(job.id, ArtifactType.BEHAVIOR_CONTRACT)
@@ -1864,20 +1871,40 @@ class SessionManager:
             if worker.writable:
                 self._apply_invalidation(worker, job)
 
-    # ------------------------------------------------------------ ready to push
+    # -------------------------------------------------------------- completion
 
-    def _maybe_ready_to_push(self, job: Job, worker: Worker) -> None:
-        report = self.ready_to_push(job.id)
-        if report.ready:
-            self.update_job_stage(job, JobStage.READY_TO_PUSH)
-            self.raise_attention(
-                worker, AttentionKind.READY_TO_PUSH, f"{job.title} is ready to push."
-            )
-            self.emit(ev.JOB_READY_TO_PUSH, job_id=job.id, worker_id=worker.id, summary=report.blurb)
+    def _check_completion(self, job: Job, worker: Worker | None) -> CompletionReport:
+        """Announce completion once, the first time the job's workflow says it is done.
 
-    def ready_to_push(self, job_id: UUID) -> ReadyToPushReport:
+        Only a job following a workflow is announced. A one-off question or a hand-run
+        atomic workflow has no declared definition of done, so calling it finished would
+        be Switchboard's opinion rather than a fact -- and putting that on the attention
+        queue would make "needs you" mean "does not need you".
+        """
+        report = self.job_completion(job.id)
+        if not report.ready or report.workflow is None:
+            return report
+        fresh = self.store.get_job(job.id) or job
+        if fresh.completed_at is not None:
+            return report
+        fresh.completed_at = now()
+        fresh.stage = COMPLETE_STAGE
+        fresh.updated_at = now()
+        self.store.save_job(fresh)
+        summary = f"{fresh.title} is complete against {report.workflow or 'its own evidence'}."
+        if worker is not None:
+            self.raise_attention(worker, AttentionKind.WORK_COMPLETE, summary)
+        self.emit(
+            ev.JOB_COMPLETE,
+            job_id=fresh.id,
+            worker_id=worker.id if worker else None,
+            summary=report.blurb,
+        )
+        return report
+
+    def job_completion(self, job_id: UUID) -> CompletionReport:
         """Deterministic gate. Every blocker is computed from stored state, not judgment."""
-        return evidence.ready_to_push(self.store, self.config, job_id)
+        return evidence.job_completion(self.store, self.config, job_id)
 
     def verification_blurb(self, job_id: UUID) -> str:
         return evidence.verification_blurb(self.store, job_id)
@@ -2143,15 +2170,9 @@ class SessionManager:
                 for w in self.store.list_workers()
                 if w.status in (WorkerStatus.WORKING, WorkerStatus.STARTING)
             ]
-            incomplete = [
-                job
-                for job in self.store.list_jobs()
-                if job.stage not in (JobStage.COMPLETED, JobStage.FAILED)
-            ]
+            incomplete = [job for job in self.store.list_jobs() if job.completed_at is None]
             if incomplete and not active:
-                examples = ", ".join(
-                    f"{job.title} ({job.stage.value})" for job in incomplete[:2]
-                )
+                examples = ", ".join(f"{job.title} ({job.stage})" for job in incomplete[:2])
                 suffix = "" if len(incomplete) <= 2 else f" and {len(incomplete) - 2} more"
                 return (
                     f"Nothing needs you right now, but {len(incomplete)} incomplete job(s) are "

@@ -381,7 +381,7 @@ async def test_native_composite_runs_end_to_end_through_real_tmux(native_service
     assert stored_job.authoritative_worktree_id is not None
     assert manager.store.latest_artifact(job.id, ArtifactType.VERIFICATION) is not None
     assert manager.store.latest_artifact(job.id, ArtifactType.REVIEW) is not None
-    assert manager.ready_to_push(job.id).ready
+    assert manager.job_completion(job.id).ready
 
 
 async def test_recovery_advances_a_durably_completed_native_step_once(

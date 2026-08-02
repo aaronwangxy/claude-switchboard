@@ -437,7 +437,7 @@ class SwitchboardApp(App[None]):
         label = (job.external_ref if job and job.external_ref else None) or worker.title
         parts = [label, worker.role.value, worker.status.value]
         if job is not None:
-            parts.append(job.stage.value)
+            parts.append(job.stage)
         parts.append(worker.model or "default model")
         if worker.pinned:
             parts.append("pinned")
@@ -766,7 +766,7 @@ def _worker_detail(worker, job, runtime, run, worktree, artifacts) -> Text:
         ("native state", runtime.process_state.value.replace("_", " ") if runtime else "absent"),
     ]
     if job is not None:
-        fields.extend((("job stage", job.stage.value), ("base", job.base_ref)))
+        fields.extend((("job stage", job.stage), ("base", job.base_ref)))
     if run is not None:
         fields.extend(
             (

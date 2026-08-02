@@ -214,7 +214,7 @@ class ManagerTools:
                 {"id": str(repo.id), "name": repo.name, "path": str(repo.root_path)}
                 for repo in repositories
             ],
-            "jobs": [{"id": str(j.id), "title": j.title, "stage": j.stage.value} for j in jobs],
+            "jobs": [{"id": str(j.id), "title": j.title, "stage": j.stage} for j in jobs],
             "runs": [
                 {
                     "id": str(r.id),
