@@ -1,5 +1,10 @@
 # Native Claude prototype (Phase 3)
 
+> **Historical phase record.** The prototype limits below are not current product limits.
+> Production behavior is documented in [`native-workers.md`](native-workers.md),
+> [`phase5-native-composites.md`](phase5-native-composites.md), and
+> [`phase6-native-manager.md`](phase6-native-manager.md).
+
 Phase 3 adds an experimental `NativeClaudePrototype`; it is deliberately not a
 `WorkerBackend` and cannot advance workflows. It runs the configured Claude executable in
 the Phase 2 tmux substrate and treats Claude hooks, not pane contents, as lifecycle evidence.

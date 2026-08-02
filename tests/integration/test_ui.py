@@ -62,15 +62,16 @@ async def send_to_manager(pilot, text: str) -> None:
     await quiet(pilot)
 
 
-async def test_the_window_has_all_three_panes_and_one_manager_input(app):
+async def test_the_window_is_session_first_with_one_manager_input(app):
     async with app.run_test() as pilot:
         await quiet(pilot)
         assert pilot.app.query_one("#manager-pane")
         assert pilot.app.query_one("#worker-list-pane")
         assert pilot.app.query_one("#worker-pane")
-        # One manager input and one worker input: no ticket form, wizard, or mode switch.
-        assert len(pilot.app.query(Input)) == 2
+        # Claude owns direct session conversation; the board has one orchestration input.
+        assert len(pilot.app.query(Input)) == 1
         assert pilot.app.query_one("#manager-input", Input)
+        assert "Manager" in pilot.app.worker_list_pane._signature[0][1]
         assert pilot.app.query_one("#interrupt-button", Button)
 
 
@@ -101,7 +102,7 @@ async def test_the_blocked_worker_renders_an_application_owned_banner(app):
         assert "Reason:" in banner and "Waiting for:" in banner
 
 
-async def test_selecting_a_worker_restores_its_transcript(app):
+async def test_selecting_a_worker_shows_durable_orchestration_state(app):
     async with app.run_test() as pilot:
         await quiet(pilot)
         await send_to_manager(pilot, TICKET)
@@ -109,13 +110,14 @@ async def test_selecting_a_worker_restores_its_transcript(app):
         app.select_worker(planner.id)
         await quiet(pilot)
 
-        rendered = rendered_text(pilot, "#transcript")
-        stored = app.sm.store.transcript(planner.id)
-        assert stored
-        assert stored[-1].text.splitlines()[0][:40] in rendered
+        rendered = rendered_text(pilot, "#session-detail")
+        assert "workflow" in rendered
+        assert "plan-feature" in rendered
+        assert "lifecycle" in rendered
+        assert "evidence" in rendered
 
 
-async def test_a_follow_up_through_the_worker_input_is_recorded(app):
+async def test_worker_detail_has_no_custom_reply_or_transcript_surface(app):
     async with app.run_test() as pilot:
         await quiet(pilot)
         await send_to_manager(pilot, TICKET)
@@ -123,10 +125,10 @@ async def test_a_follow_up_through_the_worker_input_is_recorded(app):
         app.select_worker(planner.id)
         await quiet(pilot)
 
-        await pilot.app._send_to_worker(planner.id, "Use the read-legacy strategy.")
-        await quiet(pilot)
-        texts = [m.text for m in app.sm.store.transcript(planner.id)]
-        assert "Use the read-legacy strategy." in texts
+        assert len(pilot.app.query(Input)) == 1
+        assert not pilot.app.query("#worker-input")
+        assert not pilot.app.query("#transcript")
+        assert "Enter" in rendered_text(pilot, "#enter-hint")
 
 
 async def test_the_ui_never_auto_switches_while_the_user_is_typing(app):
@@ -141,7 +143,7 @@ async def test_the_ui_never_auto_switches_while_the_user_is_typing(app):
         await quiet(pilot)
         before = app.sm.selected_worker_id
 
-        typing = pilot.app.query_one("#worker-input", Input)
+        typing = pilot.app.query_one("#manager-input", Input)
         typing.focus()
         typing.value = "half a thought"
         await quiet(pilot, ticks=2)

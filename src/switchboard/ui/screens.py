@@ -1,19 +1,12 @@
-"""The three-pane Textual UI.
+"""The session-first Textual UI.
 
 The widgets here own presentation only. Every behaviour -- routing a message, starting a
 worker, interrupting one, pinning, snoozing -- is a call into `SessionManager` or the
 manager agent, and everything rendered comes back out of the store. There is no Git, no
 SQLite and no worktree logic in this module.
 
-Layout::
-
-    +------------------------------+----------------------------------------------+
-    | Manager (top-left)           | Selected worker (right)                      |
-    |  bounded recent conversation |  attention banner                            |
-    |  one universal input         |  full transcript, streaming                  |
-    +------------------------------+  follow-up input + Interrupt button          |
-    | Workers / attention (bottom) |                                              |
-    +------------------------------+----------------------------------------------+
+Claude owns conversation rendering. Switchboard shows orchestration state and provides one
+high-level Manager input; Enter hands the terminal to the selected exact native session.
 """
 
 from __future__ import annotations
@@ -30,7 +23,7 @@ from rich.text import Text
 from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.containers import Horizontal, Vertical
 from textual.css.query import NoMatches
 from textual.screen import Screen
 from textual.widgets import Button, DataTable, Footer, Header, Input, Static
@@ -46,8 +39,8 @@ if TYPE_CHECKING:  # imported for typing only, so the UI stays free of agent int
 
 log = logging.getLogger(__name__)
 
-#: The manager pane is a bounded window on the conversation, not a transcript.
-MAX_MANAGER_EXCHANGES = 8
+#: Keep only a few control-plane notices. Native Claude owns conversation history.
+MAX_MANAGER_EXCHANGES = 5
 
 #: How much of a worker's `waiting_for` fits on one list row.
 REASON_WIDTH = 60
@@ -59,7 +52,7 @@ PENDING = "…"
 
 
 class ManagerPane(Vertical):
-    """A bounded log of recent exchanges plus the one universal input.
+    """Manager status, recent control-plane notices, and the universal input.
 
     There is deliberately no ticket form, intake panel or workflow picker: pasting a
     ticket is an ordinary message.
@@ -71,8 +64,8 @@ class ManagerPane(Vertical):
 
     def compose(self) -> ComposeResult:
         yield Static("Manager", classes="pane-title", id="manager-title")
-        with VerticalScroll(id="manager-scroll"):
-            yield Static(id="manager-log")
+        yield Static(id="manager-status")
+        yield Static(id="manager-log")
         yield Input(
             placeholder="Message the manager — paste a ticket, ask a question, give an instruction",
             id="manager-input",
@@ -89,11 +82,11 @@ class ManagerPane(Vertical):
         self._repaint()
 
     def begin_exchange(self, user_text: str) -> None:
-        self._entries.append([user_text, PENDING])
+        self._entries.append([None, "Manager is working…"])
         self._repaint()
 
     def complete_exchange(self, reply: str) -> None:
-        if self._entries and self._entries[-1][1] == PENDING:
+        if self._entries and self._entries[-1][1] == "Manager is working…":
             self._entries[-1][1] = reply
         else:
             self._entries.append([None, reply])
@@ -106,31 +99,24 @@ class ManagerPane(Vertical):
     def _repaint(self) -> None:
         text = Text()
         if not self._entries:
-            text.append(
-                "Nothing yet. Paste a ticket or ask a question below.\n", style="dim italic"
-            )
-        for user_text, reply in self._entries:
-            if user_text is not None:
-                text.append("you  ", style="bold cyan")
-                text.append(f"{_compact(user_text)}\n")
-            text.append("mgr  ", style="bold green")
-            text.append(f"{reply or PENDING}\n\n")
+            text.append("Give Manager a goal below, or select it and press Enter.\n", style="dim")
+        for _, reply in self._entries:
+            text.append(f"{reply or PENDING}\n", style="dim")
         try:
             self.query_one("#manager-log", Static).update(text)
-            self.query_one("#manager-scroll", VerticalScroll).scroll_end(animate=False)
         except Exception:  # not mounted yet
             pass
 
 
 class WorkerListPane(Vertical):
-    """One row per worker: attention first, then everything else."""
+    """One row per live session: Manager, then attention-first workers."""
 
     def __init__(self) -> None:
         super().__init__(id="worker-list-pane")
         self._signature: list[tuple[str, str]] = []
 
     def compose(self) -> ComposeResult:
-        yield Static("Workers", classes="pane-title", id="worker-list-title")
+        yield Static("Sessions", classes="pane-title", id="worker-list-title")
         table: DataTable = DataTable(id="worker-table", cursor_type="row", zebra_stripes=False)
         table.show_header = False
         yield table
@@ -139,15 +125,15 @@ class WorkerListPane(Vertical):
         table = self.query_one("#worker-table", DataTable)
         table.add_column("worker", key="worker")
 
-    def update_rows(self, rows: Sequence[tuple[Worker, Text]], selected: UUID | None) -> None:
+    def update_rows(self, rows: Sequence[tuple[str, Text]], selected: str | None) -> None:
         """Rebuild only when the rendered rows actually changed."""
         table = self.query_one("#worker-table", DataTable)
-        signature = [(str(worker.id), row.plain) for worker, row in rows]
+        signature = [(key, row.plain) for key, row in rows]
         if signature != self._signature:
             self._signature = signature
             table.clear()
-            for worker, row in rows:
-                table.add_row(row, key=str(worker.id))
+            for key, row in rows:
+                table.add_row(row, key=key)
         if selected is not None:
             index = next((i for i, (wid, _) in enumerate(signature) if wid == str(selected)), None)
             if index is not None and table.cursor_row != index:
@@ -155,11 +141,11 @@ class WorkerListPane(Vertical):
 
     @property
     def worker_ids(self) -> list[UUID]:
-        return [UUID(wid) for wid, _ in self._signature]
+        return [UUID(key) for key, _ in self._signature if key != "manager"]
 
 
 class WorkerPane(Vertical):
-    """Header, application-owned attention banner, transcript, follow-up input."""
+    """Semantic state for the selected session; Claude owns its conversation UI."""
 
     def __init__(self) -> None:
         super().__init__(id="worker-pane")
@@ -167,21 +153,18 @@ class WorkerPane(Vertical):
     def compose(self) -> ComposeResult:
         yield Static("No worker selected", id="worker-header", classes="pane-title")
         yield Static("", id="attention-banner")
-        with VerticalScroll(id="transcript-scroll"):
-            yield Static(id="transcript")
-        with Horizontal(id="worker-controls"):
-            yield Input(placeholder="Reply to this worker", id="worker-input")
-            yield Button("Interrupt", id="interrupt-button", variant="warning")
+        yield Static(id="session-detail")
+        yield Static("Enter  open exact native Claude session", id="enter-hint")
+        yield Button("Interrupt worker", id="interrupt-button", variant="warning")
 
     def show_empty(self, message: str = "No worker selected") -> None:
         self.query_one("#worker-header", Static).update(message)
         banner = self.query_one("#attention-banner", Static)
         banner.update("")
         banner.display = False
-        self.query_one("#transcript", Static).update(
-            Text("Select a worker on the left, or start one from the manager.", style="dim italic")
+        self.query_one("#session-detail", Static).update(
+            Text("Select Manager or a worker. Press Enter to open its live Claude session.", style="dim")
         )
-        self.query_one("#worker-input", Input).disabled = True
         self.query_one("#interrupt-button", Button).disabled = True
 
     def show_worker(
@@ -189,8 +172,7 @@ class WorkerPane(Vertical):
         header: str,
         item: AttentionItem | None,
         fallback_waiting_for: str | None,
-        transcript: Text,
-        scroll_to_end: bool = True,
+        detail: Text,
     ) -> None:
         self.query_one("#worker-header", Static).update(header)
         banner = self.query_one("#attention-banner", Static)
@@ -206,11 +188,14 @@ class WorkerPane(Vertical):
             text.append(waiting)
             banner.update(text)
             banner.display = True
-        self.query_one("#transcript", Static).update(transcript)
-        if scroll_to_end:
-            self.query_one("#transcript-scroll", VerticalScroll).scroll_end(animate=False)
-        self.query_one("#worker-input", Input).disabled = False
+        self.query_one("#session-detail", Static).update(detail)
         self.query_one("#interrupt-button", Button).disabled = False
+
+    def show_manager(self, header: str, detail: Text) -> None:
+        self.query_one("#worker-header", Static).update(header)
+        self.query_one("#attention-banner", Static).display = False
+        self.query_one("#session-detail", Static).update(detail)
+        self.query_one("#interrupt-button", Button).disabled = True
 
 
 # -------------------------------------------------------------------------- screen
@@ -266,6 +251,7 @@ class SwitchboardApp(App[None]):
         self.manager = manager
         self._startup_notes = list(startup_notes)
         self._busy = False
+        self._selected_manager = True
         #: Cheap fingerprint of what the worker pane last drew.
         self._pane_signature: tuple | None = None
 
@@ -313,8 +299,6 @@ class SwitchboardApp(App[None]):
             return
         if notes:
             self.manager_pane.add_note("Recovered sessions: " + "; ".join(notes))
-        else:
-            self.manager_pane.add_note("Manager ready. " + self.sm.status_summary())
         self.refresh_workers()
 
     # -------------------------------------------------------------- live updates
@@ -334,13 +318,17 @@ class SwitchboardApp(App[None]):
 
     def _tick(self) -> None:
         """Low-frequency backstop in case a listener call was missed."""
+        objective = self.sm.store.get_preference("manager.current_objective", "") or ""
+        self.query_one("#manager-status", Static).update(
+            f"{self.sm.status_summary()}\n"
+            f"Current goal: {_compact(objective, 120) if objective else 'none yet'}"
+        )
         if hasattr(self.manager, "status"):
             status = self.manager.status()  # type: ignore[attr-defined]
-            generation = status.get("generation") or "-"
             state = status.get("state") or "absent"
             owner = status.get("owner") or "-"
             self.query_one("#manager-title", Static).update(
-                f"Manager · g{generation} · {state} · {owner}"
+                f"Manager · {state} · {owner}"
             )
         self.refresh_workers()
         self.refresh_worker_pane()
@@ -377,9 +365,16 @@ class SwitchboardApp(App[None]):
         rows = self.ordered_workers()
         jobs = {job.id: job for job in self.sm.store.list_jobs()}
         repos = {repo.id: repo for repo in self.sm.store.list_repositories()}
-        rendered = [
+        manager_status = self.manager.status() if hasattr(self.manager, "status") else {}
+        manager_state = str(manager_status.get("state") or "ready")
+        manager_owner = str(manager_status.get("owner") or "manager")
+        manager_row = Text()
+        manager_row.append("● " if manager_state in ("turn_active", "starting") else "✓ ", style="bold green")
+        manager_row.append("Manager", style="bold")
+        manager_row.append(f"  {manager_state.replace('_', ' ')} · {manager_owner}", style="dim")
+        rendered: list[tuple[str, Text]] = [("manager", manager_row)] + [
             (
-                worker,
+                str(worker.id),
                 _worker_row(
                     worker,
                     item,
@@ -390,9 +385,12 @@ class SwitchboardApp(App[None]):
             for worker, item in rows
         ]
         pane = self.worker_list_pane
-        pane.update_rows(rendered, self.sm.selected_worker_id)
+        selected = "manager" if self._selected_manager else (
+            str(self.sm.selected_worker_id) if self.sm.selected_worker_id else None
+        )
+        pane.update_rows(rendered, selected)
         attention_count = sum(1 for _, item in rows if item is not None)
-        title = f"Workers ({len(rows)})"
+        title = f"Sessions ({len(rows) + 1})"
         if attention_count:
             title += f" · {attention_count} need you"
         title += "  ·  auto-advance " + ("on" if self.sm.auto_advance else "off")
@@ -408,6 +406,21 @@ class SwitchboardApp(App[None]):
     def _refresh_worker_pane(self) -> None:
         """Redraw only when something actually changed, so scrolling is not fought."""
         worker_id = self.sm.selected_worker_id
+        if self._selected_manager:
+            status = self.manager.status() if hasattr(self.manager, "status") else {}
+            detail = Text()
+            detail.append("role       ", style="dim")
+            detail.append("orchestrator; never writes repository code\n")
+            detail.append("lifecycle  ", style="dim")
+            detail.append(str(status.get("state") or "ready").replace("_", " ") + "\n")
+            detail.append("ownership  ", style="dim")
+            detail.append(str(status.get("owner") or "manager") + "\n")
+            detail.append("workspace  ", style="dim")
+            detail.append(str(status.get("workspace") or "isolated non-repository workspace") + "\n\n")
+            detail.append(self.sm.status_summary())
+            self._pane_signature = ("manager", *sorted(status.items()))
+            self.worker_pane.show_manager("Manager · native Claude", detail)
+            return
         worker = self.sm.store.get_worker(worker_id) if worker_id else None
         if worker is None:
             if self._pane_signature is not None:
@@ -429,41 +442,55 @@ class SwitchboardApp(App[None]):
             (i for i in self.sm.list_attention_items() if i.worker_id == worker.id),
             None,
         )
-        messages = self.sm.store.transcript(worker.id)
+        runtime = self.sm.store.current_runtime(worker.id)
+        run = self.sm.store.run_for_worker(worker.id)
+        worktree = self.sm.store.get_worktree(worker.worktree_id) if worker.worktree_id else None
+        artifacts = self.sm.store.list_artifacts(job.id) if job else []
         signature = (
             str(worker.id),
             header,
             str(item.id) if item is not None else None,
             item.reason if item is not None else None,
-            len(messages),
-            messages[-1].text[-80:] if messages else "",
+            runtime.process_state.value if runtime else None,
+            runtime.owner.value if runtime else None,
+            run.updated_at if run else None,
+            len(artifacts),
         )
         if signature == self._pane_signature:
             return
         self._pane_signature = signature
-        # The transcript follows the tail whenever it changes; between changes the user
-        # is free to scroll back without the redraw yanking the view.
-        self.worker_pane.show_worker(header, item, worker.waiting_for, _render_transcript(messages))
+        detail = _worker_detail(worker, job, runtime, run, worktree, artifacts)
+        self.worker_pane.show_worker(header, item, worker.waiting_for, detail)
 
     # ---------------------------------------------------------------- selection
 
     def select_worker(self, worker_id: UUID | None) -> None:
+        self._selected_manager = False
         self.sm.selected_worker_id = worker_id
         self.refresh_workers()
         self.refresh_worker_pane()
 
     @on(DataTable.RowHighlighted, "#worker-table")
     def _row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        if str(event.row_key.value) == "manager":
+            self._selected_manager = True
+            self.refresh_worker_pane()
+            return
         worker_id = _row_key_uuid(event.row_key)
         if worker_id is not None and worker_id != self.sm.selected_worker_id:
+            self._selected_manager = False
             self.sm.selected_worker_id = worker_id
             self.refresh_worker_pane()
 
     @on(DataTable.RowSelected, "#worker-table")
     def _row_selected(self, event: DataTable.RowSelected) -> None:
-        worker_id = _row_key_uuid(event.row_key)
-        if worker_id is not None:
-            self.select_worker(worker_id)
+        if str(event.row_key.value) == "manager":
+            self._selected_manager = True
+        else:
+            worker_id = _row_key_uuid(event.row_key)
+            if worker_id is not None:
+                self.select_worker(worker_id)
+        self.run_worker(self.action_attach(), name="enter-session", exclusive=True)
 
     # ------------------------------------------------------------- auto-advance
 
@@ -511,6 +538,7 @@ class SwitchboardApp(App[None]):
 
     async def _manager_turn(self, text: str) -> None:
         self._busy = True
+        self.sm.store.set_preference("manager.current_objective", text[:1000])
         try:
             reply = await self.manager.handle(text)
         except Exception as exc:
@@ -523,23 +551,6 @@ class SwitchboardApp(App[None]):
         self.refresh_worker_pane()
         self.maybe_auto_advance()
 
-    @on(Input.Submitted, "#worker-input")
-    def _worker_submitted(self, event: Input.Submitted) -> None:
-        text = event.value.strip()
-        worker_id = self.sm.selected_worker_id
-        if not text or worker_id is None:
-            return
-        event.input.value = ""
-        self.run_worker(self._send_to_worker(worker_id, text), name="worker-send")
-
-    async def _send_to_worker(self, worker_id: UUID, text: str) -> None:
-        try:
-            await self.sm.send(worker_id, text)
-        except Exception as exc:
-            self.manager_pane.add_note(f"Could not send to the selected worker: {exc}")
-        self.refresh_workers()
-        self.refresh_worker_pane()
-
     @on(Button.Pressed, "#interrupt-button")
     async def _interrupt_pressed(self) -> None:
         await self.action_interrupt()
@@ -547,6 +558,8 @@ class SwitchboardApp(App[None]):
     # ------------------------------------------------------------------ actions
 
     def action_focus_manager(self) -> None:
+        self._selected_manager = True
+        self.refresh_worker_pane()
         self.query_one("#manager-input", Input).focus()
 
     def action_focus_workers(self) -> None:
@@ -619,8 +632,7 @@ class SwitchboardApp(App[None]):
         This enters the exact tmux-hosted native Claude process. The subprocess is awaited
         off the UI event loop so Switchboard's control plane keeps processing hook events.
         """
-        focused = self.focused
-        entering_manager = focused is not None and focused.id == "manager-input"
+        entering_manager = self._selected_manager
         try:
             if entering_manager and hasattr(self.manager, "enter"):
                 attachment = await self.manager.enter()  # type: ignore[attr-defined]
@@ -731,31 +743,49 @@ def _worker_row(worker: Worker, item: AttentionItem | None, job, repo) -> Text:
     return row
 
 
-def _render_transcript(messages) -> Text:
+def _worker_detail(worker, job, runtime, run, worktree, artifacts) -> Text:
+    """Render durable orchestration facts, not a second Claude conversation view."""
     text = Text()
-    if not messages:
-        text.append("No output yet.", style="dim italic")
-        return text
-    styles = {
-        "user": ("you  ", "bold cyan"),
-        "assistant": ("agent", "bold green"),
-        "tool": ("tool ", "dim"),
-        "system": ("sys  ", "dim yellow"),
-    }
-    for message in messages:
-        prefix, style = styles.get(message.role, (f"{message.role[:5]:<5}", ""))
-        if message.role == "tool":
-            text.append(f"{prefix} ", style="dim")
-            text.append(_compact(message.text, 100) + "\n", style="dim")
-            continue
-        text.append(f"{prefix} ", style=style)
-        body = message.text.rstrip()
-        first, _, rest = body.partition("\n")
-        text.append(first + "\n")
-        if rest:
-            for line in rest.splitlines():
-                text.append(f"      {line}\n")
-        text.append("\n")
+    fields = [
+        ("role", worker.role.value),
+        ("task", worker.title),
+        ("workflow", worker.workflow or "none"),
+        ("lifecycle", worker.status.value),
+        ("ownership", runtime.owner.value if runtime else "no runtime"),
+        ("native state", runtime.process_state.value.replace("_", " ") if runtime else "absent"),
+    ]
+    if job is not None:
+        fields.extend((("job stage", job.stage.value), ("base", job.base_ref)))
+    if run is not None:
+        fields.extend(
+            (
+                ("active run", f"{run.workflow} · step {run.step_index + 1} · {run.status.value}"),
+                ("why waiting", run.detail or "current worker is executing"),
+            )
+        )
+    if worktree is not None:
+        authoritative = bool(job and job.authoritative_worktree_id == worktree.id)
+        fields.extend(
+            (
+                ("worktree", str(worktree.path)),
+                ("branch", worktree.branch + (" · authoritative" if authoritative else "")),
+            )
+        )
+    elif worker.cwd:
+        fields.append(("working dir", str(worker.cwd)))
+    for label, value in fields:
+        text.append(f"{label:<12} ", style="dim")
+        text.append(f"{value}\n")
+    if artifacts:
+        text.append("\nevidence     ", style="dim")
+        text.append(
+            ", ".join(
+                f"{artifact.type.value}{' (stale)' if artifact.stale else ' ✓'}"
+                for artifact in artifacts
+            )
+        )
+    else:
+        text.append("\nevidence     none yet", style="dim")
     return text
 
 

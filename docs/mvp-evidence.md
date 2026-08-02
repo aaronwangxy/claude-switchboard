@@ -1,5 +1,10 @@
 # MVP Evidence
 
+> **Historical evidence.** The commands and findings below describe the original SDK MVP.
+> They are preserved as an audit record, not current architecture or usage guidance. See
+> [`native-workers.md`](native-workers.md), [`phase5-native-composites.md`](phase5-native-composites.md),
+> and [`phase6-native-manager.md`](phase6-native-manager.md) for the production native system.
+
 Everything below was produced on this machine against the commit stack in this
 repository. Commands, exit codes, and log excerpts are copied from real runs; nothing
 here is reconstructed from memory.

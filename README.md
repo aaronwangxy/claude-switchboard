@@ -19,7 +19,7 @@ The engineering work can run in parallel, but the human becomes a process manage
 Switchboard removes that operational burden while keeping every worker
 isolated and directly interactive.
 
-Where it is going: paste a ticket into the manager chat and it gets routed and consumed
+Paste a ticket into the Manager input and it is routed and consumed
 by the right agent — planned, implemented, verified, reviewed — surfacing to you only
 where a human decision genuinely matters.
 
@@ -64,11 +64,12 @@ you  →  manager Claude  →  resolve the job/repo/change  →  select a workfl
                                     reuse or launch an independent Claude worker
 ```
 
-Every worker is a normal Claude Code session. It inherits your user settings plus the
-target repository's own `CLAUDE.md` and skills, and because the runtime persists it like
-any other session, you can step into it at any time and drive it yourself — `Ctrl+E`, or
-ask the manager to "let me into the payments change". That runs exactly what you would
-have typed:
+Manager and every worker are persistent native Claude Code sessions. Workers inherit normal
+user, managed/company, project, and project-local configuration in their repository or
+worktree. Manager uses the configured executable and native user/managed configuration from
+an isolated non-repository workspace, with only Switchboard's manager MCP. Highlight any
+session and press Enter (or `Ctrl+E`) to enter that exact live process. No resume or replacement
+process is involved.
 
 ```bash
 tmux -S <switchboard socket> attach-session -t <runtime session>
@@ -81,10 +82,10 @@ edited by hand, so whether the ritual should carry on is yours to decide.
 
 ```
 +------------------------------+----------------------------------------+
-| Manager                      | Selected worker                        |
-|  recent exchanges + input    |  attention banner                      |
-+------------------------------+  transcript, follow-up input           |
-| Workers / attention queue    |                                        |
+| Manager status + goal input  | Selected session                       |
+|                              |  workflow / lifecycle / ownership       |
++------------------------------+  dependencies / worktree / evidence    |
+| Sessions + attention queue   |  Enter → exact native Claude           |
 +------------------------------+----------------------------------------+
 ```
 
@@ -128,7 +129,8 @@ sb config                   # effective configuration and its paths
 SB_BACKEND=scripted sb      # offline demo: no model calls
 ```
 
-Press `?` in the app for the key bindings.
+Press `?` in the app for the key bindings. Claude owns conversation rendering; Switchboard
+shows durable orchestration state around the sessions.
 
 ## Workflows
 

@@ -2,42 +2,42 @@ sb — two jobs in flight
 =======================
 
  ⭘                                                                  Switchboard
- Manager                                                      │ ENG-999 · planner · blocked · planning · default model
- mgr  Registered repository repo-alpha                        │█ Reason: [NEEDS DECISION] Choose the legacy-write strategy.
- (/private/var/folders/3l/s3t0j73x1bl1bvyxr7c53bf40000gn/T/   │█ Waiting for: [NEEDS DECISION] Choose the legacy-write strategy.
- switchboard-capture-5k2pn9gu/repo-alpha).                 ▅▅ │
-                                                              │           {
- mgr  Nothing to recover. Nothing needs you. 0 worker(s)      │             "order": 1,
- still working.                                               │             "message": "feat: add preferences table",
-                                                              │             "purpose": "schema"
- mgr  Started ENG-421 on the complete-ticket workflow. Step   │           },
- 1: plan-feature on ENG-421 · planner.                        │           {
-                                                              │             "order": 2,
- mgr  Started ENG-999 on the complete-ticket workflow. Step   │             "message": "feat: persist preferences",
- 1: plan-feature on ENG-999 · planner.                        │             "purpose": "write path"
-                                                              │           }
-                                                              │         ],
-                                                              │         "risks": [
- Message the manager — paste a ticket, ask a question, give a │           "Legacy rows may lack a preferences column."
-                                                              │         ],
-──────────────────────────────────────────────────────────────│         "base_commit": "",
- Workers (2) · 2 need you  ·  auto-advance on                 │         "criteria": [
- ! ENG-421 planner  [NEEDS DECISION] Choose the legacy-write s│           {
- ! ENG-999 planner  [NEEDS DECISION] Choose the legacy-write s│             "id": "AC1",
-                                                              │             "behavior": "Saving preferences persists them across a restart.",
-                                                              │             "verification_method": "integration test",
-                                                              │             "evidence_required": [                                                 ▆▆
-                                                              │               "pytest exit code",
-                                                              │               "database read"
-                                                              │             ]
-                                                              │           }
-                                                              │         ]
-                                                              │       }
-                                                              │       ```
-                                                              │       [NEEDS DECISION] Choose the legacy-write strategy.
+ Manager                                                      │ ENG-421 · planner · blocked · planning · default model
+                                                              │█ Reason: [NEEDS DECISION] Choose the legacy-write strategy.
+                                                              │█ Waiting for: [NEEDS DECISION] Choose the legacy-write strategy.
+ Scripted backend (SB_BACKEND=scripted): no model is called.  │
+ Registered repository repo-alpha                             │ role         planner
+ (/private/var/folders/3l/s3t0j73x1bl1bvyxr7c53bf40000gn/T/sw │ task         ENG-421 · planner
+ itchboard-capture-nwy7izs9/repo-alpha).                      │ workflow     plan-feature
+ Manager ready. Nothing needs you. 0 worker(s) still working. │ lifecycle    blocked
+ Started ENG-421 on the complete-ticket workflow. Step 1:     │ ownership    manager
+ plan-feature on ENG-421 · planner.                           │ native state waiting
+ Started ENG-999 on the complete-ticket workflow. Step 1:     │ job stage    planning
+ plan-feature on ENG-999 · planner.                           │ base         main
+                                                              │ active run   complete-ticket · step 1 · awaiting_approval
+                                                              │ why waiting  [NEEDS DECISION] Choose the legacy-write strategy.
+                                                              │ working dir
+                                                              │ /private/var/folders/3l/s3t0j73x1bl1bvyxr7c53bf40000gn/T/switchboard-capture-nwy7izs9
+ Message the manager — paste a ticket, ask a question, give a │ /repo-alpha
+                                                              │
+──────────────────────────────────────────────────────────────│ evidence     implementation_contract ✓, behavior_contract ✓
+ Sessions (3) · 2 need you  ·  auto-advance on                │
+ ✓ Manager  ready · manager                                   │
+ ! ENG-421 planner  [NEEDS DECISION] Choose the legacy-write s│
+ ! ENG-999 planner  [NEEDS DECISION] Choose the legacy-write s│
                                                               │
                                                               │
-                                                              │                                                                          ▔▔▔▔▔▔▔▔▔▔▔▔▔
-                                                              │ Reply to this worker                                                       Interrupt
-                                                      ▎       │                                                                          ▁▁▁▁▁▁▁▁▁▁▁▁▁
+                                                              │
+                                                              │
+                                                              │
+                                                              │
+                                                              │
+                                                              │
+                                                              │
+                                                              │
+                                                              │ Enter  open exact native Claude session
+                                                              │
+                                                              │
+                                                              │ Interrupt worker
+                                                      ▎       │
  ^a Auto-advance  ^e Enter session  ^k Prev worker  ^n Manager  ^j Next worker  ^space Next attention  ^p Pin  ^s Snooze  ^o Interrupt  esc Worker lis

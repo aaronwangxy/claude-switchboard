@@ -97,7 +97,7 @@ reach for.
 | `runtime/` | Substrate-neutral durable runtime supervision and focused tmux process control |
 | `routing/` | Deterministic router and attention-queue ordering |
 | `core/` | `SessionManager` (the orchestrator) and guarded state transitions |
-| `ui/` | Three-pane Textual app; presentation only |
+| `ui/` | Sparse session list, orchestration detail, and Manager input; presentation only |
 | `app.py` | Bootstrap and the `sb` / `sb workflows` / `sb config` command surface |
 
 **Manager / job / worker.** A *job* is one unit of work in a repository (usually a ticket)
@@ -112,15 +112,13 @@ is a generation-bound native Claude process on the same tmux substrate as worker
 stdio MCP exposes only semantic orchestration operations through `SessionManager`; each call
 revalidates the current manager identity, generation, kind, and ownership.
 
-**Attach.** A worker is an ordinary Claude Code session, persisted by the runtime under
-`~/.claude/projects/` like any other, so `agents/attach.py` builds the command the user
-would have typed themselves: `claude --resume <session id>` in the worker's worktree.
-`attach` interrupts the turn, marks the worker attached so `send` refuses, and pauses its
-run; `detach` gives control back but leaves the run paused, because only the user knows
-whether the ritual should carry on -- `resume_run` is how they say yes. The resumed
-session is an ordinary interactive Claude, so a worker's read-only tool policy does *not*
-survive attaching; `_attach_note` says so when the worker observes someone else's
-worktree. Reachable by `Ctrl+E`, the `attach_worker` tool, and the router.
+**Entry.** Manager and workers are persistent native Claude processes. Selecting a session
+and pressing Enter (or `Ctrl+E`) attaches the terminal to its exact generation-bound tmux
+target; entry never launches `claude --resume`, replaces the process, or interrupts an active
+turn. Ownership becomes human, managed input is refused, and a composite attempt is tainted
+and paused. Return requires explicit confirmation that Claude's composer is empty; the run
+remains paused until `resume_run`. Same-server tmux clients switch directly, while clients on
+another tmux server receive an actionable refusal instead of nesting.
 
 **Worker backend.** `agents/backend.py` defines `WorkerSpec`/`WorkerHandle`/`WorkerEvent`
 and the `WorkerBackend` protocol (start, send, stream, interrupt, stop, resume, health,
@@ -144,9 +142,10 @@ parser; `TmuxRuntimeSupervisor` binds exact targets to `RuntimeInstance`. See
 **Session lifecycle.** `create_worker` → allocate a worktree if writable → `backend.start`
 → an asyncio pump task consumes `backend.stream` → `_apply` normalizes each event into
 status changes, attention items, transcript rows, and artifact harvesting. `interrupt`
-stops the turn and leaves the worker alive; `stop` is terminal. On startup `recover()`
-resumes each worker by its stored `session_id`, or marks it `disconnected` with a
-human-readable reason (missing worktree, no session id, resume failure).
+stops the turn and leaves the worker alive; `stop` is terminal. On startup `recover()` first
+adopts an exact live generation. Lost manager-owned workers are reconstructed as a new native
+generation from durable orchestration state; unsafe mismatches and unobservable human-owned
+runtimes fail closed with a human-readable reason.
 
 **Worktrees.** Only writable workers get one, always a fresh path under the managed root
 (`<data dir>/worktrees/<repo>/<job>-<role>-<id8>`, branch `sb/<slug>-<id8>`) — never inside
@@ -174,9 +173,9 @@ long-term orchestration memory. A fresh manager reconstructs bounded objectives,
 workers, attention, decisions, contracts, and evidence through its MCP; worker transcripts
 are not fed by default. Rotation stores only a bounded handoff for non-authoritative nuance.
 
-**Runtime prompting.** `compose_worker_prompt` *appends* to the SDK's `claude_code` preset —
-never replaces it — layering concision policy, role policy, read-only note, subagent policy,
-workflow policy, and verbosity. `PROMPT_POLICY_VERSION` is persisted per worker.
+**Runtime prompting.** `compose_worker_prompt` is an additive native Claude system-prompt
+append layering concision, role, read-only, subagent, workflow, and verbosity policy.
+`PROMPT_POLICY_VERSION` is persisted per worker.
 
 **Workflows.** `WORKFLOWS` is loaded from YAML: built-in (`workflows/builtin/`), then the
 user's (`~/.switchboard/workflows`), then each registered repository's
@@ -240,8 +239,8 @@ enforced by tool policy and prompt, not a sandbox. See `docs/mvp-evidence.md` li
 
 ## Extension points to preserve
 
-- `WorkerBackend` protocol — add a backend (e.g. a native `claude` CLI/PTY) without
-  touching orchestration.
+- `WorkerBackend` protocol — keep native and deterministic backends behind the same
+  orchestration boundary.
 - `WORKFLOWS` registry — add a workflow by dropping YAML in `~/.switchboard/workflows`
   or a repository's `.switchboard/workflows`; no core change, no privileged built-in path.
 - `ArtifactType` + `domain/contracts.py` — add an artifact type with its Pydantic schema.

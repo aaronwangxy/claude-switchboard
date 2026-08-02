@@ -17,23 +17,23 @@ sb — help screen
                                  │    Ctrl+S       Snooze the selected worker for 30 minutes                        │
                                  │    Ctrl+A       Toggle auto-advance                                              │
                                  │    Ctrl+O       Interrupt the selected worker                                    │
-                                 │    Ctrl+E       Enter the selected worker's session in this terminal             │
+                                 │    Ctrl+E       Enter the selected Manager or worker session                     │
                                  │    Escape       Return focus to the worker list                                  │
                                  │    ?            Show this help                                                   │
-                                 │    Enter        Submit the focused input                                         │
+                                 │    Enter        Enter the highlighted session, or submit the Manager input       │
                                  │    Ctrl+Q       Quit                                                             │
                                  │                                                                                  │
                                  │  Panes                                                                           │
-                                 │    Manager (top left)   one input for everything. Paste a ticket, ask a          │
-                                 │  question,                                                                   ▆▆  │
-                                 │                         or give an instruction; the manager routes it.           │
-                                 │    Workers (bottom left) ! needs you   ● working   ✓ idle or done                │
-                                 │    Worker (right)       attention banner, transcript, follow-up input,           │
-                                 │  Interrupt.                                                                      │
+                                 │    Manager (top left)   one high-level input; native Claude owns its         ▄▄  │
+                                 │  conversation.                                                                   │
+                                 │    Sessions (bottom)    Manager and workers. ! needs you   ● working   ✓         │
+                                 │  idle/done                                                                       │
+                                 │    Detail (right)       workflow, ownership, dependencies, worktree, and         │
+                                 │  evidence.                                                                       │
+                                 │                         Highlight any session and press Enter to open exact      │
+                                 │  Claude.                                                                         │
                                  │                                                                                  │
                                  │  Substituted keys                                                                │
                                  │    - Ctrl+O interrupts, not Ctrl+C: Textual reserves Ctrl+C for quit (and for    │
-                                 │  copying a selection inside a screen), so it can never reach the application.    │
-                                 │    - Ctrl+P pins the selected worker. Textual normally opens its command         │
                                  │                                                                                  │
                                  └──────────────────────────────────────────────────────────────────────────────────┘

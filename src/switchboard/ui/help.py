@@ -22,10 +22,10 @@ KEY_BINDINGS: list[tuple[str, str]] = [
     ("Ctrl+S", "Snooze the selected worker for 30 minutes"),
     ("Ctrl+A", "Toggle auto-advance"),
     ("Ctrl+O", "Interrupt the selected worker"),
-    ("Ctrl+E", "Enter the selected worker's session in this terminal"),
+    ("Ctrl+E", "Enter the selected Manager or worker session"),
     ("Escape", "Return focus to the worker list"),
     ("?", "Show this help"),
-    ("Enter", "Submit the focused input"),
+    ("Enter", "Enter the highlighted session, or submit the Manager input"),
     ("Ctrl+Q", "Quit"),
 ]
 
@@ -48,10 +48,10 @@ HELP_TEXT = "\n".join(
     + [
         "",
         "[b]Panes[/b]",
-        "  Manager (top left)   one input for everything. Paste a ticket, ask a question,",
-        "                       or give an instruction; the manager routes it.",
-        "  Workers (bottom left) ! needs you   ● working   ✓ idle or done",
-        "  Worker (right)       attention banner, transcript, follow-up input, Interrupt.",
+        "  Manager (top left)   one high-level input; native Claude owns its conversation.",
+        "  Sessions (bottom)    Manager and workers. ! needs you   ● working   ✓ idle/done",
+        "  Detail (right)       workflow, ownership, dependencies, worktree, and evidence.",
+        "                       Highlight any session and press Enter to open exact Claude.",
         "",
         "[b]Substituted keys[/b]",
     ]

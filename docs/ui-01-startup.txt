@@ -2,16 +2,16 @@ sb — startup, no workers yet
 ============================
 
  ⭘                                                                  Switchboard
- Manager                                                      │ No worker selected
- mgr  Scripted backend (SB_BACKEND=scripted): no model is     │ Select a worker on the left, or start one from the manager.
- called.                                                      │
-                                                              │
- mgr  Registered repository repo-alpha                        │
+ Manager                                                      │ Manager · native Claude
+                                                              │ role       orchestrator; never writes repository code
+                                                              │ lifecycle  ready
+ Scripted backend (SB_BACKEND=scripted): no model is called.  │ ownership  manager
+ Registered repository repo-alpha                             │ workspace  isolated non-repository workspace
  (/private/var/folders/3l/s3t0j73x1bl1bvyxr7c53bf40000gn/T/sw │
- itchboard-capture-5k2pn9gu/repo-alpha).                      │
+ itchboard-capture-nwy7izs9/repo-alpha).                      │ Nothing needs you. 0 worker(s) still working.
+ Manager ready. Nothing needs you. 0 worker(s) still working. │
                                                               │
- mgr  Nothing to recover. Nothing needs you. 0 worker(s)      │
- still working.                                               │
+                                                              │
                                                               │
                                                               │
                                                               │
@@ -21,7 +21,8 @@ sb — startup, no workers yet
  Message the manager — paste a ticket, ask a question, give a │
                                                               │
 ──────────────────────────────────────────────────────────────│
- Workers (0)  ·  auto-advance on                              │
+ Sessions (1)  ·  auto-advance on                             │
+ ✓ Manager  ready · manager                                   │
                                                               │
                                                               │
                                                               │
@@ -34,10 +35,9 @@ sb — startup, no workers yet
                                                               │
                                                               │
                                                               │
+                                                              │ Enter  open exact native Claude session
                                                               │
                                                               │
+                                                              │ Interrupt worker
                                                               │
-                                                              │                                                                          ▔▔▔▔▔▔▔▔▔▔▔▔▔
-                                                              │ Reply to this worker                                                       Interrupt
-                                                              │                                                                          ▁▁▁▁▁▁▁▁▁▁▁▁▁
  ^a Auto-advance  ^e Enter session  ^k Prev worker  ^n Manager  ^j Next worker  ^space Next attention  ^p Pin  ^s Snooze  ^o Interrupt  esc Worker lis

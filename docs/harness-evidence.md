@@ -1,5 +1,10 @@
 # Workflow harness milestone — verification record
 
+> **Historical evidence.** This records the earlier SDK milestone and is not current
+> architecture or usage guidance. Production Manager and workers are persistent native Claude
+> processes; entry attaches to the exact live tmux target and never uses `--resume`. See
+> [`native-workers.md`](native-workers.md) and [`phase6-native-manager.md`](phase6-native-manager.md).
+
 What was claimed, and what was actually run to check it. Everything here corresponds to
 `b49156a..HEAD`. The MVP-era record is in [`mvp-evidence.md`](mvp-evidence.md).
 

@@ -2,9 +2,7 @@
  *
  * Deliberately plain. This should read like a terminal that happens to have regions,
  * not like a dashboard: the terminal's own background, one dim rule between panes, and
- * colour reserved for the two things that are actually actionable -- who is speaking and
- * what needs the user. Anything decorative competes with the transcript, which is the
- * only content on screen worth reading closely.
+ * colour reserved for lifecycle and attention. Claude itself owns conversation rendering.
  */
 
 Screen {
@@ -42,13 +40,18 @@ Screen {
     height: 1;
 }
 
-#manager-scroll {
-    height: 1fr;
+#manager-status {
     padding: 0 1;
+    height: auto;
 }
 
-#manager-input,
-#worker-input {
+#manager-log {
+    padding: 1 1 0 1;
+    height: 1fr;
+    color: $text-muted;
+}
+
+#manager-input {
     height: 3;
     border: none;
     background: $background;
@@ -69,22 +72,23 @@ Screen {
     margin: 0 0 1 0;
 }
 
-#transcript-scroll {
-    height: 1fr;
+#session-detail {
     padding: 0 1;
+    height: 1fr;
 }
 
-#worker-controls {
-    height: 3;
-}
-
-#worker-controls #worker-input {
-    width: 1fr;
+#enter-hint {
+    color: $text-muted;
+    padding: 0 1;
+    height: 2;
 }
 
 #interrupt-button {
-    width: 13;
-    min-width: 13;
+    width: 18;
+    min-width: 18;
+    height: 3;
+    border: none;
+    background: $background;
 }
 
 HelpScreen {
