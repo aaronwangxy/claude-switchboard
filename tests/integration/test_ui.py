@@ -195,9 +195,14 @@ async def test_worker_entry_returns_ownership_after_empty_composer_confirmation(
         monkeypatch.setattr(app, "suspend", lambda: nullcontext())
 
         await app.action_attach()
+        await app.action_attach()
         await quiet(pilot)
 
         assert not app.sm.is_attached(worker.id)
+        returns = sum(
+            "Back in Switchboard" in (entry[1] or "") for entry in app.manager_pane.entries
+        )
+        assert returns >= 2
         assert any("Back in Switchboard" in (entry[1] or "") for entry in app.manager_pane.entries)
 
 
@@ -207,6 +212,31 @@ async def test_the_manager_pane_window_stays_bounded(app):
         for index in range(12):
             await send_to_manager(pilot, f"Is setting {index} shared between requests?")
         assert len(app.manager_pane.entries) <= 8
+
+
+async def test_a_normal_goal_does_not_hide_the_manager_outcome(app):
+    async with app.run_test(size=(80, 24)) as pilot:
+        await quiet(pilot)
+        app.sm.store.set_preference("manager.current_objective", "x" * 120)
+        app.manager_pane.complete_exchange("Visible manager outcome.")
+        app._tick()
+        await quiet(pilot)
+
+        assert "Visible manager outcome." in rendered_text(pilot, "#manager-log")
+
+
+async def test_manager_startup_instruction_uses_global_entry_binding(app, monkeypatch):
+    monkeypatch.setattr(
+        app.manager,
+        "status",
+        lambda: {"state": "starting", "owner": "manager"},
+        raising=False,
+    )
+    async with app.run_test(size=(80, 24)) as pilot:
+        await quiet(pilot)
+        detail = rendered_text(pilot, "#session-detail")
+        assert "Press Ctrl+E" in detail
+        assert "Press Enter to handle" not in detail
 
 
 async def test_the_help_screen_lists_the_bindings(app):

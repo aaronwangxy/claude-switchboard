@@ -420,7 +420,8 @@ class SessionManager:
             runtime.updated_at = now()
             self.store.save_runtime(runtime)
             waiting_for = (
-                "Native Claude startup needs human attention. Enter this session to handle "
+                "Native Claude startup needs human attention. Press Ctrl+E to enter this "
+                "session and handle "
                 f"workspace trust, login, or another startup prompt. ({exc})"
                 if startup_alive
                 else f"Backend error: {exc}"

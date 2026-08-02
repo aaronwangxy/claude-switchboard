@@ -321,7 +321,7 @@ class SwitchboardApp(App[None]):
         objective = self.sm.store.get_preference("manager.current_objective", "") or ""
         self.query_one("#manager-status", Static).update(
             f"{self.sm.status_summary()}\n"
-            f"Current goal: {_compact(objective, 120) if objective else 'none yet'}"
+            f"Current goal: {_compact(objective, 32) if objective else 'none yet'}"
         )
         if hasattr(self.manager, "status"):
             status = self.manager.status()  # type: ignore[attr-defined]
@@ -420,7 +420,7 @@ class SwitchboardApp(App[None]):
             detail.append(self.sm.status_summary())
             if status.get("state") == "starting":
                 detail.append(
-                    "\n\nStartup is waiting for native Claude. Press Enter to handle "
+                    "\n\nStartup is waiting for native Claude. Press Ctrl+E to handle "
                     "workspace trust, login, or another startup prompt.",
                     style="yellow",
                 )
@@ -638,8 +638,9 @@ class SwitchboardApp(App[None]):
     async def action_attach(self) -> None:
         """Enter the exact live native manager or selected worker process.
 
-        This enters the exact tmux-hosted native Claude process. The subprocess is awaited
-        off the UI event loop so Switchboard's control plane keeps processing hook events.
+        This enters the exact tmux-hosted native Claude process. Textual's suspension context
+        is synchronous, so terminal ownership and the confirmation read stay on this thread;
+        awaiting executor work inside that context can deadlock application-mode resume.
         """
         entering_manager = self._selected_manager
         try:
@@ -661,14 +662,11 @@ class SwitchboardApp(App[None]):
         try:
             with self.suspend():
                 try:
-                    await asyncio.to_thread(
-                        subprocess.run, attachment.argv, cwd=attachment.cwd, check=False
-                    )
+                    subprocess.run(attachment.argv, cwd=attachment.cwd, check=False)
                 except OSError as exc:  # a missing or unusable executable
                     print(f"Could not start Claude: {exc}")
-                answer = await asyncio.to_thread(
-                    input,
-                    "Confirm Claude's composer is empty before manager handback [y/N]: ",
+                answer = input(
+                    "Confirm Claude's composer is empty before manager handback [y/N]: "
                 )
                 composer_cleared = answer.strip().lower() in ("y", "yes")
         finally:
