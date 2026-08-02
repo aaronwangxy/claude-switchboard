@@ -10,21 +10,21 @@ sb — blocked planner with attention banner
  plan-feature on ENG-421 · planner.                           │ task         ENG-421 · planner
  Registered repository repo-alpha                             │ workflow     plan-feature
  (/private/var/folders/3l/s3t0j73x1bl1bvyxr7c53bf40000gn/T/sw │ lifecycle    blocked
- itchboard-capture-sktcdh3d/repo-alpha).                      │ ownership    manager
+ itchboard-capture-tdmaj4au/repo-alpha).                      │ ownership    manager
  Scripted backend (SB_BACKEND=scripted): no model is called.  │ native state waiting
                                                               │ job stage    planning
                                                               │ base         main
                                                               │ active run   complete-ticket · step 1 · awaiting_approval
                                                               │ why waiting  [NEEDS DECISION] Choose the legacy-write strategy.
                                                               │ working dir
-                                                              │ /private/var/folders/3l/s3t0j73x1bl1bvyxr7c53bf40000gn/T/switchboard-capture-sktcdh3d
+                                                              │ /private/var/folders/3l/s3t0j73x1bl1bvyxr7c53bf40000gn/T/switchboard-capture-tdmaj4au
  Message the manager — paste a ticket, ask a question, give a │ /repo-alpha
                                                               │
-──────────────────────────────────────────────────────────────│ evidence     implementation_contract ✓, behavior_contract ✓
- Sessions (2) · 1 need you  ·  auto-advance on                │
+──────────────────────────────────────────────────────────────│ evidence     goal ✓, implementation_contract ✓
+ Jobs (1) · sessions (1) · 1 need you  ·  auto-advance on     │
  ✓ Manager  ready · manager                                   │
- ! ENG-421 planner  [NEEDS DECISION] Choose the legacy-write s│
-                                                              │
+ ! ENG-421  complete-ticket step 1/8 awaitin                  │
+   ! planner blocked  [NEEDS DECISION] Choose the legacy-write│
                                                               │
                                                               │
                                                               │
@@ -39,5 +39,5 @@ sb — blocked planner with attention banner
                                                               │
                                                               │
                                                               │ Interrupt worker
-                                                      ▎       │
+                                                              │
  ^a Auto-advance  ^e Enter session  ^k Prev worker  ^n Manager  ^j Next worker  ^space Next attention  ^p Pin  ^s Snooze  ^o Interrupt  esc Worker lis

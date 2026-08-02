@@ -291,4 +291,89 @@ def test_the_documented_terminal_captures_exist():
     assert len(captures) >= 3
     for capture in captures:
         text = capture.read_text()
-        assert "Manager" in text and "Sessions" in text
+        assert "Manager" in text and "Jobs" in text
+
+
+# ------------------------------------------------------- jobs, not a flat fleet
+
+
+async def test_the_board_is_organised_around_jobs_with_their_sessions_under_them(app):
+    """The user thinks in pieces of work, not in a list of processes."""
+    async with app.run_test() as pilot:
+        await quiet(pilot)
+        await send_to_manager(pilot, TICKET)
+        await send_to_manager(pilot, SECOND_TICKET)
+        await quiet(pilot)
+
+        keys = [key for key, _ in app.worker_list_pane._signature]
+        assert keys[0] == "manager"
+        job_rows = [key for key in keys if key.startswith("job:")]
+        assert len(job_rows) == 2, "one row per job"
+        # Each job row is immediately followed by its own session.
+        for index, key in enumerate(keys):
+            if key.startswith("job:"):
+                assert not keys[index + 1].startswith("job:"), "its sessions come next"
+
+        title = rendered_text(pilot, "#worker-list-title")
+        assert "Jobs (2)" in title and "sessions (2)" in title
+
+
+async def test_a_job_row_shows_its_workflow_and_where_the_run_stands(app):
+    async with app.run_test() as pilot:
+        await quiet(pilot)
+        await send_to_manager(pilot, TICKET)
+        await quiet(pilot)
+
+        rows = dict(app.worker_list_pane._signature)
+        job_row = next(text for key, text in rows.items() if key.startswith("job:"))
+        assert "ENG-421" in job_row
+        assert "complete-ticket" in job_row
+        assert "step 1/" in job_row, "progress through the workflow, not just a stage name"
+
+
+async def test_stepping_through_sessions_never_lands_on_a_job_heading(app):
+    async with app.run_test() as pilot:
+        await quiet(pilot)
+        await send_to_manager(pilot, TICKET)
+        await send_to_manager(pilot, SECOND_TICKET)
+        await quiet(pilot)
+
+        ids = app.worker_list_pane.worker_ids
+        assert len(ids) == 2
+        real = {worker.id for worker in app.sm.store.list_workers()}
+        assert set(ids) <= real
+
+
+async def test_selecting_a_job_answers_why_it_is_not_done_yet(app):
+    async with app.run_test() as pilot:
+        await quiet(pilot)
+        await send_to_manager(pilot, TICKET)
+        await quiet(pilot)
+
+        app.sm.auto_advance = False  # otherwise the queue reselects the blocked planner
+        job = app.sm.store.list_jobs()[0]
+        app._selected_manager = False
+        app._selected_job_id = job.id
+        app.refresh_worker_pane()
+        await quiet(pilot)
+
+        header = rendered_text(pilot, "#worker-header")
+        detail = rendered_text(pilot, "#session-detail")
+        assert "ENG-421" in header
+        assert "complete-ticket" in detail
+        assert "complete" in detail and "no" in detail
+        assert "needs" in detail, "it names the definition of done"
+        assert any(
+            blocker in detail for blocker in ("verification", "review", "implementation")
+        ), "and the specific blockers"
+
+
+async def test_picking_a_job_opens_the_session_that_needs_the_user(app):
+    async with app.run_test() as pilot:
+        await quiet(pilot)
+        await send_to_manager(pilot, TICKET)
+        await quiet(pilot)
+
+        job = app.sm.store.list_jobs()[0]
+        planner = app.sm.store.list_workers(job.id)[0]
+        assert app._worker_for_job(job.id) == planner.id

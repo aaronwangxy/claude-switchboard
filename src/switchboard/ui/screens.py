@@ -143,7 +143,12 @@ class WorkerListPane(Vertical):
 
     @property
     def worker_ids(self) -> list[UUID]:
-        return [UUID(key) for key, _ in self._signature if key != "manager"]
+        """Only real sessions. Job rows are headings, so stepping never lands on one."""
+        return [
+            UUID(key)
+            for key, _ in self._signature
+            if key != "manager" and not key.startswith("job:")
+        ]
 
 
 class WorkerPane(Vertical):
@@ -254,8 +259,9 @@ class SwitchboardApp(App[None]):
         self._startup_notes = list(startup_notes)
         self._busy = False
         self._selected_manager = True
+        self._selected_job_id: UUID | None = None
         #: Cheap fingerprint of what the worker pane last drew.
-        self._pane_signature: tuple | None = None
+        self._pane_signature: tuple | None = None  # cheap fingerprint of the last paint
 
     # ------------------------------------------------------------------- compose
 
@@ -351,6 +357,46 @@ class SwitchboardApp(App[None]):
                 ordered.append((worker, None))
         return ordered
 
+    def grouped_rows(self) -> list[tuple[str, Text]]:
+        """The board, organised around jobs rather than a flat fleet of sessions.
+
+        A job comes first with its workflow, where the run stands, and whether anything on
+        it needs the user; its sessions follow, indented. A worker with no job -- a one-off
+        question -- keeps its own row at the end. Ordering inside each group is still the
+        attention queue's, so the thing that needs the user is never buried.
+        """
+        pairs = self.ordered_workers()
+        attention_by_worker = {worker.id: item for worker, item in pairs if item is not None}
+        by_job: dict[UUID, list[Worker]] = {}
+        loose: list[Worker] = []
+        for worker, _ in pairs:
+            if worker.job_id is None:
+                loose.append(worker)
+            else:
+                by_job.setdefault(worker.job_id, []).append(worker)
+
+        jobs = {job.id: job for job in self.sm.store.list_jobs()}
+        # A job whose first session needs attention sorts first, then by recency.
+        def urgency(job_id: UUID) -> tuple[int, str]:
+            has_attention = any(w.id in attention_by_worker for w in by_job[job_id])
+            job = jobs.get(job_id)
+            return (0 if has_attention else 1, str(job.updated_at) if job else "")
+
+        rows: list[tuple[str, Text]] = []
+        for job_id in sorted(by_job, key=urgency, reverse=False):
+            job = jobs.get(job_id)
+            if job is None:
+                continue
+            run = self.sm.store.active_run(job_id) or next(
+                iter(reversed(self.sm.store.list_runs(job_id))), None
+            )
+            rows.append((f"job:{job_id}", _job_row(job, run, by_job[job_id], attention_by_worker)))
+            for worker in by_job[job_id]:
+                rows.append((str(worker.id), _worker_row(worker, attention_by_worker.get(worker.id))))
+        for worker in loose:
+            rows.append((str(worker.id), _worker_row(worker, attention_by_worker.get(worker.id))))
+        return rows
+
     def refresh_workers(self) -> None:
         """Repaint the worker list.
 
@@ -363,9 +409,6 @@ class SwitchboardApp(App[None]):
             log.debug("worker list repaint skipped: pane not mounted")
 
     def _refresh_workers(self) -> None:
-        rows = self.ordered_workers()
-        jobs = {job.id: job for job in self.sm.store.list_jobs()}
-        repos = {repo.id: repo for repo in self.sm.store.list_repositories()}
         manager_status = self.manager.status()
         manager_state = (
             "turn_active" if self._busy else str(manager_status.get("state") or "ready")
@@ -375,27 +418,23 @@ class SwitchboardApp(App[None]):
         manager_row.append("● " if manager_state in ("turn_active", "starting") else "✓ ", style="bold green")
         manager_row.append("Manager", style="bold")
         manager_row.append(f"  {manager_state.replace('_', ' ')} · {manager_owner}", style="dim")
-        rendered: list[tuple[str, Text]] = [("manager", manager_row)] + [
-            (
-                str(worker.id),
-                _worker_row(
-                    worker,
-                    item,
-                    jobs.get(worker.job_id) if worker.job_id else None,
-                    repos.get(worker.repository_id),
-                ),
-            )
-            for worker, item in rows
-        ]
+        rendered: list[tuple[str, Text]] = [("manager", manager_row), *self.grouped_rows()]
         pane = self.worker_list_pane
-        selected = "manager" if self._selected_manager else (
-            str(self.sm.selected_worker_id) if self.sm.selected_worker_id else None
-        )
+        if self._selected_manager:
+            selected: str | None = "manager"
+        elif self._selected_job_id is not None:
+            # Keep the cursor on the job the user picked; moving it to a session row
+            # would fire a highlight that clears the selection they just made.
+            selected = f"job:{self._selected_job_id}"
+        else:
+            selected = str(self.sm.selected_worker_id) if self.sm.selected_worker_id else None
         pane.update_rows(rendered, selected)
-        attention_count = sum(1 for _, item in rows if item is not None)
-        title = f"Sessions ({len(rows) + 1})"
-        if attention_count:
-            title += f" · {attention_count} need you"
+        items = self.sm.list_attention_items()
+        worker_count = sum(1 for key, _ in rendered if key not in ("manager",) and not key.startswith("job:"))
+        job_count = sum(1 for key, _ in rendered if key.startswith("job:"))
+        title = f"Jobs ({job_count}) · sessions ({worker_count})"
+        if items:
+            title += f" · {len(items)} need you"
         title += "  ·  auto-advance " + ("on" if self.sm.auto_advance else "off")
         self.query_one("#worker-list-title", Static).update(title)
 
@@ -433,6 +472,29 @@ class SwitchboardApp(App[None]):
             self._pane_signature = ("manager", *sorted(status.items()))
             self.worker_pane.show_manager("Manager · native Claude", detail)
             return
+        if self._selected_job_id is not None:
+            job = self.sm.store.get_job(self._selected_job_id)
+            if job is not None:
+                report = self.sm.job_completion(job.id)
+                run = self.sm.store.active_run(job.id) or next(
+                    iter(reversed(self.sm.store.list_runs(job.id))), None
+                )
+                workers = self.sm.store.list_workers(job.id)
+                signature: tuple = (
+                    "job",
+                    str(job.id),
+                    report.ready,
+                    tuple(report.blockers),
+                    run.updated_at if run else None,
+                    len(workers),
+                )
+                if signature != self._pane_signature:
+                    self._pane_signature = signature
+                    self.worker_pane.show_manager(
+                        f"{job.external_ref or job.title} · {job.stage}",
+                        _job_detail(job, report, run, workers),
+                    )
+                return
         worker = self.sm.store.get_worker(worker_id) if worker_id else None
         if worker is None:
             if self._pane_signature is not None:
@@ -481,19 +543,48 @@ class SwitchboardApp(App[None]):
 
     def select_worker(self, worker_id: UUID | None) -> None:
         self._selected_manager = False
+        self._selected_job_id = None
         self.sm.selected_worker_id = worker_id
         self.refresh_workers()
         self.refresh_worker_pane()
+
+    def _job_key(self, row_key) -> UUID | None:
+        value = str(getattr(row_key, "value", row_key))
+        if not value.startswith("job:"):
+            return None
+        try:
+            return UUID(value[4:])
+        except ValueError:
+            return None
+
+    def _worker_for_job(self, job_id: UUID) -> UUID | None:
+        """The session to open when the user picks a job: whichever one needs them."""
+        workers = [w for w in self.sm.store.list_workers(job_id)]
+        if not workers:
+            return None
+        wanted = {item.worker_id for item in self.sm.list_attention_items()}
+        needing = [w for w in workers if w.id in wanted]
+        return (needing or workers)[-1].id
 
     @on(DataTable.RowHighlighted, "#worker-table")
     def _row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         if str(event.row_key.value) == "manager":
             self._selected_manager = True
+            self._selected_job_id = None
+            self.refresh_worker_pane()
+            return
+        job_id = self._job_key(event.row_key)
+        if job_id is not None:
+            self._selected_manager = False
+            self._selected_job_id = job_id
             self.refresh_worker_pane()
             return
         worker_id = _row_key_uuid(event.row_key)
-        if worker_id is not None and worker_id != self.sm.selected_worker_id:
+        if worker_id is not None and (
+            worker_id != self.sm.selected_worker_id or self._selected_job_id is not None
+        ):
             self._selected_manager = False
+            self._selected_job_id = None
             self.sm.selected_worker_id = worker_id
             self.refresh_worker_pane()
 
@@ -502,9 +593,13 @@ class SwitchboardApp(App[None]):
         if str(event.row_key.value) == "manager":
             self._selected_manager = True
         else:
-            worker_id = _row_key_uuid(event.row_key)
-            if worker_id is not None:
-                self.select_worker(worker_id)
+            job_id = self._job_key(event.row_key)
+            # Picking a job means "show me the session that needs me", because a job is a
+            # heading -- there is no process behind it to enter.
+            worker_id = self._worker_for_job(job_id) if job_id else _row_key_uuid(event.row_key)
+            if worker_id is None:
+                return
+            self.select_worker(worker_id)
         self.run_worker(self.action_attach(), name="enter-session", exclusive=True)
 
     # ------------------------------------------------------------- auto-advance
@@ -731,33 +826,92 @@ def _marker(worker: Worker, item: AttentionItem | None) -> str:
     return "·"
 
 
-def _worker_row(worker: Worker, item: AttentionItem | None, job, repo) -> Text:
-    """One scannable line. The urgent parts come first because the pane is narrow."""
+def _job_row(job, run, workers: Sequence[Worker], attention: dict[UUID, AttentionItem]) -> Text:
+    """The unit the user actually thinks in: a piece of work and where it stands."""
+    urgent = [attention[w.id] for w in workers if w.id in attention]
+    complete = job.completed_at is not None
+    marker = "!" if urgent else ("✓" if complete else "●")
+    style = "bold red" if urgent else ("green" if complete else "bold")
+
+    row = Text()
+    row.append(f"{marker} ", style=style)
+    row.append(_compact(job.external_ref or job.title, 34), style=style)
+    if run is not None and not complete:
+        total = _step_total(run.workflow)
+        position = f"step {run.step_index + 1}" + (f"/{total}" if total else "")
+        row.append(f"  {run.workflow} {position} {run.status.value}", style="dim")
+    elif complete:
+        row.append(f"  {job.composite_workflow or job.stage} complete", style="dim")
+    else:
+        row.append(f"  {job.stage}", style="dim")
+    if urgent:
+        row.append("  " + _compact(urgent[0].reason, REASON_WIDTH), style="italic red")
+    return row
+
+
+def _step_total(workflow: str | None) -> int:
+    from switchboard.workflows.registry import find_workflow
+
+    definition = find_workflow(workflow)
+    return len(definition.steps) if definition else 0
+
+
+def _worker_row(worker: Worker, item: AttentionItem | None) -> Text:
+    """One scannable line under its job. The urgent parts come first."""
     marker = _marker(worker, item)
     style = (
         "bold red"
         if item is not None
         else ("bold" if worker.status is WorkerStatus.WORKING else "")
     )
-    ref = job.external_ref if job is not None and job.external_ref else None
-    title = worker.title
-    if ref and title.startswith(f"{ref} · "):  # the store's title already carries the ref
-        title = title[len(ref) + 3 :]
-
     row = Text()
-    row.append(f"{marker} ", style=style or "dim")
+    # Indented, because a session belongs to the job above it rather than to a flat fleet.
+    row.append(f"  {marker} ", style=style or "dim")
     if worker.pinned:
         row.append("pin ", style="dim")
-    if ref:
-        row.append(f"{ref} ", style=style or "bold")
-    row.append(title[:32], style=style)
-    # Only the reason follows the title. Role, stage, repository, and model are true of
-    # the worker for its whole life and never tell the user to do anything, so they
-    # belong in the header of the pane that is only drawn when the worker is selected.
+    row.append(f"{worker.role.value}", style=style or "dim")
+    row.append(f" {worker.status.value}", style="dim")
+    # Only the reason follows. Repository, worktree and model are true of the worker for
+    # its whole life and never tell the user to do anything, so they belong in the detail
+    # pane that is only drawn when the worker is selected.
     reason = item.reason if item is not None else worker.waiting_for
     if reason:
         row.append("  " + _compact(reason, REASON_WIDTH), style="italic")
     return row
+
+
+def _job_detail(job, report, run, workers: Sequence[Worker]) -> Text:
+    """What the user wants from a job: where it is, and what is left before it is done."""
+    text = Text()
+    fields = [
+        ("workflow", job.composite_workflow or "none chosen"),
+        ("stage", job.stage),
+        ("base", job.base_ref),
+        ("sessions", ", ".join(f"{w.role.value} ({w.status.value})" for w in workers) or "none"),
+    ]
+    if run is not None:
+        total = _step_total(run.workflow)
+        fields.append(
+            ("run", f"step {run.step_index + 1}{f'/{total}' if total else ''} · {run.status.value}")
+        )
+        if run.detail:
+            fields.append(("why waiting", run.detail))
+    for label, value in fields:
+        text.append(f"{label:<12} ", style="dim")
+        text.append(f"{value}\n")
+
+    text.append("\ncomplete     ", style="dim")
+    if report.ready:
+        text.append("yes — every part of its definition of done is satisfied\n", style="bold green")
+    else:
+        text.append("no\n", style="bold yellow")
+    if report.required:
+        text.append("needs        ", style="dim")
+        text.append(", ".join(report.required) + "\n")
+    for blocker in report.blockers:
+        text.append("  · ", style="dim")
+        text.append(f"{blocker}\n", style="yellow")
+    return text
 
 
 def _worker_detail(worker, job, runtime, run, worktree, artifacts) -> Text:

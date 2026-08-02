@@ -23,17 +23,17 @@ sb — help screen
                                  │    Enter        Enter the highlighted session, or submit the Manager input       │
                                  │    Ctrl+Q       Quit                                                             │
                                  │                                                                                  │
-                                 │  Panes                                                                           │
-                                 │    Manager (top left)   one high-level input; native Claude owns its         ▄▄  │
+                                 │  Panes                                                                       ▅▅  │
+                                 │    Manager (top left)   one high-level input; native Claude owns its             │
                                  │  conversation.                                                                   │
-                                 │    Sessions (bottom)    Manager and workers. ! needs you   ● working   ✓         │
-                                 │  idle/done                                                                       │
-                                 │    Detail (right)       workflow, ownership, dependencies, worktree, and         │
+                                 │    Jobs (bottom)        each job, its workflow and step, with its sessions       │
+                                 │  under it.                                                                       │
+                                 │                         ! needs you   ● working   ✓ complete/idle                │
+                                 │    Detail (right)       a job: where its run stands and what is left before      │
+                                 │  it is done.                                                                     │
+                                 │                         a session: workflow, ownership, worktree, and            │
                                  │  evidence.                                                                       │
                                  │                         Highlight any session and press Enter to open exact      │
                                  │  Claude.                                                                         │
-                                 │                                                                                  │
-                                 │  Substituted keys                                                                │
-                                 │    - Ctrl+O interrupts, not Ctrl+C: Textual reserves Ctrl+C for quit (and for    │
                                  │                                                                                  │
                                  └──────────────────────────────────────────────────────────────────────────────────┘

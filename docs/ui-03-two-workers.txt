@@ -12,21 +12,21 @@ sb — two jobs in flight
  plan-feature on ENG-421 · planner.                           │ lifecycle    blocked
  Registered repository repo-alpha                             │ ownership    manager
  (/private/var/folders/3l/s3t0j73x1bl1bvyxr7c53bf40000gn/T/sw │ native state waiting
- itchboard-capture-sktcdh3d/repo-alpha).                      │ job stage    planning
+ itchboard-capture-tdmaj4au/repo-alpha).                      │ job stage    planning
  Scripted backend (SB_BACKEND=scripted): no model is called.  │ base         main
                                                               │ active run   complete-ticket · step 1 · awaiting_approval
                                                               │ why waiting  [NEEDS DECISION] Choose the legacy-write strategy.
                                                               │ working dir
-                                                              │ /private/var/folders/3l/s3t0j73x1bl1bvyxr7c53bf40000gn/T/switchboard-capture-sktcdh3d
+                                                              │ /private/var/folders/3l/s3t0j73x1bl1bvyxr7c53bf40000gn/T/switchboard-capture-tdmaj4au
  Message the manager — paste a ticket, ask a question, give a │ /repo-alpha
                                                               │
-──────────────────────────────────────────────────────────────│ evidence     implementation_contract ✓, behavior_contract ✓
- Sessions (3) · 2 need you  ·  auto-advance on                │
+──────────────────────────────────────────────────────────────│ evidence     goal ✓, implementation_contract ✓
+ Jobs (2) · sessions (2) · 2 need you  ·  auto-advance on     │
  ✓ Manager  ready · manager                                   │
- ! ENG-421 planner  [NEEDS DECISION] Choose the legacy-write s│
- ! ENG-999 planner  [NEEDS DECISION] Choose the legacy-write s│
-                                                              │
-                                                              │
+ ! ENG-421  complete-ticket step 1/8 awaiting_approval  [NEEDS│
+   ! planner blocked  [NEEDS DECISION] Choose the legacy-write│
+ ! ENG-999  complete-ticket step 1/8 awaiting_approval  [NEEDS│
+   ! planner blocked  [NEEDS DECISION] Choose the legacy-write│
                                                               │
                                                               │
                                                               │
@@ -39,5 +39,5 @@ sb — two jobs in flight
                                                               │
                                                               │
                                                               │ Interrupt worker
-                                                      ▎       │
+                                                              │
  ^a Auto-advance  ^e Enter session  ^k Prev worker  ^n Manager  ^j Next worker  ^space Next attention  ^p Pin  ^s Snooze  ^o Interrupt  esc Worker lis
