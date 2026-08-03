@@ -53,6 +53,7 @@ models: {}
 permissions:
   writable_worker: acceptEdits  # acceptEdits | auto | manual | plan | null
   read_only_worker: plan
+  writable_worker_allow: []     # native permission rules a writable worker may run unattended
 
 effort: {}                      # per role, e.g. `reviewer: high`. Null leaves it alone.
 
@@ -120,6 +121,13 @@ discovery: user, managed/company, project, and project-local configuration all a
 Switchboard deliberately omits `--setting-sources`. It adds one mode-0600 settings overlay
 carrying its lifecycle hooks; it never replaces your settings and never selects a bypass
 permission mode.
+
+One rule does not survive that discovery. Claude honours `permissions.allow` from a
+directory's own settings only once that directory is trusted, and a writable worker runs in
+a per-worker worktree that has never been trusted — so allow rules checked into a
+repository have no effect on a worker, silently. `permissions.writable_worker_allow`
+travels in Switchboard's own overlay, which is exempt from that gate, and is therefore the
+only way to clear a command for unattended work in a worker.
 
 The Manager uses the same configured executable and environment, and the same native user
 and managed discovery, from a dedicated non-repository workspace — so it inherits your

@@ -32,10 +32,19 @@ class PermissionsConfig(BaseModel):
     `acceptEdits` matches what it is actually allowed to do -- and it is the difference
     between a fleet that runs and one that stops on every file write. Bash still prompts.
     Set either to null for Claude's own default prompting.
+
+    `writable_worker_allow` is how a command stops prompting. Each entry is a native Claude
+    permission rule, e.g. `Bash(./.venv/bin/python -m pytest:*)`. It is empty by default:
+    naming the commands a worker may run unattended is the user's decision, not
+    Switchboard's. It exists because it is the *only* channel that reaches a worker -- a
+    worker runs in a worktree Claude has never been asked to trust, and Claude ignores
+    `permissions.allow` from an untrusted directory's own settings, so a rule checked into
+    the repository has no effect there.
     """
 
     writable_worker: str | None = "acceptEdits"
     read_only_worker: str | None = "plan"
+    writable_worker_allow: list[str] = Field(default_factory=list)
 
 
 class EffortConfig(BaseModel):

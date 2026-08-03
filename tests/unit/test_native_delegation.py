@@ -104,3 +104,37 @@ def test_effort_is_per_role_and_falls_back_to_general():
     assert config.effort_for_role("reviewer") == "high"
     assert config.effort_for_role("implementer") == "medium"
     assert config.effort_for_role("a-role-nobody-declared") == "medium"
+
+
+def _overlay(store, tmp_path: Path, config: Config, *, read_only: bool = False) -> dict:
+    """The settings file a launch would hand to `claude --settings`."""
+    import json
+
+    native = NativeClaudeRuntime(store, _Recorder(), config, tmp_path / "hooks")
+    runtime_id = uuid4()
+    return json.loads(native._write_settings(runtime_id, read_only=read_only).read_text())
+
+
+def test_a_worker_is_granted_no_commands_by_default(store, tmp_path):
+    """The default posture is Claude's: every command asks."""
+    assert "permissions" not in _overlay(store, tmp_path, Config())
+
+
+def test_configured_commands_reach_a_writable_workers_settings_overlay(store, tmp_path):
+    """The overlay is the only channel that reaches a worker.
+
+    A worker runs in a worktree Claude has never been asked to trust, and Claude ignores
+    `permissions.allow` from an untrusted directory's own settings. So a rule checked into
+    the repository does nothing for a worker; only what Switchboard passes does.
+    """
+    config = Config.model_validate(
+        {"permissions": {"writable_worker_allow": ["Bash(./.venv/bin/python -m pytest:*)"]}}
+    )
+    overlay = _overlay(store, tmp_path, config)
+    assert overlay["permissions"]["allow"] == ["Bash(./.venv/bin/python -m pytest:*)"]
+    assert overlay["hooks"], "the hook bridge must survive alongside the rules"
+
+
+def test_a_read_only_worker_is_granted_nothing(store, tmp_path):
+    config = Config.model_validate({"permissions": {"writable_worker_allow": ["Bash(git push:*)"]}})
+    assert "permissions" not in _overlay(store, tmp_path, config, read_only=True)

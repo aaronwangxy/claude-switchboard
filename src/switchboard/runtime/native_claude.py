@@ -295,7 +295,15 @@ class NativeClaudeRuntime:
             command_parts.append("--deny-write-tools")
         command = shlex.join(command_parts)
         hook = {"hooks": [{"type": "command", "command": command, "timeout": 10}]}
-        path.write_text(json.dumps({"hooks": {event: [hook] for event in HOOK_EVENTS}}, indent=2))
+        settings: dict[str, object] = {"hooks": {event: [hook] for event in HOOK_EVENTS}}
+        # A worker's worktree is a directory Claude has never been asked to trust, and an
+        # untrusted directory's own `permissions.allow` is ignored. This overlay is the
+        # only channel that reaches the session, so commands the user has cleared for
+        # unattended work have to travel here or not at all.
+        allow = [] if read_only else self.config.permissions.writable_worker_allow
+        if allow:
+            settings["permissions"] = {"allow": list(allow)}
+        path.write_text(json.dumps(settings, indent=2))
         path.chmod(0o600)
         return path
 
