@@ -512,6 +512,38 @@ async def test_one_native_permission_prompt_raises_one_attention_item(
     assert manager.store.get_worker(worker.id).waiting_for == "Permission required for Bash."
 
 
+async def test_a_worker_running_again_is_no_longer_blocked_on_its_prompt(
+    native_services, git_repo
+):
+    """The prompt only exists in the pane, so progress is the only report of an answer.
+
+    Nothing told Switchboard the user had answered: a worker executing tools stayed
+    `blocked` with a stale reason, which is what the Manager reads when it decides
+    whether that worker can move.
+    """
+    manager, backend, _ = native_services
+    worker, runtime = await _blocked_on_one_native_prompt(manager, git_repo, "native-answered")
+
+    # The user answers in the pane, which is the only place the prompt exists.
+    subprocess.run(
+        [
+            backend.controller.executable,
+            "-S",
+            str(backend.controller.socket_path),
+            "send-keys",
+            "-t",
+            backend.controller.session_name(runtime.id),
+            "1",
+        ],
+        check=True,
+        capture_output=True,
+    )
+
+    await wait_for(lambda: manager.store.get_worker(worker.id).status is WorkerStatus.WORKING)
+    assert not manager.store.get_worker(worker.id).waiting_for
+    assert manager.store.attention_items_for_worker(worker.id) == []
+
+
 async def test_stop_failure_never_harvests_or_becomes_blocked(native_services, git_repo):
     manager, _, _ = native_services
     repo = manager.register_repository(git_repo("native-failure"))

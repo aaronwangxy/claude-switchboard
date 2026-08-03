@@ -1761,6 +1761,24 @@ class SessionManager:
         )
         return self.store.save_attention_item(item)
 
+    def _clear_permission_block(self, worker: Worker) -> None:
+        """A managed turn that is running again is a permission prompt somebody answered.
+
+        The prompt exists only in the worker's own pane, so nothing reports the answer
+        back. Progress on the same turn is that report. Leaving the worker BLOCKED tells
+        the Manager a demonstrably running session cannot move, and leaves the board
+        counting a prompt that is gone.
+        """
+        if worker.status is not WorkerStatus.BLOCKED:
+            return
+        if not any(
+            item.kind is AttentionKind.PERMISSION_REQUIRED
+            for item in self.store.attention_items_for_worker(worker.id)
+        ):
+            return
+        self._resolve_attention(worker, kinds={AttentionKind.PERMISSION_REQUIRED})
+        self._set_status(worker, WorkerStatus.WORKING, waiting_for=None)
+
     def _resolve_attention(
         self, worker: Worker, *, kinds: set[AttentionKind] | None = None
     ) -> None:
@@ -1867,10 +1885,12 @@ class SessionManager:
                     self._set_runtime_state(worker.id, RuntimeProcessState(state))
             case "text":
                 self._set_runtime_state(worker.id, RuntimeProcessState.TURN_ACTIVE)
+                self._clear_permission_block(worker)
                 self._record(worker, "assistant", event.text)
                 self.emit(ev.WORKER_OUTPUT, worker_id=worker.id, job_id=worker.job_id)
             case "tool":
                 self._set_runtime_state(worker.id, RuntimeProcessState.TURN_ACTIVE)
+                self._clear_permission_block(worker)
                 self._record(worker, "tool", f"[{event.text}]")
             case "helper":
                 # Claude owns its subagents. Their count affects no durable Switchboard
