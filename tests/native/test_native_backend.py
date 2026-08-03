@@ -16,6 +16,7 @@ import pytest
 from switchboard.agents.backend import WorkerEvent
 from switchboard.agents.native_backend import NativeClaudeBackend, default_tmux_socket_path
 from switchboard.agents.native_manager import (
+    MANAGER_BLOCKED_KEY,
     MAX_HANDOFF_CHARS,
     STARTUP_NEEDS_YOU,
     PersistentNativeManager,
@@ -259,6 +260,50 @@ async def test_manager_startup_blocked_on_a_dialog_keeps_the_controller_alive(
         # And nothing is typed at a session that is sitting on a dialog.
         assert await manager.handle("what is blocked?") == STARTUP_NEEDS_YOU
         assert sm.store.list_native_turns(runtime.id) == []
+    finally:
+        subprocess.run(
+            [backend.controller.executable, "-S", str(socket), "kill-server"],
+            capture_output=True,
+            check=False,
+        )
+
+
+async def test_a_manager_that_reached_ready_stops_reporting_a_startup_prompt(
+    store: Store, worktree_service, tmp_path: Path
+):
+    """The startup block is set once, and only a fresh generation ever retired it.
+
+    So it outlived the dialog it describes. Once the person answered and the session
+    reported ready, every later moment the Manager was merely busy read back as a
+    workspace-trust prompt, and Ctrl+E landed in a working session with nothing to
+    answer. Seen on a live board whose Manager had already served three turns.
+    """
+    if shutil.which("tmux") is None:
+        pytest.skip("tmux is not installed")
+    config = Config(
+        claude=ClaudeConfig(
+            executable=str(FAKE), env={"FAKE_NATIVE_BLOCK_STARTUP": "1"}
+        )
+    )
+    socket = Path("/private/tmp") / f"switchboard-native-{uuid4().hex}.sock"
+    backend = NativeClaudeBackend(store, config, tmp_path / "runtime", socket_path=socket)
+    sm = SessionManager(store, backend, config, worktree_service)
+    manager = PersistentNativeManager(sm, backend, tmp_path / "manager-was-blocked")
+    try:
+        runtime = await manager.start_or_recover()
+        assert sm.store.get_preference(MANAGER_BLOCKED_KEY, "") == str(runtime.id)
+
+        # The person answers the dialog and the session reports itself ready.
+        runtime.process_state = RuntimeProcessState.READY
+        sm.store.save_runtime(runtime)
+        assert manager.status()["needs_you"] == ""
+        assert sm.store.get_preference(MANAGER_BLOCKED_KEY, "") == ""
+
+        # From here on, a Manager that is merely busy says it is busy.
+        runtime.process_state = RuntimeProcessState.TURN_ACTIVE
+        sm.store.save_runtime(runtime)
+        assert manager.status()["needs_you"] == ""
+        assert manager._not_ready_reason(runtime) != STARTUP_NEEDS_YOU
     finally:
         subprocess.run(
             [backend.controller.executable, "-S", str(socket), "kill-server"],

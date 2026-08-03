@@ -131,6 +131,7 @@ class PersistentNativeManager(Manager):
             if runtime.owner is RuntimeOwner.HUMAN:
                 return "Manager is currently owned by the human session; automated input is paused."
             runtime = self._reconcile_finished_turn(runtime)
+            self._retire_stale_startup_block(runtime)
             if runtime.process_state is not RuntimeProcessState.READY:
                 # Do not push input at a session that is sitting on a trust or login
                 # prompt: it would be typed into that dialog.
@@ -175,6 +176,19 @@ class PersistentNativeManager(Manager):
             log.info("could not acknowledge the Manager's finished turn: %s", exc)
             return runtime
         return self.sm.store.get_runtime(runtime.id) or runtime
+
+    def _retire_stale_startup_block(self, runtime: RuntimeInstance | None) -> None:
+        """A runtime that reached READY answered whatever stopped its startup.
+
+        The flag is set once, when startup outran STARTUP_TIMEOUT, and only a fresh
+        generation used to clear it. Left set it outlives the dialog it names: every
+        later moment the Manager is merely busy reads back as workspace trust, and
+        Ctrl+E lands in a working session with nothing to answer.
+        """
+        if runtime is None or runtime.process_state is not RuntimeProcessState.READY:
+            return
+        if self.sm.store.get_preference(MANAGER_BLOCKED_KEY, "") == str(runtime.id):
+            self.sm.store.set_preference(MANAGER_BLOCKED_KEY, "")
 
     def _not_ready_reason(self, runtime: RuntimeInstance) -> str:
         """Say what the Manager is actually doing, not what it is usually doing."""
@@ -250,6 +264,7 @@ class PersistentNativeManager(Manager):
 
     def status(self) -> dict[str, object]:
         runtime = self.current_runtime
+        self._retire_stale_startup_block(runtime)
         blocked = bool(
             runtime is not None
             and runtime.process_state is not RuntimeProcessState.READY
