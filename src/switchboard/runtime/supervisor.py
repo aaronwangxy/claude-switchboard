@@ -95,6 +95,9 @@ class TmuxRuntimeSupervisor:
     def set_owner(self, runtime_id: UUID, owner: RuntimeOwner) -> RuntimeInstance:
         runtime = self._runtime(runtime_id)
         self.controller.set_owner(self._binding(runtime), self._required_target(runtime), owner)
+        # Read again: handing tmux over is a subprocess round trip, and the session's own
+        # hooks keep writing throughout it. Ownership is all this method decides.
+        runtime = self._runtime(runtime_id)
         runtime.owner = owner
         runtime.updated_at = now()
         return self.store.save_runtime(runtime)
@@ -120,6 +123,8 @@ class TmuxRuntimeSupervisor:
     def terminate(self, runtime_id: UUID) -> None:
         runtime = self._runtime(runtime_id)
         self.controller.terminate(self._binding(runtime), self._required_target(runtime))
+        # Same round trip, same rule: the exit is this method's to record, nothing else.
+        runtime = self._runtime(runtime_id)
         runtime.process_state = RuntimeProcessState.EXITED
         runtime.updated_at = now()
         self.store.save_runtime(runtime)

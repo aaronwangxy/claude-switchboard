@@ -544,6 +544,49 @@ async def test_a_worker_running_again_is_no_longer_blocked_on_its_prompt(
     assert manager.store.attention_items_for_worker(worker.id) == []
 
 
+async def test_leaving_a_worker_accepts_the_turn_that_ended_during_the_handover(
+    native_services, git_repo
+):
+    """Answer the prompt, watch it finish, press detach: the worker must come back free.
+
+    Handing tmux ownership back is a subprocess round trip, and Claude's Stop hook commits
+    from its own process while it runs. The supervisor wrote back the snapshot it had read
+    before that round trip, so TURN_COMPLETE vanished, the backend never acknowledged the
+    turn, and the worker stayed BLOCKED on a prompt that had already been answered -- with
+    its input lane shut, because a runtime that is not READY refuses every send.
+    """
+    manager, backend, _ = native_services
+    worker, runtime = await _blocked_on_one_native_prompt(manager, git_repo, "native-handover")
+    await manager.attach(worker.id)
+    prompt_id = manager.store.list_native_turns(runtime.id)[-1].claude_prompt_id
+    real_set_owner = backend.controller.set_owner
+
+    def set_owner_while_the_turn_ends(binding, target, owner):
+        real_set_owner(binding, target, owner)
+        hook_store = Store(manager.store.path)
+        try:
+            handle_hook(
+                hook_store,
+                runtime.id,
+                {
+                    "hook_event_name": "Stop",
+                    "session_id": runtime.claude_session_id,
+                    "prompt_id": prompt_id,
+                    "last_assistant_message": "Tests pass.",
+                },
+            )
+        finally:
+            hook_store.close()
+        backend.controller.set_owner = real_set_owner
+
+    backend.controller.set_owner = set_owner_while_the_turn_ends
+
+    manager.detach(worker.id, composer_cleared=True)
+
+    assert manager.store.current_runtime(worker.id).process_state is RuntimeProcessState.READY
+    assert manager.store.get_worker(worker.id).status is not WorkerStatus.BLOCKED
+
+
 async def test_stop_failure_never_harvests_or_becomes_blocked(native_services, git_repo):
     manager, _, _ = native_services
     repo = manager.register_repository(git_repo("native-failure"))
