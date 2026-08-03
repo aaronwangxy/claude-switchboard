@@ -11,19 +11,40 @@ candidate change against that sentence.
 `CLAUDE.md` still governs architecture, invariants, commit hygiene and doc rules. This file
 is only the shift procedure.
 
+## Assume you will be killed without warning
+
+You can be stopped mid-thought by a crash, a usage limit, or the user pressing Ctrl-C, and
+none of those reach section 6. So do not save state for the end:
+
+- **Commit as each coherent piece lands**, not once at closeout. An uncommitted diff is the
+  one thing no later shift can reconstruct your intent for.
+- **Write `STATE.md` when a fact becomes true**, not when the shift ends. Before starting
+  something long, write down what you are about to do and why; a successor reading "about
+  to X because Y" recovers instantly, where a successor reading nothing starts over.
+- **Never leave a session, dialog or worktree in a state only you know how to exit.** If you
+  open it, either close it or write down how.
+
+The test: if you died right now, could the next shift pick up from the repository alone,
+without your reasoning? Whenever the answer is no, fix that before continuing.
+
 ## 1. Pick up the previous shift first
 
 Never start new work before this. In order:
 
-1. Read `docs/dogfood/STATE.md` — **Active work** first.
-2. Look at what Switchboard is actually doing right now:
+1. `./scripts/shift-sweep.sh` — what the previous shift left behind. The supervisor has
+   already run it, but run it yourself: everything it prints under **NEEDS YOU** is your
+   first work, before anything you would rather be doing. A dirty working tree is the
+   common case after a crash — read the diff, decide what it was, and commit it as its own
+   change or revert it deliberately. Never start new work on top of an unexplained diff.
+2. Read `docs/dogfood/STATE.md` — **Active work** first.
+3. Look at what Switchboard is actually doing right now:
    ```bash
    sqlite3 ~/.local/share/switchboard/switchboard.db \
      "select role,status,substr(json_extract(data,'$.waiting_for'),1,80) from workers;
       select workflow,status,json_extract(data,'$.step_index') from workflow_runs;
       select kind,substr(json_extract(data,'$.reason'),1,80) from attention_items where handled=0"
    ```
-3. `git log --oneline -15` and `git status`.
+4. `git log --oneline -15` and `git status`.
 
 If a job, run or worker is still live: **continue, steer, harvest or explicitly retire it.**
 Do not open a second experiment beside it. A stalled experiment is itself the finding —
@@ -68,10 +89,14 @@ or investigate — do not manufacture changes.
 
 Friction here is the point; record it rather than routing around it silently.
 
+**Name every tmux session you create `sbx-<something>`.** That prefix is the only way the
+sweep can tell your leftovers from the user's own sessions, so a session you name anything
+else will still be running tomorrow and the sweep will refuse to touch it.
+
 ```bash
-tmux new-session -d -s sb -x 200 -y 50 'sb --log-file /tmp/sb.log'
-tmux send-keys -t sb C-n; tmux send-keys -t sb "<request>" Enter
-tmux capture-pane -p -t sb
+tmux new-session -d -s sbx-board -x 200 -y 50 'sb --log-file /tmp/sb.log'
+tmux send-keys -t sbx-board C-n; tmux send-keys -t sbx-board "<request>" Enter
+tmux capture-pane -p -t sbx-board
 ```
 
 Worker and manager panes live on Switchboard's own tmux socket
@@ -95,7 +120,15 @@ Leave nothing implicit:
   and why, new questions. Prune what is no longer true — it is a working note, not a log.
   Keep a **Last step-back** line (date and verdict) and any named root cause still
   unaddressed; those two survive pruning, because nothing else remembers them.
+- Kill every `sbx-` tmux session you started and every throwaway `SB_HOME` you created.
+  `./scripts/shift-sweep.sh --clean` does this; run it and read what it could not touch.
+- Leave the user's personal board usable. You may drive it, but you may not walk away from
+  it blocked: resume, harvest or explicitly retire whatever you started there, and answer
+  any dialog you opened. If you must leave it needing a person, say so in **Active work**
+  with the exact command or keystroke that clears it.
 - Clean `git status`. No stray worktrees, no half-answered dialogs.
+- Finish with `./scripts/shift-sweep.sh` reporting clean, or with each remaining item
+  named in `STATE.md` and a reason it is still there.
 - If you are ending the loop (nothing to do three ticks running, or a decision only the
   user can make), say so plainly and stop.
 
