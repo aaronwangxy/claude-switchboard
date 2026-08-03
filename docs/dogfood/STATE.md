@@ -5,12 +5,9 @@ and rewrite this file. It describes **now** — prune anything no longer true. I
 changelog; `git log` is. It is not the frozen field record; that is
 [`../dogfood-report.md`](../dogfood-report.md).
 
-Last shift: 2026-08-03 (late evening).
+Last shift: 2026-08-03 (overnight).
 
 ## Read this first
-
-**Two commits are sitting unpushed on `main`** (`3041372`, `9bd0b68`). My harness refused
-`git push`. Full suite green at HEAD (448 passed), ruff and mypy clean.
 
 **There is still un-submitted text in the live Manager's composer:**
 
@@ -21,9 +18,11 @@ types into that same composer — the next managed send would be concatenated wi
 submitted as one prompt. Left in place because it is your own input in your own session.
 Clear it or send it deliberately before messaging the Manager.
 
+You committed a README change to `main` seconds before my commit landed. Both are pushed.
+
 ## Active work — resume this first
 
-**Scratchpad session feature, alive and parked.**
+**Scratchpad session feature, alive and parked. Unchanged from the last shift.**
 
 - Board: tmux session `sb2` on the default socket, `SB_HOME` =
   `/tmp/claude-501/-Users-aaron-dev-claude-switchboard/726099bb-b2d5-4be5-8889-7a70cb465016/scratchpad/home`.
@@ -31,52 +30,62 @@ Clear it or send it deliberately before messaging the Manager.
 - Job "Board keyboard shortcut to open an independent scratchpad Claude session",
   `complete-ticket` **step 2/8 `implement-approved-plan`**. Commit 1 of 4 landed; commit 2
   is in flight in the implementer's own worktree.
-- The implementer is sitting on a Bash permission prompt for
-  `./.venv/bin/python -m pytest … && ruff && mypy`. I answered one such prompt this shift
-  and it ran for four minutes before hitting the next one. **That rate is the blocker, and
-  it is the decision below — not something a later shift can grind through.**
-- **The board is running the code from before this shift.** The two fixes below do not
-  affect that live session until it is restarted. I did not restart it: adopting live
-  runtimes unattended is not a risk worth taking with your experiment in flight.
-- The dead attempt on the real `SB_HOME` (`~/.local/share/switchboard`) is still there and
-  should be retired: worker `70fe0109` blocked, run paused at step 0, board process gone.
+- The implementer is still on the same Bash permission prompt for a focused
+  pytest/ruff/mypy command. It has not moved. **The prompt rate is the blocker and it is
+  the decision below** — it is not something a shift can grind through, and I did not try.
+- That board is running code from before the last two shifts. Restarting it to adopt the
+  fixes would mean adopting live runtimes with your experiment mid-commit; still not worth
+  it.
 
 ## Landed this shift
 
-Both bugs were reproduced live before being fixed, and each is shown failing without its
-change.
+`fd1ee0c fix(runtime): never write a runtime snapshot back across a tmux round trip`.
 
-- `3041372 fix(runtime): one native permission prompt is one thing to answer`. Claude Code
-  emits a `PermissionRequest` and, ~6 s later, a `Notification` restating the same
-  unanswered prompt with no `tool_name`. The board read *"Permission required for Bash."*
-  then *"Permission required for tool."* and every count doubled. Only the trailing
-  Notification is ever suppressed, and only until the tool it is about runs; a
-  `PermissionRequest` is never suppressed, because a refused prompt can be followed by
-  another with nothing run in between.
-- `9bd0b68 fix(core): a worker running again is no longer blocked on its prompt`. Nothing
-  told Switchboard a prompt had been answered, so a worker executing tools stayed `blocked`
-  with a stale reason — which is what the Manager reads when deciding whether it can move.
-  Progress on the same managed turn is now that report.
+`set_owner` and `terminate` read the runtime row, spent a tmux subprocess call, then wrote
+that pre-call snapshot back. Claude's hooks commit from their own process throughout, so
+whatever they wrote during the call was erased — and a hook fires once. Both now re-read
+and change only the field they own.
+
+The failure a user meets: answer a permission prompt, watch the turn finish, press detach.
+Stop lands while tmux is handing ownership back, `TURN_COMPLETE` is overwritten with the
+snapshot's `WAITING`, the backend never acknowledges the turn, the runtime never returns to
+`READY` — and a runtime that is not `READY` refuses every send. The worker is stuck
+`BLOCKED` on an answered prompt with its input lane shut.
 
 ### Evidence
 
-- Native-tier tests through real tmux, a Claude-shaped process emitting real hook
-  subprocess callbacks, and a real `send-keys` answer into the pane. The fixture now
-  replays the true hook order, which is not what I would have guessed:
-  **`PreToolUse` fires *before* `PermissionRequest`**, and after an answer the tool simply
-  runs — there is no second `PreToolUse`, only `PostToolUse`.
-- Replayed the dedupe rule over **383 real hook events** recorded by the two live runtimes:
-  9 prompts raised, 9 restatements suppressed, nothing else touched.
-- Directly observed the stale block on the live implementer: pane running shell commands at
-  00:07 while `workers.status` still read `blocked` from 00:03.
-- 448 passed, ruff and mypy clean at HEAD.
-- No independent agent review: spawning subagents is disallowed in this harness. The
-  narrowing of the dedupe rule (never suppress a `PermissionRequest`) came from my own
-  second pass, not a reviewer.
+- Three tests, each shown failing without the change and passing with it: two unit tests
+  over the real supervisor and a real second SQLite connection, and one native-tier test
+  through real tmux and the Claude-shaped fixture that drives the whole attach → answer →
+  detach path and asserts the worker comes back unblocked.
+- 451 passed, ruff and mypy clean at HEAD.
+- No independent agent review: spawning subagents is disallowed in this harness.
 
-## Needs your decision — unchanged, and now blocking
+## Resolved: the startup stall that was filed as unexplained
 
-A writable worker still cannot reach its own verification evidence unattended:
+The earlier note said a healthy session was declared blocked on a `SessionStart` that had
+already arrived, "same symptom as `0b92ea0`, different mechanism". **It is not a different
+mechanism.** It is exactly the bug `0b92ea0` fixed, observed on a board process that
+predated the fix:
+
+- Incident (real `SB_HOME`, runtime `0c7f2d4d`): launched 19:35:27.6 UTC, `SessionStart`
+  committed 19:35:29.8, `_wait_ready` timed out 19:36:27.9, failed 19:38:28.
+- `0b92ea0` was committed at 14:52 CDT = 19:52 UTC — **17 minutes after the incident**.
+- The board process serving that `SB_HOME` started ~14:34 CDT, i.e. at `b1500b0`. At
+  `b1500b0`, `supervisor._record` wrote the caller's snapshot without re-reading, and
+  `_watch` calls `supervisor.observe` every 0.5 s — read, tmux subprocess, write. A
+  `SessionStart` landing in that window is erased permanently.
+
+Lesson worth keeping: **`sb` is editable, but a running board is not.** When judging an
+incident, date it against the code the process actually loaded, not against `HEAD`. That
+mistake cost a shift.
+
+Cross-process SQLite visibility was correctly eliminated; I re-probed it (a poller on one
+connection sees a hook subprocess's commit within 50 ms) and it is not involved.
+
+## Needs your decision — unchanged, and still blocking
+
+A writable worker cannot reach its own verification evidence unattended:
 
 - `permissions.writable_worker = "acceptEdits"` covers edits, **not Bash**. Every command
   stops the worker.
@@ -88,55 +97,57 @@ A writable worker still cannot reach its own verification evidence unattended:
   two more prompts before any test runs.
 
 The partial fix is a checked-in `.claude/settings.json` prefix allow list for exactly the
-commands `CLAUDE.md` already documents (venv creation, pip install, pytest, ruff, mypy,
-read-only git, `sb workflows`/`sb config`). **My harness refuses to commit it, correctly:
-an agent should not grant itself permissions.** It does nothing for the heredoc commit
-step. The complete answer is probably moving `permissions.writable_worker` off
-`acceptEdits`, which is a real change to the product's safety posture and yours to make.
+commands `CLAUDE.md` already documents. **My harness refuses to commit it, correctly: an
+agent should not grant itself permissions.** It does nothing for the heredoc commit step.
+The complete answer is probably moving `permissions.writable_worker` off `acceptEdits`,
+which is a real change to the product's safety posture and yours to make.
 
 Unverified: that a project-scope `.claude/settings.json` layers under Switchboard's
 per-runtime `--settings` overlay. Documented, not evidenced — I cannot nest a `claude`
 process to test it.
 
+## Leaked processes, for when you next tidy up
+
+**36 native `claude` processes and 11 tmux servers are alive** from days of dogfooding.
+Some belong to live boards; most are orphans. Concretely, `claude` pid 94524 has been
+sitting idle for nine hours — it is runtime `0c7f2d4d` from the stall above, its board and
+even its tmux server long gone, the process reparented and never reaped.
+
+Not mine to kill. Worth knowing that nothing reclaims a native session when its board dies,
+and that this is what "the user can enter any worker" costs if a board exits badly.
+
+The dead attempt on the real `SB_HOME` is the same incident: worker `70fe0109` blocked, run
+paused at step 0, two unhandled attention items. Retire it from the board when convenient.
+
 ## What this harness would not let me do
 
-Worth knowing, because it shapes what a shift can finish:
-
-- `git push` — blocked. Commits land locally only.
-- `tmux send-keys` into a worker pane — allowed early in the shift, blocked later. So I
-  could answer one prompt and then not the next. Driving the implementer to completion by
-  hand is not something a shift can rely on.
+- `tmux send-keys` into a worker pane — allowed early in a shift, blocked later. Driving an
+  implementer to completion by hand is not something a shift can rely on.
 - Committing a permissions allow list, or building a prompt auto-answerer — refused, and
   rightly.
-
-## Unresolved from an earlier shift
-
-**A healthy session was declared blocked on a `SessionStart` that had already arrived.**
-On the real `SB_HOME`, runtime `0c7f2d4d`: the hook row is recorded 2.2 s after launch, yet
-`_wait_ready` timed out at 60 s, `_recover_startup` after a further 120 s, and the worker
-failed with *"Timed out waiting for native Claude SessionStart."* Same symptom as `0b92ea0`
-fixed, different mechanism. Eliminated: cross-process SQLite visibility is not the cause
-(probed directly; WAL, no cache in `Store`). Reproduced once; evidence preserved in that DB.
+- Spawning subagents, so no independent review of anything a shift lands.
 
 ## Rejected
 
-- **Restarting the live board to make this shift's fixes take effect on it.** The active
-  implementer is mid-commit; adopting live runtimes unattended is not worth it.
-- **Grinding the implementer to completion by answering every prompt.** Unbounded, and the
-  harness stopped allowing it partway through. The prompt rate is the finding.
-- **Clearing the stray Manager composer line.** It is your input; the guardrail is explicit.
-- **Giving the scratchpad its own worktree.** Still rejected: a throwaway session should not
-  leave a branch and a cleanup ritual behind.
+- **Restarting the live board to adopt this shift's fix.** The implementer is mid-commit.
+- **Killing the 36 stranded `claude` processes.** Your sessions, your call.
+- **Clearing the stray Manager composer line.** Your input; the guardrail is explicit.
+- **Giving the scratchpad its own worktree.** A throwaway session should not leave a branch
+  and a cleanup ritual behind.
 
 ## Open questions
 
-- Is `AskUserQuestion` a tool workers should have at all? New evidence this shift: the
-  planner runtime shows a real `PermissionRequest` for `AskUserQuestion` — so it costs a
-  prompt like any other tool, and one per planning step rather than dozens.
+- Are there other read → subprocess → write windows left? I swept every `save_runtime`
+  call site this shift and the supervisor's two were the last with a tmux call in the
+  middle. `session_manager.attach`/`detach` re-read, but note that their re-read does not
+  protect them — the damage had already been committed one frame deeper, inside
+  `set_owner`. A re-read only helps the method that owns the write.
+- Is `AskUserQuestion` a tool workers should have at all? It costs a real
+  `PermissionRequest` like any other tool, but one per planning step rather than dozens.
 - A permission answered mid-command still shows `blocked` until the *next* tool starts, so
   a single three-minute `pytest` lags. Only `PostToolUse` would close that, and mapping it
-  would double every tool in the transcript. Left alone deliberately; revisit only if the
-  lag is actually observed to mislead the Manager.
+  would double every tool in the transcript. Left alone; revisit only if the lag is
+  actually observed to mislead the Manager.
 - Does the composite engine earn its keep now that Claude Code has dynamic workflows?
   Untested since `docs/architecture.md` argued yes.
 - Read-only is a tool policy, not a sandbox (workers keep Bash). Does that matter in
