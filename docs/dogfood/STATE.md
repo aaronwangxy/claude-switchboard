@@ -69,6 +69,39 @@ in the built-ins needs to change for `writable_worker_allow` to work.
 Probe scripts are in `/tmp/sb-probe*/`; they will not survive, but each case above is one
 scratch repo, one settings file, one `claude -p`.
 
+## Last step-back
+
+**2026-08-03. Verdict: one real root cause, currently with no surviving instance, and no
+structural guard against the next one.**
+
+Four fixes across recent shifts are one defect: `0b92ea0` (pre-launch snapshot over
+SessionStart), `fd1ee0c` (snapshot written back across a tmux round trip — its own message
+says *"the same defect 0b92ea0 fixed on the launch path, in the two methods it did not
+reach"*), `e572f52` (a turn that outran the controller's wait), `9bd0b68` (a worker running
+again still marked blocked on its prompt).
+
+**The cause: a runtime row has two writers.** Claude's hooks run in Claude's own process
+and commit throughout a call; Switchboard's methods do whole-row read-modify-write. Any
+method that reads a row, spends a subprocess or a turn, then saves that object erases
+whatever the hook wrote meanwhile — and a hook fires once.
+
+Predicted: more instances at the other `save_runtime` sites. **Checked, and the prediction
+fails** — 14 sites across `session_manager.py`, `native_claude.py` and `supervisor.py`, and
+every one either re-reads immediately before writing (`_start_backend`'s failure branch,
+`_finish_launch`, attach, `_bind_target`, `_record`) or writes a field it read with no slow
+call in between. The sweep is complete.
+
+What is not fixed is that this is **per-site discipline, not an invariant**. Nothing stops
+the next method from reintroducing it; `CLAUDE.md`'s invariant list does not cover it, and
+the only thing carrying the rule is a comment repeated at five sites. The structural fix is
+to stop passing whole rows to the store: a field-level `update_runtime(id, **fields)` that
+reads and writes inside one transaction, so a caller can only overwrite what it names. 14
+call sites, each needing a judgement about which fields it owns.
+
+I did not start it: this shift had already landed its work, and a half-finished refactor of
+the hub plus the storage layer is worse than a written-down cause. **It is the strongest
+candidate for the next shift.**
+
 ## Still needs your decision
 
 - **What to put in `writable_worker_allow`.** Unchanged and still yours: the mechanism
@@ -89,6 +122,9 @@ made `writable_worker_allow` impossible to fill in honestly.
 
 ## What this harness would not let me do
 
+- **`git push origin main` — refused by the harness classifier.** So this shift's four
+  commits sit on local `main`, unpushed, with the suite green (458 passed, ruff and mypy
+  clean). Push them yourself, or expect the next shift to find them here.
 - Spawning subagents, so no independent review of anything a shift lands.
 - `tmux send-keys` into a worker pane — allowed early in a shift, blocked later. Driving an
   implementer to completion by hand is not something a shift can rely on.
