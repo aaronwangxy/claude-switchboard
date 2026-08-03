@@ -36,6 +36,11 @@ MAX_UNIX_SOCKET_PATH_BYTES = 96
 PROMPT_RESOLVING_EVENTS = frozenset(
     {"PostToolUse", "PostToolUseFailure", "Stop", "StopFailure", "UserPromptSubmit", "SessionStart"}
 )
+#: How much of a prompt's tool input the reason carries. It is stored on the worker and on
+#: an attention item and read in a board column, so it is a label, not the whole input.
+PERMISSION_DETAIL_MAX = 120
+#: The field naming *which* call is waiting, in the order tools are worth identifying by.
+PERMISSION_DETAIL_FIELDS = ("command", "file_path", "path", "url", "pattern")
 
 
 def default_tmux_socket_path(state_dir: Path) -> Path:
@@ -367,12 +372,7 @@ class NativeClaudeBackend:
         if _is_permission_hook(hook) and managed:
             if restates_an_open_prompt(self.store.runtime_hook_events(hook.runtime_id), hook):
                 return None
-            return WorkerEvent(
-                worker_id,
-                "permission",
-                f"Permission required for {payload.get('tool_name') or 'tool'}.",
-                data,
-            )
+            return WorkerEvent(worker_id, "permission", permission_summary(payload), data)
         if hook.event_name in ("Stop", "StopFailure") and managed:
             text = str(payload.get("last_assistant_message") or "")
             data["is_error"] = hook.event_name == "StopFailure"
@@ -443,6 +443,31 @@ def restates_an_open_prompt(
         if earlier.event_name == "PermissionRequest":
             return True
     return False
+
+
+def permission_summary(payload: dict) -> str:
+    """What a worker blocked on a native permission prompt is waiting for.
+
+    The prompt lives only in the pane, so this reason is the whole of what the board and
+    the Manager get to see without entering the session. A tool name alone does not
+    distinguish one of a job's dozens of Bash prompts from another.
+    """
+    tool = str(payload.get("tool_name") or "tool")
+    detail = _permission_detail(payload.get("tool_input"))
+    return f"Permission required for {tool}: {detail}" if detail else f"Permission required for {tool}."
+
+
+def _permission_detail(tool_input: object) -> str:
+    if not isinstance(tool_input, dict):
+        return ""
+    for field_name in PERMISSION_DETAIL_FIELDS:
+        value = tool_input.get(field_name)
+        if isinstance(value, str) and value.strip():
+            condensed = " ".join(value.split())
+            if len(condensed) > PERMISSION_DETAIL_MAX:
+                return condensed[: PERMISSION_DETAIL_MAX - 3] + "..."
+            return condensed
+    return ""
 
 
 def _is_permission_hook(hook: RuntimeHookEvent) -> bool:

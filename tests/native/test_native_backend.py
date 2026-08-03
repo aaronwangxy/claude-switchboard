@@ -507,9 +507,9 @@ async def test_one_native_permission_prompt_raises_one_attention_item(
     worker, _ = await _blocked_on_one_native_prompt(manager, git_repo, "native-permission")
 
     assert [item.reason for item in manager.store.attention_items_for_worker(worker.id)] == [
-        "Permission required for Bash."
+        "Permission required for Bash: pytest -q"
     ]
-    assert manager.store.get_worker(worker.id).waiting_for == "Permission required for Bash."
+    assert manager.store.get_worker(worker.id).waiting_for == "Permission required for Bash: pytest -q"
 
 
 async def test_a_worker_running_again_is_no_longer_blocked_on_its_prompt(
