@@ -5,142 +5,142 @@ and rewrite this file. It describes **now** — prune anything no longer true. I
 changelog; `git log` is. It is not the frozen field record; that is
 [`../dogfood-report.md`](../dogfood-report.md).
 
-Last shift: 2026-08-02 (evening).
+Last shift: 2026-08-03 (late evening).
 
 ## Read this first
 
-**There is un-submitted text sitting in the live Manager's composer:**
+**Two commits are sitting unpushed on `main`** (`3041372`, `9bd0b68`). My harness refused
+`git push`. Full suite green at HEAD (448 passed), ruff and mypy clean.
+
+**There is still un-submitted text in the live Manager's composer:**
 
 > `Make the scratchpad writable instead of plan mode`
 
-It is not mine and I did not submit it. It contradicts the approved plan (read-only), and
-`send_managed` types into that same composer — so the next managed send would be
-concatenated with it and submitted as one prompt. Left in place because it is the user's own
-input in their own session. Clear it or send it deliberately before messaging the Manager.
+Not mine, not submitted. It contradicts the approved plan (read-only), and `send_managed`
+types into that same composer — the next managed send would be concatenated with it and
+submitted as one prompt. Left in place because it is your own input in your own session.
+Clear it or send it deliberately before messaging the Manager.
 
 ## Active work — resume this first
 
-**Scratchpad session feature, mid-flight and healthy.**
+**Scratchpad session feature, alive and parked.**
 
-- Board: live in tmux session `sb2` on the default socket, `SB_HOME` =
+- Board: tmux session `sb2` on the default socket, `SB_HOME` =
   `/tmp/claude-501/-Users-aaron-dev-claude-switchboard/726099bb-b2d5-4be5-8889-7a70cb465016/scratchpad/home`.
-  Worker/manager panes are on `/private/tmp/switchboard-tmux-7ceb179de564c6854bc8.sock`.
+  Worker/manager panes on `/private/tmp/switchboard-tmux-7ceb179de564c6854bc8.sock`.
 - Job "Board keyboard shortcut to open an independent scratchpad Claude session",
-  `complete-ticket` **step 2/8 `implement-approved-plan`, running**.
-- The plan was approved this shift through the Manager (`approve_plan`), which is the only
-  approval path that exists — there is no board affordance. It worked exactly as intended.
-- The implementer has its own worktree and has landed **commit 1 of 4**
-  (`feat(core): a scratchpad role that no workflow governs`); commit 2 is in flight with
-  `tests/integration/test_scratchpad.py` written and `session_manager.py` modified.
-- The earlier attempt on the **real** `SB_HOME` (`~/.local/share/switchboard`) is dead and
-  should be retired: worker `70fe0109` blocked, run `complete-ticket` paused at step 0. Its
-  board process is gone. Do not run two boards against that DB.
-
-**To resume: the run only needs someone to answer native permission prompts.** That is the
-finding below, not an incidental chore.
-
-## The finding of this shift
-
-**A writable worker cannot reach its own verification evidence unattended.** Reproduced
-continuously over a real implementation step, not reasoned about:
-
-- `permissions.writable_worker = "acceptEdits"` covers edits and **not Bash** (the docstring
-  in `config.py` says so deliberately). So the first `pytest` stops the worker, and so does
-  every command after it.
-- Claude's own "Yes, and don't ask again" is scoped to the **exact command string**, not a
-  prefix: approving `pytest tests/unit/test_prompts.py -q` does nothing for
-  `pytest tests/integration/test_scratchpad.py -q`. It does not generalise.
-- A heredoc commit message is refused a rule at all — *"Contains shell syntax that cannot be
-  statically analyzed"* — and the workflow's commit step uses one. No allow list fixes that.
-- A fresh worktree has no `.venv` (Git tracks it not, `worktree_bootstrap.files` is empty),
-  so the repo's documented `./.venv/bin/python -m pytest` cannot run until the worker
-  bootstraps one — which costs two more prompts before any test runs.
-
-Measured on the live run: **5 permission prompts produced 10 unhandled attention items**, and
-answering each one in the pane resolved neither of its two.
-
-### Two smaller bugs this exposed, both cheap and worth doing
-
-1. **One native prompt raises two attention items.** `_worker_event` maps both
-   `PermissionRequest` and `Notification(notification_type=permission_prompt)` to a
-   `permission` event. They arrive ~6 s apart; the second has no `tool_name`, so the board
-   reads *"Permission required for Bash."* followed by *"Permission required for tool."*
-   The second line carries no information and doubles every count on the board.
-2. **Status stays `blocked` after a human answers.** Confirmed directly: the pane was
-   running shell commands while `workers.status` still read `blocked`. This is the old
-   findings-queue item 3, now reproduced rather than inferred.
-
-## Needs your decision — I could not make this one
-
-The fix I would land is a checked-in `.claude/settings.json` holding a prefix allow list for
-exactly the commands `CLAUDE.md` already documents:
-
-```json
-{
-  "permissions": {
-    "allow": [
-      "Bash(python3 -m venv .venv)",
-      "Bash(./.venv/bin/pip install *)",
-      "Bash(./.venv/bin/python -m pytest*)",
-      "Bash(./.venv/bin/ruff check*)",
-      "Bash(./.venv/bin/mypy*)",
-      "Bash(git status*)", "Bash(git diff*)", "Bash(git log*)",
-      "Bash(git show*)", "Bash(git rev-parse*)", "Bash(git branch --show-current)",
-      "Bash(sb workflows*)", "Bash(sb config)"
-    ]
-  }
-}
-```
-
-**My own harness refused to commit it, and refused to let me build a prompt auto-answerer —
-correctly in both cases: an agent should not grant itself permissions.** So this is a genuine
-user decision, not a task a later shift can quietly pick up. Note it is a *partial* fix: it
-does nothing for the heredoc commit step. The complete answer is probably
-`permissions.writable_worker` moving off `acceptEdits` to a mode that does not prompt on
-Bash, which is a real change to the product's safety posture and yours to make.
-
-Unverified, because I could not nest a `claude` process to test it: that a project-scope
-`.claude/settings.json` layers under Switchboard's per-runtime `--settings` overlay. It is
-documented behaviour; it is not evidence.
+  `complete-ticket` **step 2/8 `implement-approved-plan`**. Commit 1 of 4 landed; commit 2
+  is in flight in the implementer's own worktree.
+- The implementer is sitting on a Bash permission prompt for
+  `./.venv/bin/python -m pytest … && ruff && mypy`. I answered one such prompt this shift
+  and it ran for four minutes before hitting the next one. **That rate is the blocker, and
+  it is the decision below — not something a later shift can grind through.**
+- **The board is running the code from before this shift.** The two fixes below do not
+  affect that live session until it is restarted. I did not restart it: adopting live
+  runtimes unattended is not a risk worth taking with your experiment in flight.
+- The dead attempt on the real `SB_HOME` (`~/.local/share/switchboard`) is still there and
+  should be retired: worker `70fe0109` blocked, run paused at step 0, board process gone.
 
 ## Landed this shift
 
-- `62b1b3f fix(runtime): hand over the command that enters a session tmux cannot nest` —
-  finished but uncommitted from the previous shift. Full suite green (441 passed), ruff and
-  mypy clean, before commit.
+Both bugs were reproduced live before being fixed, and each is shown failing without its
+change.
 
-## Unresolved from the previous shift
+- `3041372 fix(runtime): one native permission prompt is one thing to answer`. Claude Code
+  emits a `PermissionRequest` and, ~6 s later, a `Notification` restating the same
+  unanswered prompt with no `tool_name`. The board read *"Permission required for Bash."*
+  then *"Permission required for tool."* and every count doubled. Only the trailing
+  Notification is ever suppressed, and only until the tool it is about runs; a
+  `PermissionRequest` is never suppressed, because a refused prompt can be followed by
+  another with nothing run in between.
+- `9bd0b68 fix(core): a worker running again is no longer blocked on its prompt`. Nothing
+  told Switchboard a prompt had been answered, so a worker executing tools stayed `blocked`
+  with a stale reason — which is what the Manager reads when deciding whether it can move.
+  Progress on the same managed turn is now that report.
+
+### Evidence
+
+- Native-tier tests through real tmux, a Claude-shaped process emitting real hook
+  subprocess callbacks, and a real `send-keys` answer into the pane. The fixture now
+  replays the true hook order, which is not what I would have guessed:
+  **`PreToolUse` fires *before* `PermissionRequest`**, and after an answer the tool simply
+  runs — there is no second `PreToolUse`, only `PostToolUse`.
+- Replayed the dedupe rule over **383 real hook events** recorded by the two live runtimes:
+  9 prompts raised, 9 restatements suppressed, nothing else touched.
+- Directly observed the stale block on the live implementer: pane running shell commands at
+  00:07 while `workers.status` still read `blocked` from 00:03.
+- 448 passed, ruff and mypy clean at HEAD.
+- No independent agent review: spawning subagents is disallowed in this harness. The
+  narrowing of the dedupe rule (never suppress a `PermissionRequest`) came from my own
+  second pass, not a reviewer.
+
+## Needs your decision — unchanged, and now blocking
+
+A writable worker still cannot reach its own verification evidence unattended:
+
+- `permissions.writable_worker = "acceptEdits"` covers edits, **not Bash**. Every command
+  stops the worker.
+- Claude's "don't ask again" is scoped to the exact command string, so it does not
+  generalise across test invocations.
+- A heredoc commit message is refused a rule at all — *"Contains shell syntax that cannot
+  be statically analyzed"* — and the workflow's commit step uses one.
+- A fresh worktree has no `.venv`, so the documented `./.venv/bin/python -m pytest` costs
+  two more prompts before any test runs.
+
+The partial fix is a checked-in `.claude/settings.json` prefix allow list for exactly the
+commands `CLAUDE.md` already documents (venv creation, pip install, pytest, ruff, mypy,
+read-only git, `sb workflows`/`sb config`). **My harness refuses to commit it, correctly:
+an agent should not grant itself permissions.** It does nothing for the heredoc commit
+step. The complete answer is probably moving `permissions.writable_worker` off
+`acceptEdits`, which is a real change to the product's safety posture and yours to make.
+
+Unverified: that a project-scope `.claude/settings.json` layers under Switchboard's
+per-runtime `--settings` overlay. Documented, not evidenced — I cannot nest a `claude`
+process to test it.
+
+## What this harness would not let me do
+
+Worth knowing, because it shapes what a shift can finish:
+
+- `git push` — blocked. Commits land locally only.
+- `tmux send-keys` into a worker pane — allowed early in the shift, blocked later. So I
+  could answer one prompt and then not the next. Driving the implementer to completion by
+  hand is not something a shift can rely on.
+- Committing a permissions allow list, or building a prompt auto-answerer — refused, and
+  rightly.
+
+## Unresolved from an earlier shift
 
 **A healthy session was declared blocked on a `SessionStart` that had already arrived.**
-On the real `SB_HOME`, runtime `0c7f2d4d`: the `SessionStart` hook row is recorded at
-`19:35:29.813Z`, 2.2 s after launch — yet `_wait_ready` timed out at 60 s, `_recover_startup`
-timed out after a further 120 s, and the worker failed at `19:38:28` with *"Timed out waiting
-for native Claude SessionStart."* This is the same symptom `0b92ea0` fixed, by a different
-mechanism.
-
-Eliminated: **cross-process SQLite visibility is not the cause** — a probe confirmed a hook
-subprocess's `save_runtime` is immediately visible to a long-lived parent `Store` on the same
-file (WAL, no cache in `Store`). Every board-side writer already re-reads before writing.
-Mechanism still unidentified. Reproduced once, with the evidence above preserved in that DB.
+On the real `SB_HOME`, runtime `0c7f2d4d`: the hook row is recorded 2.2 s after launch, yet
+`_wait_ready` timed out at 60 s, `_recover_startup` after a further 120 s, and the worker
+failed with *"Timed out waiting for native Claude SessionStart."* Same symptom as `0b92ea0`
+fixed, different mechanism. Eliminated: cross-process SQLite visibility is not the cause
+(probed directly; WAL, no cache in `Store`). Reproduced once; evidence preserved in that DB.
 
 ## Rejected
 
-- **Auto-answering the implementer's prompts to make the run finish.** Refused by the
-  harness, and rightly — it is exactly the silent routing-around that `.claude/loop.md` §3
-  warns against. The stall is the result.
-- **Clearing the stray Manager composer line.** It is the user's input; the guardrail on not
-  destroying their sessions is explicit. Recorded verbatim above instead.
+- **Restarting the live board to make this shift's fixes take effect on it.** The active
+  implementer is mid-commit; adopting live runtimes unattended is not worth it.
+- **Grinding the implementer to completion by answering every prompt.** Unbounded, and the
+  harness stopped allowing it partway through. The prompt rate is the finding.
+- **Clearing the stray Manager composer line.** It is your input; the guardrail is explicit.
 - **Giving the scratchpad its own worktree.** Still rejected: a throwaway session should not
   leave a branch and a cleanup ritual behind.
 
 ## Open questions
 
-- Is `AskUserQuestion` a tool workers should have at all? Unchanged, and now less urgent than
-  the Bash gate above — a planning step that asks a question is one prompt; an implementation
-  step is dozens.
+- Is `AskUserQuestion` a tool workers should have at all? New evidence this shift: the
+  planner runtime shows a real `PermissionRequest` for `AskUserQuestion` — so it costs a
+  prompt like any other tool, and one per planning step rather than dozens.
+- A permission answered mid-command still shows `blocked` until the *next* tool starts, so
+  a single three-minute `pytest` lags. Only `PostToolUse` would close that, and mapping it
+  would double every tool in the transcript. Left alone deliberately; revisit only if the
+  lag is actually observed to mislead the Manager.
 - Does the composite engine earn its keep now that Claude Code has dynamic workflows?
   Untested since `docs/architecture.md` argued yes.
-- Read-only is a tool policy, not a sandbox (workers keep Bash). Does that matter in practice?
+- Read-only is a tool policy, not a sandbox (workers keep Bash). Does that matter in
+  practice?
 - How much of the 2500-line `SessionManager` is load-bearing after the recent fixes?
 
 ## Research notes
