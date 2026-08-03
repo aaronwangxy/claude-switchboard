@@ -36,6 +36,10 @@ models: {}
 # the only channel that reaches a worker: a worker runs in a worktree Claude has never
 # been asked to trust, and an untrusted directory's own `.claude/settings.json` rules are
 # ignored -- so a rule checked into the repository does nothing here.
+#
+# A rule is matched per command, and a chained command is split first, so `a && b` runs
+# unattended only if both parts match. Command substitution that reads state -- `$(cat
+# msg.txt)`, a backtick command -- cannot be analysed and is refused whatever you write.
 permissions:
   writable_worker: acceptEdits
   read_only_worker: plan

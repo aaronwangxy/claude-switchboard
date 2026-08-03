@@ -129,6 +129,14 @@ repository have no effect on a worker, silently. `permissions.writable_worker_al
 travels in Switchboard's own overlay, which is exempt from that gate, and is therefore the
 only way to clear a command for unattended work in a worker.
 
+Rules are matched a command at a time. Claude splits a chained command first, so `a && b`
+runs unattended only when a rule covers each part; otherwise it asks once, naming the part
+that was not covered. A heredoc on stdin is analysed like any other argument. Command
+substitution is analysed only where it resolves to a constant: the heredoc form Claude
+writes a commit message with is accepted, while `$(cat msg.txt)` or a backtick command is
+refused however the rules are written — a worker that needs one is asking for a person
+either way.
+
 The Manager uses the same configured executable and environment, and the same native user
 and managed discovery, from a dedicated non-repository workspace — so it inherits your
 authentication and company policy but no project context. See [manager.md](manager.md).
