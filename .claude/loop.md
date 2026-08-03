@@ -29,7 +29,27 @@ If a job, run or worker is still live: **continue, steer, harvest or explicitly 
 Do not open a second experiment beside it. A stalled experiment is itself the finding —
 diagnose why it stalled before abandoning it.
 
-## 2. Choose one highest-value thing
+## 2. Every few shifts, look for the common cause
+
+Do this before choosing work if `docs/dogfood/STATE.md` shows no step-back in the last five
+shifts, or if you are about to patch friction of a kind an earlier shift already patched.
+
+Read the recent shifts as one body of evidence — `git log`, the **What I did** and **What I
+rejected** notes, the open questions, the unhandled attention items — and ask whether the
+separate problems are one problem. Several fixes to the same seam, a class of stall that
+keeps reappearing in a new costume, or a rule the system relies on a model to follow rather
+than enforcing in Python: each is a sign the cause is architectural and the shifts have been
+treating symptoms.
+
+If it is, that root cause *is* this shift's work and it outranks everything in section 3 —
+name it, state what it predicts you would see elsewhere, check that prediction, and fix the
+cause. A cause too large for one shift gets written down as a cause, not re-filed as its
+next symptom. Finding nothing is a real result: record that the symptoms are genuinely
+unrelated so the next shift need not redo it.
+
+Record the date and verdict under **Last step-back** in `STATE.md` either way.
+
+## 3. Choose one highest-value thing
 
 Ranked, highest first:
 
@@ -44,7 +64,7 @@ Ranked, highest first:
 One thing per shift, finished, beats three started. If nothing needs implementing, dogfood
 or investigate — do not manufacture changes.
 
-## 3. Use Switchboard to do the work
+## 4. Use Switchboard to do the work
 
 Friction here is the point; record it rather than routing around it silently.
 
@@ -59,20 +79,22 @@ Worker and manager panes live on Switchboard's own tmux socket
 `send-keys` reads and answers a session directly. Use the real `SB_HOME` so shifts share
 state; use an isolated one only for a run that must not touch it.
 
-## 4. Evidence
+## 5. Evidence
 
 State the goal, the acceptance criteria and what evidence settles them *before* changing
 code. Then: a failing test first where feasible, the full suite, `ruff`, `mypy`, and the
 observable behaviour end to end. "Tests pass" is not evidence that the thing works.
 For a consequential change, have a fresh independent agent review it.
 
-## 5. Close the shift
+## 6. Close the shift
 
 Leave nothing implicit:
 
 - Atomic commits (`CLAUDE.md` rules). Push to `origin/main` once the full suite is green.
 - Update `docs/dogfood/STATE.md`: active work, what you did, evidence, what you rejected
   and why, new questions. Prune what is no longer true — it is a working note, not a log.
+  Keep a **Last step-back** line (date and verdict) and any named root cause still
+  unaddressed; those two survive pruning, because nothing else remembers them.
 - Clean `git status`. No stray worktrees, no half-answered dialogs.
 - If you are ending the loop (nothing to do three ticks running, or a decision only the
   user can make), say so plainly and stop.
