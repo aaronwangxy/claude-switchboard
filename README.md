@@ -1,9 +1,9 @@
 # Switchboard
 
-I already get a lot done by running many independent Claude Code sessions at once.
-Switchboard automates *my* side of that — choosing the workflow, feeding one session's
-output to the next, noticing which one needs me — without taking away my ability to drop
-into any session myself.
+Running many independent Claude Code sessions at once means doing a lot of the coordination
+by hand. Switchboard automates that side of it — choosing the workflow, feeding one
+session's output to the next, noticing which one needs you — without taking away your
+ability to drop into any session yourself.
 
 You give one Manager a request. It decides what sessions to run, hands each one's output to
 the next, and tells you — from stored evidence, not from an opinion — when the work is
@@ -12,10 +12,10 @@ actually done. Every worker stays an ordinary Claude session you can walk into.
 ```
 +------------------------------+----------------------------------------+
 | Manager status + goal input  | Selected session                       |
-|                              |   workflow / lifecycle / ownership      |
-+------------------------------+   worktree / lineage / run step         |
-| Sessions + attention queue   |   evidence ✓ ✓                          |
-|  ! needs you  ● working  ✓   |   Enter → the exact native Claude       |
+|                              |   workflow / lifecycle / ownership     |
++------------------------------+   worktree / lineage / run step        |
+| Sessions + attention queue   |   evidence ✓ ✓                         |
+|  ! needs you  ● working  ✓   |   Enter → the exact native Claude      |
 +------------------------------+----------------------------------------+
 ```
 
