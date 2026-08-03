@@ -468,6 +468,50 @@ async def test_human_entry_taints_active_managed_turn_and_notification_blocks(
     await wait_for(lambda: manager.store.get_worker(worker.id).status is WorkerStatus.BLOCKED)
 
 
+async def _blocked_on_one_native_prompt(manager, git_repo, name: str):
+    """A worker stopped at a real permission prompt, both of its hooks delivered."""
+    repo = manager.register_repository(git_repo(name))
+    worker = await manager.create_worker(
+        role=WorkerRole.GENERAL,
+        title="native",
+        prompt="PERMISSION_SEQUENCE",
+        repository_id=repo.id,
+    )
+    runtime = manager.store.current_runtime(worker.id)
+    await wait_for(lambda: manager.store.get_worker(worker.id).status is WorkerStatus.BLOCKED)
+    trailing = await wait_for(
+        lambda: next(
+            (
+                event
+                for event in manager.store.runtime_hook_events(runtime.id)
+                if event.event_name == "Notification"
+            ),
+            None,
+        )
+    )
+    await wait_for(lambda: manager.store.worker_hook_delivered(trailing.id))
+    return worker, runtime
+
+
+async def test_one_native_permission_prompt_raises_one_attention_item(
+    native_services, git_repo
+):
+    """Claude Code describes one prompt twice, and the board must not count it twice.
+
+    A PermissionRequest is followed about six seconds later by a Notification restating
+    the same unanswered prompt. The second carries no tool name, so the board read
+    "Permission required for Bash." and then "Permission required for tool.", and every
+    count on it doubled.
+    """
+    manager, _, _ = native_services
+    worker, _ = await _blocked_on_one_native_prompt(manager, git_repo, "native-permission")
+
+    assert [item.reason for item in manager.store.attention_items_for_worker(worker.id)] == [
+        "Permission required for Bash."
+    ]
+    assert manager.store.get_worker(worker.id).waiting_for == "Permission required for Bash."
+
+
 async def test_stop_failure_never_harvests_or_becomes_blocked(native_services, git_repo):
     manager, _, _ = native_services
     repo = manager.register_repository(git_repo("native-failure"))

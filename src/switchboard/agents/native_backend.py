@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import shutil
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from uuid import UUID
@@ -31,6 +31,11 @@ from switchboard.storage.store import Store
 
 BLOCKED_MARKERS = ("[NEEDS INPUT]", "[NEEDS DECISION]")
 MAX_UNIX_SOCKET_PATH_BYTES = 96
+# What has to happen for an outstanding permission prompt to be over. PreToolUse is
+# absent deliberately: Claude Code fires it just *before* the prompt for that same tool.
+PROMPT_RESOLVING_EVENTS = frozenset(
+    {"PostToolUse", "PostToolUseFailure", "Stop", "StopFailure", "UserPromptSubmit", "SessionStart"}
+)
 
 
 def default_tmux_socket_path(state_dir: Path) -> Path:
@@ -359,14 +364,9 @@ class NativeClaudeBackend:
         if hook.event_name == "PreToolUse" and managed:
             data["input"] = payload.get("tool_input", {})
             return WorkerEvent(worker_id, "tool", str(payload.get("tool_name") or "tool"), data)
-        if (
-            hook.event_name == "PermissionRequest"
-            or (
-                hook.event_name == "Notification"
-                and payload.get("notification_type")
-                in ("permission_prompt", "elicitation_dialog")
-            )
-        ) and managed:
+        if _is_permission_hook(hook) and managed:
+            if restates_an_open_prompt(self.store.runtime_hook_events(hook.runtime_id), hook):
+                return None
             return WorkerEvent(
                 worker_id,
                 "permission",
@@ -421,6 +421,35 @@ class NativeClaudeBackend:
             RuntimeProcessState.WAITING,
         ):
             self.runtime.acknowledge(runtime_id, turns[-1].id)
+
+
+def restates_an_open_prompt(
+    events: Sequence[RuntimeHookEvent], hook: RuntimeHookEvent
+) -> bool:
+    """Whether this hook describes a prompt the user is already being asked about.
+
+    Claude Code follows a `PermissionRequest` with a `Notification` about the same
+    unanswered prompt seconds later, and that Notification carries no tool name: two
+    events, one thing to answer. Only the Notification is ever a restatement. A
+    `PermissionRequest` is always a distinct prompt -- a user who refuses one can be
+    asked for a different tool straight away, with no tool run in between.
+    """
+    if hook.event_name != "Notification":
+        return False
+    index = next((i for i, event in enumerate(events) if event.id == hook.id), len(events))
+    for earlier in reversed(events[:index]):
+        if earlier.event_name in PROMPT_RESOLVING_EVENTS:
+            return False
+        if earlier.event_name == "PermissionRequest":
+            return True
+    return False
+
+
+def _is_permission_hook(hook: RuntimeHookEvent) -> bool:
+    return hook.event_name == "PermissionRequest" or (
+        hook.event_name == "Notification"
+        and hook.payload.get("notification_type") in ("permission_prompt", "elicitation_dialog")
+    )
 
 
 def _looks_blocked(text: str) -> bool:

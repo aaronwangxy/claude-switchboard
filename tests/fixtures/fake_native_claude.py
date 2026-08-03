@@ -40,6 +40,12 @@ def emit(command: list[str], session_id: str, name: str, **payload) -> None:
     subprocess.run(command, input=json.dumps(body), text=True, check=True)
 
 
+def wait_for_pane_answer() -> None:
+    """A person answers the native prompt in the pane. Nothing tells Switchboard."""
+    while b"1" not in os.read(sys.stdin.fileno(), 4096):
+        continue
+
+
 def record(payload: dict) -> None:
     path = os.environ.get("FAKE_NATIVE_LOG")
     if path:
@@ -111,7 +117,33 @@ def main() -> int:
             prompt_id = str(uuid4())
             record({"event": "prompt", "pid": os.getpid(), "text": prompt})
             emit(command, session_id, "UserPromptSubmit", prompt_id=prompt_id, prompt=prompt)
-            if "NOTIFICATION_PERMISSION" in prompt:
+            if "PERMISSION_SEQUENCE" in prompt:
+                # The order real Claude Code produces around one prompt: the tool's own
+                # PreToolUse, the prompt, a Notification restating the same unanswered
+                # prompt seconds later without a tool name, and -- once a person answers
+                # in the pane -- the tool completing and the next one starting.
+                bash = {"tool_name": "Bash", "tool_input": {"command": "pytest -q"}}
+                emit(command, session_id, "PreToolUse", prompt_id=prompt_id, **bash)
+                emit(command, session_id, "PermissionRequest", prompt_id=prompt_id, **bash)
+                emit(
+                    command,
+                    session_id,
+                    "Notification",
+                    prompt_id=prompt_id,
+                    notification_type="permission_prompt",
+                    message="Permission needed",
+                )
+                wait_for_pane_answer()
+                emit(command, session_id, "PostToolUse", prompt_id=prompt_id, **bash)
+                emit(
+                    command,
+                    session_id,
+                    "PreToolUse",
+                    prompt_id=prompt_id,
+                    tool_name="Read",
+                    tool_input={"file_path": "README.md"},
+                )
+            elif "NOTIFICATION_PERMISSION" in prompt:
                 emit(
                     command,
                     session_id,
