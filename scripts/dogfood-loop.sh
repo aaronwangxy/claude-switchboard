@@ -45,6 +45,10 @@ cleanup() {
         wait "$CHILD_PID" 2>/dev/null
     fi
 
+    # The supervisor outlives the shift, so this is the teardown that still happens when a
+    # shift is killed rather than closing itself out.
+    ./scripts/shift-sweep.sh --clean || true
+
     rmdir "$LOCK_DIR" 2>/dev/null || true
 }
 
@@ -56,6 +60,10 @@ while true; do
     echo "Starting fresh Switchboard dogfood shift: $(date)"
     echo "============================================================"
 
+    # What the previous shift left behind, in front of the shift that has to adopt it.
+    # Reported, never blocking: resolving it is the first thing the shift is asked to do.
+    ./scripts/shift-sweep.sh || true
+
     claude -p \
         --no-session-persistence \
         --permission-mode auto \
@@ -65,6 +73,10 @@ while true; do
     wait "$CHILD_PID"
     STATUS=$?
     CHILD_PID=""
+
+    # Whatever the shift's exit code, its own tmux sessions and throwaway runtimes go now.
+    # A crashed shift never reached its closeout; this is what makes that survivable.
+    ./scripts/shift-sweep.sh --clean || true
 
     if [[ "$STATUS" -eq 0 ]]; then
         echo
