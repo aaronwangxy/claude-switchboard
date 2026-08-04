@@ -155,7 +155,10 @@ fi
 # --------------------------------------------------------------------------------------
 section "Worktrees"
 
-git worktree list --porcelain 2>/dev/null | grep '^worktree ' | sed 's/^worktree //' | while read -r wt; do
+# Process substitution, not a pipe: a piped `while` runs in a subshell, so every
+# `needs_human` here would be counted in a process that exits before the total is read,
+# and a worktree problem could never fail the sweep.
+while read -r wt; do
     [[ "$wt" == "$ROOT" ]] && continue
     if [[ ! -d "$wt" ]]; then
         needs_human "worktree registered but missing: $wt (run: git worktree prune)"
@@ -164,7 +167,7 @@ git worktree list --porcelain 2>/dev/null | grep '^worktree ' | sed 's/^worktree
     else
         note "clean: $wt"
     fi
-done
+done < <(git worktree list --porcelain 2>/dev/null | grep '^worktree ' | sed 's/^worktree //')
 
 # --------------------------------------------------------------------------------------
 section "Handover"
