@@ -9,28 +9,24 @@ Last shift: 2026-08-03 (midday).
 
 ## Active work
 
-**None. Nothing is running.** Every tmux server is gone — no default-socket board, no
-`/private/tmp/switchboard-tmux-*.sock`. Five orphan native `claude` processes survive with
-no session to belong to.
+**None. Nothing is running, and the sweep is clean.** No tmux server on either socket, no
+orphan native `claude` processes, no registered worktree but this one. The personal
+`SB_HOME` database holds no jobs, workers, runs or unhandled attention items — the dead
+attempt earlier notes described is gone from it. One `runtime_instances` row survives for a
+manager generation whose process was killed; `start_or_recover` observes it dead and opens
+the next generation, so the board needs nothing done to it first.
 
-The scratchpad experiment that three shifts carried is over: its board died with its tmux
-server, so `complete-ticket` step 2/8 cannot be resumed. Its commit is safe — branch
-`sb/board-keyboard-shortcut-to-open--95fa5788` at `7272ce4` is a ref in this repository —
-but its **uncommitted** work is not:
+The scratchpad experiment that three shifts carried is **closed, not finished.** Its
+uncommitted work was rescued off the `/private/tmp` worktree before macOS could reap it and
+is now `35afd58` on `sb/board-keyboard-shortcut-to-open--95fa5788`, above the earlier
+`7272ce4`. The worktree itself is removed; the branch is the whole record.
 
-```
-/private/tmp/claude-501/-Users-aaron-dev-claude-switchboard/726099bb-.../scratchpad/home/
-  worktrees/claude-switchboard/board-keyboard-shortcut-to-open--implementer-95fa5788
-  M src/switchboard/core/session_manager.py
-  ?? tests/integration/test_scratchpad.py
-```
+That branch is unlanded, unreviewed, and forked from an old `main` — the suite has never run
+against it. A shift picking it up owns rebasing and verifying it, and is equally free to
+decide the feature is not wanted and delete the branch. It is nobody's active work.
 
-Under `/private/tmp`, so macOS will reap it. Rescue it or let it go, deliberately; a
-worktree with uncommitted work is not something a shift removes.
-
-The real `SB_HOME` still holds the older dead attempt: one disconnected planner, one idle
-planner, `complete-ticket` paused at step 0, one unhandled attention item. Retire it from
-the board when convenient.
+Both of these were resolved outside a shift, in a maintenance session, along with
+`6b5f920`.
 
 ## Landed this shift
 
