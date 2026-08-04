@@ -1,14 +1,18 @@
 """The command surface.
 
-Only three commands exist, and two of them answer a question without starting the
-application -- which is the only reason they earn their place.
+Only four commands exist: two answer a question without starting the application, and
+one stops it when its own UI cannot -- which is the only reason they earn their place.
 """
 
 from __future__ import annotations
 
+import subprocess
+import time
+from contextlib import contextmanager
+
 import pytest
 
-from switchboard.app import main, parse_args
+from switchboard.app import board_processes, main, parse_args, runtime_processes
 
 
 class TestArguments:
@@ -68,3 +72,62 @@ class TestConfigCommand:
         main(["config"])
         printed = capsys.readouterr().out
         assert '"default_composite_workflow": "complete-ticket"' in printed
+
+
+class TestKillCommand:
+    def test_an_idle_home_has_nothing_to_stop(self, sb_home, capsys):
+        assert main(["kill", "-y"]) == 0
+        assert "Nothing to stop." in capsys.readouterr().out
+
+    def test_it_reports_which_home_it_is_acting_on(self, sb_home, capsys):
+        """Everything it stops is scoped to one data directory, so that has to be visible."""
+        main(["kill", "-y"])
+        assert str(sb_home) in capsys.readouterr().out
+
+    def test_declining_stops_nothing(self, sb_home, monkeypatch, capsys):
+        monkeypatch.setattr("builtins.input", lambda *_: "n")
+        monkeypatch.setattr("switchboard.app.board_processes", lambda: [(1, "a board")])
+        assert main(["kill"]) == 1
+        assert "Left alone." in capsys.readouterr().out
+
+    def test_it_finds_this_home_s_runtimes_and_leaves_another_home_s_alone(
+        self, sb_home, tmp_path
+    ):
+        """The one mistake this command must never make: two homes look alike in `ps`."""
+        ours = _settings_file(sb_home)
+        theirs = _settings_file(tmp_path / "elsewhere")
+        with _holding(ours) as mine, _holding(theirs) as stranger:
+            running = [pid for pid, _ in runtime_processes()]
+            assert mine.pid in running
+            assert stranger.pid not in running
+
+    def test_only_this_home_s_database_identifies_a_board(self, sb_home, tmp_path):
+        other = tmp_path / "elsewhere"
+        other.mkdir()
+        for database in (sb_home / "switchboard.db", other / "switchboard.db"):
+            database.touch()
+        with _holding(sb_home / "switchboard.db") as mine, _holding(
+            other / "switchboard.db"
+        ) as stranger:
+            holding = [pid for pid, _ in board_processes()]
+            assert mine.pid in holding
+            assert stranger.pid not in holding
+
+
+def _settings_file(home):
+    path = home / "runtime" / "hooks" / "native-x.settings.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{}")
+    return path
+
+
+@contextmanager
+def _holding(path):
+    """A process that both names `path` in its command line and holds it open."""
+    process = subprocess.Popen(["tail", "-f", str(path)], stdout=subprocess.DEVNULL)
+    try:
+        time.sleep(0.3)
+        yield process
+    finally:
+        process.terminate()
+        process.wait()

@@ -95,7 +95,7 @@ Switchboard
 | `routing/` | Attention-queue ordering, plus the deterministic router used by the offline manager |
 | `core/` | `SessionManager`, the composite-run conditions, Git lineage, the evidence gate, guarded transitions |
 | `ui/` | The session list, orchestration detail, and Manager input — presentation only |
-| `app.py` | Bootstrap and the `sb` / `sb workflows` / `sb config` command surface |
+| `app.py` | Bootstrap and the `sb` / `sb workflows` / `sb config` / `sb kill` command surface |
 
 Where a behaviour belongs:
 

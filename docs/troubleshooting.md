@@ -50,20 +50,35 @@ Check the selected job's detail pane for `active run … awaiting_approval`. The
 describes an approval-gated run as an "idle incomplete job", which is imprecise wording; the
 attention queue itself is correct.
 
-## Orphaned runtimes
+## Stopping everything
 
 Quitting the board deliberately leaves native runtimes alive so the next controller can adopt
-them. That is the right default, but **nothing reclaims them and `sb` offers no way to list
-or stop them**. A machine used for several experiments accumulates tmux servers and native
-Claude processes.
-
-Until there is a first-class command, by hand:
+them. When you want the opposite — the board, the manager, and every worker gone — `sb kill`
+stops all three:
 
 ```bash
-ls ~/.local/share/switchboard/runtime/tmux.sock       # the default socket
-tmux -S <socket> list-sessions
-tmux -S <socket> kill-server                          # stops every runtime on it
+sb kill        # prints what it found, then asks
+sb kill -y     # no confirmation
 ```
+
+It reads no orchestration state and writes none, so it still works when the board is wedged
+enough that its own UI cannot quit, and it touches no worktree, branch, or database row.
+
+It is not a restart. Quitting the board leaves runtimes alive so the next board adopts the
+same live sessions; a killed runtime cannot be adopted, so the next `sb` reconstructs it as a
+*fresh* native session from durable state. The job, its artifacts and its transcript survive —
+the conversation each worker was holding does not, and a composite run whose step was in
+flight is paused for reconciliation rather than resent. Prefer quitting the board; kill when
+you want the processes gone.
+
+Everything it stops is scoped to one data directory, which it prints. A board started under a
+different `SB_HOME` is out of reach — boards are identified by which database they hold open
+and runtimes by the `--settings` path they were launched with, because two homes are otherwise
+indistinguishable in `ps`. Run it once per `SB_HOME` you have used.
+
+Killing the tmux server alone is not equivalent. A native Claude process survives losing its
+pane, so a bare `tmux kill-server` leaves the runtimes running; `sb kill` signals them by name
+afterwards.
 
 Isolated experiments under `SB_HOME` each get their own socket, and long `SB_HOME` paths get
 one under `/private/tmp/switchboard-tmux-<digest>.sock` because macOS limits Unix socket path

@@ -104,6 +104,7 @@ sb                                                             # launch (or: sb 
 sb workflows                                                   # what routing can reach
 sb workflows validate                                          # check them before relying on one
 sb config                                                      # effective config and paths
+sb kill                                                        # stop the board, manager and every worker
 sb --log-file /tmp/switchboard.log                             # logs (otherwise discarded)
 SB_BACKEND=scripted sb                                         # offline: no model calls
 

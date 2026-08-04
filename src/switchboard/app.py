@@ -11,7 +11,12 @@ import argparse
 import json
 import logging
 import os
+import shutil
+import signal
+import subprocess
+import time
 from collections.abc import Sequence
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -166,6 +171,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="'validate' checks every workflow for authoring mistakes and exits non-zero.",
     )
     commands.add_parser("config", help="Print the effective configuration and its paths.")
+    kill = commands.add_parser(
+        "kill", help="Stop the board and every native session it launched."
+    )
+    kill.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="Do not ask for confirmation.",
+    )
     return parser.parse_args(argv)
 
 
@@ -225,6 +239,139 @@ def show_config() -> int:
     return 0
 
 
+def board_processes() -> list[tuple[int, str]]:
+    """Processes holding *this* data directory's database open.
+
+    Scoped by the database rather than by process name on purpose: a board running under
+    a throwaway `SB_HOME` and your own board are indistinguishable in `ps`, and stopping
+    the wrong one is the mistake this command must not make.
+    """
+    lsof = shutil.which("lsof")
+    database = database_path()
+    if lsof is None or not database.exists():
+        return []
+    result = subprocess.run(
+        [lsof, "-t", "--", str(database)], capture_output=True, text=True, check=False
+    )
+    asking = {os.getpid(), os.getppid()}
+    found: list[tuple[int, str]] = []
+    for pid_text in result.stdout.split():
+        if not pid_text.isdigit() or int(pid_text) in asking:
+            continue
+        pid = int(pid_text)
+        described = subprocess.run(
+            ["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True, check=False
+        )
+        found.append((pid, " ".join(described.stdout.split()) or "?"))
+    return found
+
+
+def runtime_processes() -> list[tuple[int, str]]:
+    """Native Claude processes launched by *this* data directory.
+
+    Killing the tmux server is not enough: a pane's Claude survives losing its terminal,
+    so it has to be signalled by name. Every runtime is launched with a `--settings` file
+    under this home's hooks directory, which is what makes it identifiably ours.
+    """
+    marker = str(home_dir() / "runtime" / "hooks")
+    result = subprocess.run(
+        ["ps", "-eo", "pid=,command="], capture_output=True, text=True, check=False
+    )
+    found: list[tuple[int, str]] = []
+    for line in result.stdout.splitlines():
+        pid_text, _, command = line.strip().partition(" ")
+        if not pid_text.isdigit() or marker not in command:
+            continue
+        found.append((int(pid_text), " ".join(command.split()[:2])))
+    return found
+
+
+def _stop(processes: Sequence[tuple[int, str]], label: str) -> None:
+    """Ask each process to exit, then insist."""
+    for pid, command in processes:
+        with suppress(OSError):
+            os.kill(pid, signal.SIGTERM)
+            print(f"stopping {label} {pid} ({command})")
+    for _ in range(30):
+        if not any(_alive(pid) for pid, _ in processes):
+            return
+        time.sleep(0.1)
+    for pid, _ in processes:
+        if _alive(pid):
+            with suppress(OSError):
+                os.kill(pid, signal.SIGKILL)
+                print(f"killed {label} {pid}")
+
+
+def kill_everything(*, assume_yes: bool) -> int:
+    """Stop the board and tear down the tmux server holding the manager and workers.
+
+    The escape hatch for a board that cannot be quit from its own UI. It reads no
+    orchestration state and writes none, so it still works when nothing else does.
+    Worktrees, branches and the database are untouched.
+
+    It is not a restart, though: a killed runtime is reconstructed as a *fresh* native
+    session, so each worker loses the conversation it was holding, and a composite run
+    whose step was mid-flight is paused for reconciliation rather than resent. Quitting
+    the board leaves the sessions alive precisely to avoid that; this is for when you
+    want them gone.
+
+    Anything launched under a different `SB_HOME` belongs to a different data directory
+    and is deliberately out of reach -- hence printing the socket this is acting on.
+    """
+    from switchboard.agents.native_backend import default_tmux_socket_path
+
+    socket = default_tmux_socket_path(home_dir() / "runtime")
+    tmux = shutil.which("tmux")
+    sessions: list[str] = []
+    if tmux and socket.exists():
+        listed = subprocess.run(
+            [tmux, "-S", str(socket), "list-sessions", "-F", "#{session_name}"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        sessions = [name for name in listed.stdout.split() if name]
+    boards = board_processes()
+    runtimes = runtime_processes()
+
+    print(f"data directory   {home_dir()}")
+    print(f"tmux socket      {socket}")
+    print(f"board processes  {len(boards)}")
+    print(f"native sessions  {len(sessions)}")
+    print(f"claude processes {len(runtimes)}")
+    if not boards and not sessions and not runtimes:
+        print("\nNothing to stop.")
+        return 0
+    if not assume_yes:
+        answer = input("\nStop all of it? [y/N] ").strip().lower()
+        if answer not in ("y", "yes"):
+            print("Left alone.")
+            return 1
+
+    # The board first: it is what would notice the sessions disappearing and recreate
+    # them. Then the tmux server, and then the Claude processes that outlive their panes.
+    _stop(boards, "board")
+    if sessions and tmux:
+        subprocess.run(
+            [tmux, "-S", str(socket), "kill-server"], capture_output=True, check=False
+        )
+        print(f"killed {len(sessions)} native session(s)")
+    _stop(runtime_processes(), "claude")
+    print("\nDone. Run `sb` to bring the workers back.")
+    return 0
+
+
+def _alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     if args.log_file:
@@ -235,6 +382,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return validate_workflows() if args.action == "validate" else list_workflows()
     if args.command == "config":
         return show_config()
+    if args.command == "kill":
+        return kill_everything(assume_yes=args.yes)
     services = build_services()
     app = build_app(register=args.register, services=services)
     try:
